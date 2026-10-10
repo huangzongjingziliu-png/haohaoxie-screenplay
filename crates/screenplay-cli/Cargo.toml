@@ -1,0 +1,27 @@
+[package]
+name = "screenplay-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "screenplay CLI: scenes, search, export, version, block, mcp, agent"
+
+[[bin]]
+name = "screenplay"
+path = "src/main.rs"
+
+[dependencies]
+screenplay-core = { path = "../screenplay-core" }
+screenplay-store = { path = "../screenplay-store" }
+screenplay-import = { path = "../screenplay-import" }
+screenplay-export = { path = "../screenplay-export" }
+screenplay-agent = { path = "../screenplay-agent" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+assert_cmd = "2"
+predicates = "3"

@@ -1,0 +1,14 @@
+[package]
+name = "screenplay-testtool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "测试辅助工具（崩溃恢复验证用），不参与发布"
+
+[[bin]]
+name = "crash_writer"
+path = "src/main.rs"
+
+[dependencies]
+screenplay-desktop = { path = "../../src-tauri" }
+screenplay-store = { path = "../screenplay-store" }

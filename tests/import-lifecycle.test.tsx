@@ -1,0 +1,35 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import App from '@/App';
+import { useEditorStore } from '@/stores/editor';
+import { mockBackend } from './setup';
+const events = vi.hoisted(() => ({ progress: undefined as undefined | ((event: {payload: unknown}) => void) }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, cb: (event: {payload: unknown}) => void) => { if (name === 'import-progress') events.progress = cb; return () => {}; } }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({open: async () => '/tmp/long.pdf', confirm: async () => false, save: async () => null}));
+vi.mock('@/hooks/useAutoSave', () => ({useAutoSave: () => {}}));
+vi.mock('@/components/Toolbar', () => ({default: ({onImport}: {onImport: () => void}) => <button onClick={onImport}>导入</button>}));
+vi.mock('@/components/Navigator', () => ({default: () => null}));
+vi.mock('@/components/StatusBar', () => ({default: () => null}));
+vi.mock('@/components/RecoveryPrompt', () => ({default: () => null}));
+vi.mock('@/components/AgentContextMenu', () => ({default: () => null}));
+vi.mock('@/editors/source/SourceEditor', () => ({default: () => null}));
+vi.mock('@/editors/screenplay/ScreenplayEditor', () => ({default: () => null}));
+afterEach(cleanup);
+it('从欢迎页新建导入项目后，保留任务状态及取消入口', async () => {
+  mockBackend.reset();
+  mockBackend.on('take_file_open_requests', () => []);
+  mockBackend.on('list_recent', () => []);
+  mockBackend.on('import_file', () => new Promise(() => {}));
+  useEditorStore.setState({project: {state:'empty',title:'',path:null,revision:0,dirty:false,blockCount:0}, toasts: [], bootstrap: async () => {}, newProject: async (title: string) => {
+    useEditorStore.setState({project:{state:'open',title,path:null,revision:0,dirty:true,blockCount:0}});
+  }});
+  render(<App />);
+  fireEvent.click(screen.getByRole('button',{name:'导入'}));
+  fireEvent.click(screen.getByRole('button',{name:'PDF（含扫描件 OCR）'}));
+  await waitFor(() => expect(mockBackend.callsTo('import_file')).toHaveLength(1));
+  expect(screen.getByRole('dialog',{name:'Agent工作状态'})).toBeTruthy();
+  const requestId = mockBackend.callsTo('import_file')[0].args!.requestId;
+  act(() => events.progress?.({payload:{requestId,stage:'agent',completed:3,total:40}}));
+  expect(screen.getByText('3 / 40 段')).toBeTruthy();
+  expect(screen.getByRole('button',{name:'取消导入'})).toBeTruthy();
+});

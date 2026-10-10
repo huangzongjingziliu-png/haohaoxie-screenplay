@@ -1,0 +1,24 @@
+[package]
+name = "screenplay-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MCP server exposing the screenplay workbench over stdio"
+
+[[bin]]
+name = "screenplay-mcp"
+path = "src/main.rs"
+
+[dependencies]
+screenplay-core = { path = "../screenplay-core" }
+screenplay-store = { path = "../screenplay-store" }
+screenplay-agent = { path = "../screenplay-agent" }
+screenplay-export = { path = "../screenplay-export" }
+screenplay-import = { path = "../screenplay-import" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rmcp.workspace = true

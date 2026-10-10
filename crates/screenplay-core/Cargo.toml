@@ -1,0 +1,21 @@
+[package]
+name = "screenplay-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Screenplay AST, parser, serializer, pagination, diff"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+regex.workspace = true
+similar.workspace = true
+
+# TS 类型生成：Rust AST → TypeScript，消除前后端模型漂移
+ts-rs = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = "1"

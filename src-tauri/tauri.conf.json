@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "好好写剧本",
+  "version": "0.1.25",
+  "identifier": "com.screenplay.studio",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build:desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "好好写剧本 · Screenplay Studio",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/ocr_sidecar",
+      "resources/pdf_sidecar",
+      "resources/agent/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "screenplay"
+        ],
+        "name": "好好写剧本剧本工程",
+        "description": "好好写剧本剧本工程文件",
+        "role": "Editor",
+        "mimeType": "application/x-screenplay"
+      }
+    ]
+  }
+}

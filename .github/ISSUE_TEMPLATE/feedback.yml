@@ -1,0 +1,17 @@
+name: Writing feedback / 写作体验反馈
+description: Help us understand real use / 告诉我们真实使用体验
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What did you use it for? / 用它完成了什么工作？
+      description: Do not include private screenplay content / 请勿附私人稿件
+  - type: textarea
+    id: friction
+    attributes:
+      label: What helped or got in the way? / 哪些有用、哪些不方便？
+  - type: textarea
+    id: value
+    attributes:
+      label: Would you pay for a maintained official version or support, and why? / 是否愿意为官方维护版或支持服务付费，为什么？
+      description: Optional. This is research, not an order or payment commitment. / 可选，仅调研，不是订单或付款承诺。

@@ -1,0 +1,24 @@
+name: Bug report / 问题反馈
+description: Report a reproducible problem / 反馈可复现问题
+body:
+  - type: markdown
+    attributes:
+      value: "Please use a made-up sample. Never include API keys, private scripts or personal paths. 请用自制样例，不要附密钥或私人稿件。"
+  - type: input
+    id: version
+    attributes:
+      label: App and macOS versions / 软件与系统版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result / 预期与实际表现
+    validations:
+      required: true

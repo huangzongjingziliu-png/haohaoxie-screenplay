@@ -1,0 +1,8 @@
+import {tr} from '@/i18n';
+import {useEffect,useState,useRef} from 'react';
+import {createPortal} from 'react-dom';
+export default function AgentWorkStatus({label,completed,total,unit=tr("段"),onCancel,cancelling=false,cancelLabel=tr("取消导入")}:{label:string;completed?:number;total?:number;unit?:string;onCancel?:()=>void;cancelling?:boolean;cancelLabel?:string}){
+ const dialog=useRef<HTMLElement>(null);useEffect(()=>{const previous=document.activeElement as HTMLElement|null;dialog.current?.focus();return()=>previous?.focus();},[]);
+ const [seconds,setSeconds]=useState(0);useEffect(()=>{const started=Date.now();const timer=window.setInterval(()=>setSeconds(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[]);
+ return createPortal(<div className="agent-work-backdrop"><section className="agent-work-dialog" ref={dialog} tabIndex={-1} onKeyDown={e=>{if(e.key==='Tab'){e.preventDefault();dialog.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();}}} role="dialog" aria-modal="true" aria-label={tr("Agent工作状态")}><div className="agent-work-spinner"/><h2>{tr("编剧助理正在工作")}</h2><p role="status" aria-live="polite">{tr(label)}</p>{!!total&&<><progress value={completed??0} max={total}/><p><span>{completed??0} / {total} {unit}</span>{tr(" 已完成")}</p></>}<p className="agent-work-time">{tr("已用时 ")}{seconds}{tr(" 秒")}</p><p className="modal-hint">{total?tr("完成的分段会逐段更新。等待模型返回时，进度暂时不变。"):tr("正在等待处理结果，耗时会持续更新。")}{tr("全部完成后才会提交结果。")}</p>{onCancel&&<button disabled={cancelling} onClick={onCancel}>{cancelling?tr("正在停止…"):cancelLabel}</button>}</section></div>,document.body);
+}

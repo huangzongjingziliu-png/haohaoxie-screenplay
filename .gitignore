@@ -1,0 +1,36 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules
+/dist
+*.local
+
+# Tauri
+/src-tauri/target
+/src-tauri/gen
+
+# QA 临时产物
+/qa/evidence/**/*.tmp
+/qa/evidence/**/*.pdf
+/qa/evidence/**/*.png
+*.screenplay
+
+# 编译出的 sidecar 二进制（由 swiftc 生成，见 TOOLCHAIN.md）
+crates/screenplay-import/swift/ocr_sidecar
+crates/screenplay-export/swift/pdf_sidecar
+src-tauri/resources/ocr_sidecar
+src-tauri/resources/pdf_sidecar
+crates/screenplay-import/swift/ocr_sample*.png
+
+# QA 编译出的二进制
+qa/bin/
+
+# macOS
+.DS_Store
+
+# Python QA cache
+__pycache__/
+
+/src-tauri/resources/agent/
