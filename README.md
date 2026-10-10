@@ -37,6 +37,7 @@ npm ci
 bash scripts/build_sidecars.sh
 node scripts/prepare-agent-tools.mjs
 npm test
+cargo build --locked -p screenplay-testtool
 cargo test --workspace --locked
 npm run tauri:build
 ```
