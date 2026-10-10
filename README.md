@@ -35,6 +35,7 @@ On an Apple Silicon Mac, install Node.js 22+, a recent Rust stable toolchain and
 source scripts/env.sh
 npm ci
 bash scripts/build_sidecars.sh
+node scripts/prepare-agent-tools.mjs
 npm test
 cargo test --workspace --locked
 npm run tauri:build
