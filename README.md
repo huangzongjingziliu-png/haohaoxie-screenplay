@@ -2,34 +2,66 @@
 
 **A professional screenwriting workspace for the AI era.**
 
-A scene is taking shape. Now is a terrible time to argue with indentation—or ferry half a screenplay into a chat window.
+Writing a scene means juggling dialogue, paragraph types and indentation. Revising with AI often means copying text into a chat, then bringing the results back. Rearranging a long script adds another round of scrolling and cutting.
 
-Write Your Script brings free writing, screenplay layout, scene planning and AI assistance into one project. Formatting gets a home. Revisions get a preview. The story stays yours.
+Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
 **Public beta 0.1.35 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
 [Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
-![Welcome screen and recent projects in Write Your Script](docs/public/images/welcome.png)
+## Get the scene down. See the formatted page.
 
-## Less shuttling. More writing.
+Free text and screenplay views share the same content. Edit either side and the other updates. Scrolling and paragraph highlights stay matched, so finding your place takes less effort.
 
-- **Write freely, see screenplay layout.** Free text and screenplay views share edits, corresponding scrolling and paragraph highlights. Keep either view, swap sides, or adjust source text size independently. Start with the story, then correct ambiguous paragraph classifications.
-- **Bring your usual agent.** The installer bundles CLI and MCP tools for local, tool-capable clients such as Codex, WorkBuddy and TRAE. Once configured, they can read scenes, revise dialogue and work on structure. Pasting configuration into a chat is not a connection; the app includes setup guidance.
-- **Keep the writing assistant in the project.** Choose and switch models, use writing skills, transcribe attachments and preview selected revisions before applying them. A model can draft a new skill; you review it before installation.
-- **Lay out the story, move it together.** Board cards, the scene navigator and screenplay share scene order. Reorder, group, comment, connect and zoom. Double-click to edit titles and summaries in place; titles update the screenplay. Write summaries yourself or generate them with a model—manual summaries are protected from automatic replacement.
-- **Let the project carry its memory.** With a usable model configured, automatic project memory organizes story facts, decisions, suggestions and unresolved conflicts. Author-locked notes stay under your control. Restore up to 20 previous automatic versions. Memory travels in `.screenplay` files and can be excluded from shared copies. Personalization is user-written, local and shared across your projects.
-- **Find your place faster.** Scene, location and outline highlights follow the caret. Characters and locations jump to their nearest occurrence or expand into a list of positions. Search, recent projects, a collapsible navigator and a writing area that accommodates the assistant help you return to the scene at hand.
+Start in free-writing mode if formatting is unfamiliar, or write directly on the screenplay page. Keep either view, swap sides, and adjust free-text size with a slider. Correct ambiguous character, action or dialogue classifications with the paragraph switcher.
 
-Not every feature here is unique. The point is how they work together: **you write, the app formats; you decide, AI assists.**
+![Free text and formatted screenplay with matching paragraph highlights](docs/public/images/split-writing.png)
 
-## Layout and files
+## One scene per card. See the whole story.
 
-Use screenplay or Chinese reading layouts, customize fonts, size, weight, color and italics by paragraph type, and save named style presets. Interface text size remains independent of page zoom.
+The board, scene navigator and screenplay share scene order. Move a card and its scene moves in the script.
 
-Save `.screenplay` projects with autosave, recovery and version history. Export PDF, Word, Fountain, FDX, plain text or HTML. Choose a save location for a new project, or try writing without saving first. Save to a file to create a portable project. Autosave is not a substitute for backups.
+Double-click to edit titles and summaries in place. Titles update the screenplay. Write summaries yourself or ask a model to generate them; automatic summaries preserve manual edits. Group cards, add comments and connections, change colors, or zoom out. A corner shortcut takes you back to that scene in the editor.
 
-Import text, Markdown, PDFs and images. PDF/image transcription requires a configured model and permission to use the relevant service. OCR and AI conversion can omit or misclassify content; check against the original.
+![Scene cards on the board share their order with the screenplay](docs/public/images/scene-board.png)
+
+## Ask for help with the passage you are editing
+
+The writing assistant sits beside your script. Select a passage or scene for polishing, dialogue revision or continuation, then preview the changes before applying them. Discuss characters and plot, or attach material for transcription.
+
+Use built-in writing skills, add your own, or have a model draft a skill for you to review and install. The assistant offers options. You choose what belongs in the script.
+
+![The writing assistant beside the screenplay, with skill and model selectors](docs/public/images/writing-assistant.png)
+
+## Choose your model. Keep your key saved.
+
+Save multiple custom model profiles and switch between them. Configure OpenAI, compatible endpoints or a local Ollama service. Keys stay in an encrypted local vault and are excluded from project files.
+
+Core editing needs no model. AI features use your configured provider, with its fees and limits. No shared key is supplied. Cloud requests send relevant screenplay text, memory and skill content to that provider. Ollama requires a separately installed and running local service.
+
+![Saved custom model profiles and the active model selection](docs/public/images/custom-models.png)
+
+## Bring the agent you already use
+
+The installer includes **CLI and MCP** tools. Once connected, local tool-capable clients such as Codex, WorkBuddy and TRAE can read scenes, revise dialogue and work on structure. Stay in your usual agent and apply its work to the screenplay project.
+
+The app includes setup guidance. Your client must support local tools or MCP and have the connection configured. Pasting configuration into an ordinary chat does not establish a connection. Using these tools does not require an additional Codex CLI installation.
+
+## Project memory travels with the script
+
+With a usable model configured, project memory can automatically organize story facts, creative decisions, suggestions and unresolved conflicts. Author-locked notes remain under your control, and up to 20 previous automatic versions can be restored. Memory is saved inside `.screenplay` projects and can be excluded from shared copies.
+
+Personalization holds preferences you write yourself. It stays on your Mac and applies across projects. Automatic memory can be disabled, and its results need your review.
+
+## The everyday tools are here too
+
+- Screenplay and Chinese reading layouts, with fonts, size, weight, color and italics by paragraph type, plus named style presets.
+- Autosave, recovery, version history, recent projects and a choice of save location. Try writing without saving first.
+- Search and scene, character, location and outline navigation. Highlights follow the caret; characters and locations can list all occurrences.
+- Import text, Markdown, PDFs and images. Export PDF, Word, Fountain, FDX, plain text and HTML.
+
+PDF/image transcription requires a configured model and permission to use its service. OCR and AI conversion can omit or misclassify content. Check the original, and keep backups alongside autosave.
 
 ## Get started
 
@@ -41,11 +73,7 @@ Core editing needs no model, Rust, Node.js or Codex CLI. External agents require
 
 This Apple Silicon beta has **no Developer ID signature or Apple notarization**. macOS may require approval in System Settings; do not disable security protections. Intel, Windows and Linux are not release-tested. This is not a Mac App Store build. Some backend messages and skill descriptions remain Chinese.
 
-## AI, with clear boundaries
-
-Bring your own provider; its fees and limits apply. No shared keys or unlimited-free-model promise. Cloud requests send relevant screenplay text, memory and skill content to your configured service. Local Ollama requires a separately installed and running model service.
-
-Review revisions and automatic memory. An assistant suggestion is not an author-confirmed decision. Project memory travels with the file; personal preferences do not. Read the [privacy notes](docs/public/PRIVACY.md).
+Read the [privacy notes](docs/public/PRIVACY.md) for details on data processing.
 
 ## Build from source
 
@@ -66,7 +94,7 @@ The build includes OCR/PDF helpers and CLI/MCP tools. Artifacts appear in `targe
 
 ## Help make it a daily tool
 
-Report bugs in [Issues](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/issues) with the app version, macOS version, steps and expected result. Use a small invented script—never private manuscripts or API keys.
+Report bugs in [Issues](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/issues) with the app version, macOS version, steps and expected result. Use a small invented script and keep private manuscripts and API keys out of reports.
 
 The beta is free. We want to learn whether it earns a place in everyday writing before exploring maintained distributions or paid support. Stars are nice; returning writers tell us more.
 
