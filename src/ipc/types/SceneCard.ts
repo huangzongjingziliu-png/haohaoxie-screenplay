@@ -3,4 +3,4 @@
 /**
  * Story board presentation lives in the project; scene headings remain the source of order.
  */
-export type SceneCard = { color: string, width: number, height: number, summary: string, summary_source: string, comments: Array<string>, };
+export type SceneCard = { color: string, width: number, height: number, summary: string, summary_source: string, summary_manual: boolean, comments: Array<string>, };

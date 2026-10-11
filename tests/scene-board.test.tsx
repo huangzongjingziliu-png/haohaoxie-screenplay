@@ -19,7 +19,7 @@ it('未开启模型时白板仅展示标题，没有请求；白板和导航拖�
   const {container,getByLabelText}=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
   await waitFor(()=>expect(getByLabelText('默认便签颜色色板')).toBeTruthy());
   expect(container.querySelectorAll('.scene-card')).toHaveLength(2);
-  expect(container.querySelector('.scene-summary')).toBeNull();
+  expect(container.querySelector('.scene-summary')?.textContent || null).toBeNull();
   expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
   const transfer={setData:vi.fn(),getData:()=> 'a',effectAllowed:''};
   fireEvent.dragStart(container.querySelector('[data-scene-id="a"] header')!,{dataTransfer:transfer});
@@ -43,7 +43,7 @@ it('便签改色保存到工程，不同工程的排队修改不会串写',async
 });
 
 it('开启后只概括未缓存场景，结果只保存到便签，不改正文',async()=>{
-  const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],summary:'缓存A',summary_source:'INT. A - DAY\nA动作'};
+  const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],summary_manual:false,summary:'缓存A',summary_source:'INT. A - DAY\nA动作'};
   useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
   mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));
   mockBackend.on('agent_summarize_scene',()=>({summary:'B概括',source:'EXT. B - NIGHT\nB对白',projectId:'board-qa'}));
@@ -169,4 +169,30 @@ it('框选两个便签显示成组和连线，不再显示逐便签复选框',as
  expect(view.getByRole('button',{name:'成组'})).toBeTruthy();
  fireEvent.click(view.getByRole('button',{name:'连线'}));
  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.links[0]).toMatchObject({from:'a',to:'b'}));
+});
+
+it('手写概括无需模型，保存在工程中并保持自动概括关闭',async()=>{
+ mockBackend.on('update_scene_board',args=>({document:{...doc() as object,revision:2,settings:{scene_board:args.board}},revision:2}));
+ const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+ fireEvent.doubleClick(view.getByLabelText('编辑场景 1 概括'));view.getByRole('textbox',{name:'编辑场景 1 概括'}).textContent='手写人物出场';fireEvent.input(view.getByRole('textbox',{name:'编辑场景 1 概括'}));fireEvent.pointerDown(view.container.querySelector('.board-canvas')!);
+ await waitFor(()=>expect(view.getByText('手写人物出场')).toBeTruthy());expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.summary_manual).toBe(true);expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
+});
+it('手写概括即使正文已变也不被自动重写',async()=>{
+ const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],summary:'我的概括',summary_source:'旧正文',summary_manual:true};board.cards.b={color:'',width:0,height:0,comments:[],summary:'已缓存',summary_source:'EXT. B - NIGHT\nB对白',summary_manual:false};
+ useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);await waitFor(()=>expect(screen.getByLabelText('自动概括场景')).toHaveProperty('disabled',false));await act(async()=>{await new Promise(resolve=>setTimeout(resolve,800));});expect(screen.getByText('我的概括')).toBeTruthy();expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
+});
+
+it('双击标题修改实际剧本场景，并同步导航；正文修改也反映到白板',async()=>{
+ mockBackend.on('replace_block',args=>({document:{...doc() as object,revision:2,blocks:blocks.map(b=>b.id===args.blockId?{...b,text:args.text}:b)},revision:2}));
+ const view=render(<><SceneBoard onClose={()=>{}} onConfigure={()=>{}}/><Navigator/></>);
+ fireEvent.doubleClick(view.getByLabelText('编辑场景 1 标题'));const input=view.getByRole('textbox',{name:'编辑场景 1 标题'});input.textContent='INT. 新办公室 - DAY';fireEvent.input(input);fireEvent.blur(input);
+ await waitFor(()=>expect(mockBackend.callsTo('replace_block')).toHaveLength(1));expect(mockBackend.callsTo('replace_block')[0].args).toEqual({blockId:'a',text:'INT. 新办公室 - DAY',expectedRevision:1});await waitFor(()=>expect(view.getAllByText('INT. 新办公室 - DAY')).toHaveLength(2));
+ act(()=>{const current=useEditorStore.getState().document!;useEditorStore.setState({document:{...current,blocks:current.blocks.map(b=>b.id==='a'?{...b,text:'EXT. 街道 - NIGHT'}:b)}});});expect(view.getAllByText('EXT. 街道 - NIGHT')).toHaveLength(2);
+});
+it('标题编辑期间并发修改不会覆盖新标题，失败保留输入',async()=>{
+ const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);fireEvent.doubleClick(view.getByLabelText('编辑场景 1 标题'));const input=view.getByRole('textbox',{name:'编辑场景 1 标题'});input.textContent='INT. 我的修改 - DAY';fireEvent.input(input);
+ act(()=>{const current=useEditorStore.getState().document!;useEditorStore.setState({document:{...current,revision:2,blocks:current.blocks.map(b=>b.id==='a'?{...b,text:'EXT. 外部修改 - NIGHT'}:b)}});});fireEvent.blur(input);await waitFor(()=>expect(view.getByRole('alert').textContent).toContain('场景标题已被修改'));expect(mockBackend.callsTo('replace_block')).toHaveLength(0);expect(view.getByRole('textbox',{name:'编辑场景 1 标题'})).toHaveProperty('textContent','INT. 我的修改 - DAY');
+});
+it('双击便签空白区域打开概括编辑，不显示编辑按钮',()=>{
+ const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);expect(view.queryByText('编辑概括')).toBeNull();fireEvent.doubleClick(view.container.querySelector('[data-scene-id="a"]')!);expect(view.getByRole('textbox',{name:'编辑场景 1 概括'})).toBeTruthy();fireEvent.keyDown(view.getByRole('textbox',{name:'编辑场景 1 概括'}),{key:'Escape'});expect(view.getByRole('dialog',{name:'场景白板'})).toBeTruthy();expect(view.queryByRole('textbox',{name:'编辑场景 1 概括'})).toBeNull();
 });

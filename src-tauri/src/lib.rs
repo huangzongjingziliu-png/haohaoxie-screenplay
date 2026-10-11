@@ -1767,6 +1767,8 @@ pub fn run() {
             remove_recent,
             // Agent
             agent_harness::agent_chat,
+            agent_harness::agent_generate_skill,
+            agent_harness::agent_create_skill,
             agent_harness::agent_memory,
             agent_harness::agent_save_memory,
             agent_list_skills,

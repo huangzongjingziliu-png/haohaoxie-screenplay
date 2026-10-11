@@ -339,10 +339,12 @@ pub struct SceneCard {
     pub summary: String,
     pub summary_source: String,
     #[serde(default)]
+    pub summary_manual: bool,
+    #[serde(default)]
     pub comments: Vec<String>,
 }
 impl Default for SceneCard {
-    fn default() -> Self { Self { color: String::new(), width: 0.0, height: 0.0, summary: String::new(), summary_source: String::new(), comments: Vec::new() } }
+    fn default() -> Self { Self { color: String::new(), width: 0.0, height: 0.0, summary: String::new(), summary_source: String::new(), summary_manual: false, comments: Vec::new() } }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]

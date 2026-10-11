@@ -302,6 +302,8 @@ export const ipc = {
       'agent_set_config',
       opts
     ),
+  agentGenerateSkill: (instruction:string)=>call<string>("agent_generate_skill",{instruction}),
+  agentCreateSkill: (markdown:string)=>call<string>("agent_create_skill",{markdown}),
   agentInstallSkill: (sourcePath: string) => call<string>('agent_install_skill', { sourcePath }),
   agentUnloadSkill: (skillId: string) => call<boolean>('agent_unload_skill', { skillId }),
 };

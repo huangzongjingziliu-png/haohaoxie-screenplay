@@ -1,3 +1,4 @@
+import {useSplitSync} from '@/hooks/useSplitSync';
 import {tr,useUiLanguage} from '@/i18n';
 import ModelPicker from '@/components/ModelPicker';
 import AgentContextMenu from '@/components/AgentContextMenu';
@@ -27,6 +28,7 @@ import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ip
 
 export default function App() {
   useUiLanguage();
+  useSplitSync();
   const project = useEditorStore((s) => s.project);
   const viewMode = useEditorStore((s) => s.viewMode);
   const pushToast = useEditorStore((s) => s.pushToast);

@@ -16,7 +16,7 @@ import { ipc, ScreenplayError } from '@/ipc/client';
  * 注意：`ScreenplaySettings` 是**扁平**结构（纸张尺寸直接在 settings 上），
  * 不是嵌套 `paper` 子对象。
  */
-export function TypographySettings({ onClose, embedded=false }: { onClose: () => void; embedded?:boolean }) {
+export function TypographySettings({ onClose, embedded=false, registerSave }: { onClose: () => void; embedded?:boolean; registerSave?:(save:()=>Promise<boolean>)=>void }) {
   const doc = useEditorStore((s) => s.document);
   const pushToast = useEditorStore((s) => s.pushToast);
 
@@ -82,11 +82,11 @@ export function TypographySettings({ onClose, embedded=false }: { onClose: () =>
     setOcrLangs(doc.settings.ocr_languages ?? ['zh-Hans', 'en-US']);
   }, [doc?.id]);
 
-  const save = async () => {
-    if (shortcutError(shortcuts)) { setShortcutMessage(shortcutError(shortcuts)); return; }
-    if (!doc) { saveShortcuts(shortcuts); saveUiSize(uiSize); onClose(); return; }
+  const save = async (close=true):Promise<boolean> => {
+    if (shortcutError(shortcuts)) { setShortcutMessage(shortcutError(shortcuts)); return false; }
+    if (!doc) { saveShortcuts(shortcuts); saveUiSize(uiSize); if(close)onClose(); return true; }
     if (!Object.values(styles).every(validElementStyle)) {
-      setPresetError(tr("请检查元素字体、字号和颜色：字号范围为 8–36 pt")); return;
+      setPresetError(tr("请检查元素字体、字号和颜色：字号范围为 8–36 pt")); return false;
     }
     const isA4 = template === 'a4';
     try {
@@ -119,11 +119,15 @@ export function TypographySettings({ onClose, embedded=false }: { onClose: () =>
       saveShortcuts(shortcuts);
       saveUiSize(uiSize);
       pushToast('success', tr("设置已保存"));
-      onClose();
+      if(close)onClose();
+      return true;
     } catch (e) {
       pushToast('error', e instanceof ScreenplayError ? e.message : String(e));
+      return false;
     }
   };
+
+  useEffect(()=>{registerSave?.(()=>save(false));});
 
   if (!doc) {
     return (

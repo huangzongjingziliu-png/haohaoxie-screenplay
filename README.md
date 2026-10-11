@@ -1,8 +1,14 @@
 # 好好写剧本 · Write Your Script
 
-A local-first screenplay editor for Mac, with Chinese and English interface options, screenplay/source views, a scene board, and optional AI assistance.
+**A screenwriting tool built for the AI era.**
 
-**Public beta 0.1.25.** Download the installer from [Releases](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases). Apple Silicon macOS is the tested platform. This is not a Mac App Store build.
+Formatting interrupts a good writing streak. Asking AI to revise a scene means shuttling text between chat and a document. As the story grows, scene order and revision notes get harder to keep together.
+
+Write Your Script brings free writing and screenplay layout into sync, turns scenes into reorderable cards with notes, and lets your usual AI assistant read and edit the project. The story stays yours.
+
+A local-first Mac app with Chinese and English interfaces. AI is optional: choose your own model, or simply write.
+
+**Public beta 0.1.32.** Download the installer from [Releases](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases). Apple Silicon macOS is the tested platform. This is not a Mac App Store build.
 
 [中文说明](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md) · [Privacy](docs/public/PRIVACY.md)
 
@@ -18,7 +24,7 @@ A local-first screenplay editor for Mac, with Chinese and English interface opti
 
 ### Three practical benefits
 
-- **See the story as scenes.** Each scene has a board card. The board, scene navigator and screenplay share the same order, so reordering scenes updates the text too. Group cards, add comments and draw annotated connections to organize revision ideas. This is an ordered scene board, not a freeform canvas. Model-generated scene summaries are optional.
+- **See the story as scenes.** Each scene has a board card. The board, scene navigator and screenplay share the same order, so reordering scenes updates the text too. Group cards, add comments and draw annotated connections to organize revision ideas. This is an ordered scene board, not a freeform canvas. Write and edit scene summaries yourself, or optionally generate them with a model. Automatic generation will not overwrite your own summaries.
 - **Keep your files and room to revise.** Save local `.screenplay` projects, use version history and recovery, and export in multiple formats. Core editing works without AI. Review selected AI revisions before applying them. Memories currently stay on the local machine and do not automatically travel with project files.
 - **Make the layout suit your workflow.** Customize fonts, sizes, weight and color by paragraph type, then save named presets. Interface text size is independent of page text size, keeping controls readable when the page is zoomed out.
 
@@ -47,7 +53,7 @@ Signing/notarization status will be stated in each release. Do not disable syste
 
 ## Interface language
 
-Open **More → Settings → General → Interface language**. Choose Follow system, 简体中文 or English. This does not translate your screenplay or change its layout. Some backend diagnostics and built-in skill descriptions remain Chinese in this beta.
+Open **More → Settings → Language → Interface language**. Choose Follow system, 简体中文 or English. This does not translate your screenplay or change its layout. Some backend diagnostics and built-in skill descriptions remain Chinese in this beta.
 
 ## Build from source
 

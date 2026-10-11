@@ -4,7 +4,7 @@ use std::path::Path;
 pub fn complex(path: &str) -> bool { matches!(Path::new(path).extension().and_then(|s|s.to_str()).unwrap_or("").to_ascii_lowercase().as_str(),"pdf"|"png"|"jpg"|"jpeg"|"heic"|"tif"|"tiff"|"bmp"|"webp") }
 pub async fn ready(state: &AppState) -> IpcResult<()> {
     let cfg=state.agent.lock().unwrap().clone();
-    if cfg.model.trim().is_empty() || cfg.provider_kind=="echo" || (cfg.provider_kind!="ollama" && !cfg.cloud_ai_enabled) {return Err(IpcError::InvalidArgument{message:"PDF和图片转换需要模型。请先在编剧助理中配置模型并启用云AI（本地Ollama无需云AI）。".into()});}
+    if cfg.model.trim().is_empty() || cfg.provider_kind=="echo" || (cfg.provider_kind!="ollama" && !cfg.cloud_ai_enabled) {return Err(IpcError::InvalidArgument{message:"此功能需要模型。请先在设置中配置模型并允许云模型处理内容（本机Ollama无需开启）。".into()});}
     prepare_agent_credential(state).await?;
     let cfg=state.agent.lock().unwrap().clone();
     if cfg.provider_kind!="ollama" && (cfg.api_key.is_empty() || (cfg.provider_kind=="compatible" && cfg.base_url.is_empty())) {return Err(IpcError::InvalidArgument{message:"请先配置模型地址和API Key".into()});}

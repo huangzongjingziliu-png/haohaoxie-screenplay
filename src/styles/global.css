@@ -1365,7 +1365,9 @@ body.dark .board-hint, body.dark .board-heading span { color: #bbb; }
 .board-cards { display: flex; align-content: flex-start; align-items: flex-start; flex-wrap: wrap; gap: 24px; padding: 24px; min-height: 100%; box-sizing: border-box; }
 .scene-card { overflow: visible; }
 .scene-card header { padding-right: 28px; }
-.scene-board .card-jump { position: absolute; top: 7px; right: 7px; padding: 3px 6px; border: 0; background: #ffffff66; }
+.scene-board .card-jump,.scene-board .card-comment{position:absolute;right:7px;width:26px;height:26px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:#ffffff66;color:inherit;z-index:1}
+.scene-board .card-jump{top:7px}.scene-board .card-comment{top:39px}.scene-board .card-jump:hover,.scene-board .card-comment:hover{background:#ffffffb3}.card-comment-dot{position:absolute;right:1px;top:1px;width:5px;height:5px;border-radius:50%;background:#8b6e30}
+.scene-card .scene-summary-area{box-sizing:border-box;padding-right:26px}
 .scene-card[data-insertion]::before { content: ''; position: absolute; top: -4px; bottom: -4px; width: 4px; background: #8068d7; border-radius: 3px; pointer-events: none; box-shadow: 0 0 0 2px #ffffff99; }
 .scene-card[data-insertion="before"]::before { left: -15px; }
 .scene-card[data-insertion="after"]::before { right: -15px; }
@@ -1399,9 +1401,6 @@ body.dark .board-hint, body.dark .board-heading span { color: #bbb; }
 .board-group-cards {display:flex;gap:24px;flex-wrap:wrap;}
 .board-group[data-insertion]::before {content:'';position:absolute;top:0;bottom:0;width:4px;background:#8671ca;z-index:20;}
 .board-group[data-insertion='before']::before {left:-15px;}.board-group[data-insertion='after']::before {right:-15px;}
-.card-extras {display:flex;align-items:center;gap:8px;position:absolute;bottom:12px;left:12px;font-size:12px;}
-.card-extras label {display:flex;align-items:center;gap:4px;}
-.card-extras button {font-size:12px;padding:3px 6px;}
 .board-hide-links {position:absolute;right:20px;bottom:20px;z-index:40;box-shadow:0 2px 8px #0002;}
 .board-links {position:absolute;inset:0;z-index:15;pointer-events:none;overflow:visible;}
 .board-links g {pointer-events:visibleStroke;cursor:pointer;}
@@ -1448,3 +1447,44 @@ body.dark .board-hint, body.dark .board-heading span { color: #bbb; }
 body.dark .row-element-tools:hover{background:#36363e;border-color:#666}
 
 .settings-shell .settings-tabs{flex-wrap:wrap;white-space:normal}.settings-shell .settings-tabs button{flex:1 1 110px}.toolbar{flex-wrap:wrap}.row-type-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Corresponding source paragraphs use a mirror underneath the native textarea. */
+.source-input-wrap{position:relative;flex:1;min-height:0;overflow:hidden;background:#fff}
+.source-editor .source-input-wrap textarea,.source-text-layer{box-sizing:border-box;margin:0;padding:16px;font:13px/1.7 "SF Mono",ui-monospace,Menlo,monospace;letter-spacing:normal;white-space:pre-wrap;overflow-wrap:break-word;tab-size:8}
+.source-editor .source-input-wrap textarea{position:relative;display:block;width:100%;height:100%;background:transparent;overflow:auto;resize:none}
+.source-text-layer{position:absolute;left:0;top:0;width:100%;pointer-events:none;color:transparent;border:0}
+.source-corresponding.active{background:#fff2bd;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px}
+body.dark .source-input-wrap{background:#2a2a2e}body.dark .source-editor .source-input-wrap textarea{background:transparent}body.dark .source-corresponding.active{background:#50472b}
+/* Settings categories remain visible beside independently scrolling details. */
+.settings-shell .unified-settings{width:min(920px,94vw);height:min(760px,86vh);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;padding:0;border:1px solid #dde3ec;border-radius:16px}
+.settings-shell .unified-settings>h2{margin:0;padding:20px 24px;border-bottom:1px solid #e2e7ef;font-size:20px}
+.settings-layout{display:flex;flex:1;min-height:0}
+.settings-shell .settings-tabs{display:flex;flex-direction:column;flex-wrap:nowrap;flex:0 0 180px;align-items:stretch;margin:0;padding:16px 12px;gap:8px;border-radius:0;border-right:1px solid #e2e7ef;background:#f5f7fa;overflow:auto}
+.settings-shell .settings-tabs button{flex:0 0 auto;text-align:left;min-height:44px;padding:10px 14px;border:1px solid #e1e6ed;background:#fff;color:#475467;font:inherit;cursor:pointer}
+.settings-shell .settings-tabs button:hover{border-color:#b8c8dc;background:#edf3fb}
+.settings-shell .settings-tabs button.selected{background:#e7f0ff;border-color:#b9d2f4;color:#155fae;box-shadow:none;font-weight:600}
+.settings-detail{flex:1;min-width:0;overflow:auto;padding:20px 24px;background:#fff}
+.settings-detail .settings-content{padding:0;max-width:100%}.settings-detail .settings-body{width:100%}.settings-detail h2{margin-top:0}
+.settings-detail .field{padding:10px 0}.settings-detail .modal-actions{position:sticky;bottom:-20px;padding:14px 0;background:#fff;border-top:1px solid #edf0f4}
+.settings-detail .settings-skill{padding:12px;margin:10px 0;background:#f7f9fc;border:1px solid #e2e7ef;border-radius:10px}
+button.recent-item{width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:14px 16px;margin:9px 0;border:1px solid #dde3ec;border-radius:12px;background:#fff;box-shadow:0 2px 6px #172b4d06;transition:background .15s,border-color .15s;text-align:left}
+button.recent-item:hover{background:#edf4ff;border-color:#adc8ec}button.recent-item>span:first-child{font-weight:600}button.recent-item>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-list{width:min(560px,90vw)}
+body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark button.recent-item:hover{background:#343c49}
+@media(max-width:700px){.settings-shell .settings-tabs{flex-basis:138px;padding:10px 8px}.settings-shell .settings-tabs button{padding:9px 10px}.settings-detail{padding:16px}}
+
+.source-font-tools{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#f6f7f9;border-top:1px solid #e3e5e9;flex-shrink:0;font-size:13px;color:#565d69}
+.source-font-tools input{flex:1;min-width:60px;accent-color:#77715a}.source-font-tools output{min-width:42px;text-align:right}.source-font-tools button{padding:5px 10px;border:1px solid #d9dde4;border-radius:7px;background:white;white-space:nowrap}
+.skill-drop-zone{padding:20px;border:1px dashed #b5bfcb;border-radius:12px;background:#f6f8fb;margin-top:16px}.skill-drop-zone button{margin-right:10px}.skill-creator{width:min(680px,90vw)}.skill-creator textarea{box-sizing:border-box;width:100%;min-height:110px;padding:12px;border:1px solid #d9dee6;border-radius:9px;resize:vertical;background:#fafbfc}.skill-creator .skill-draft{min-height:240px;font-family:ui-monospace,monospace}.skill-create-tools{display:flex;justify-content:space-between;gap:12px;margin:12px 0}
+
+/* Cards keep a bounded, scrollable body in both preview and editing. */
+.scene-card{display:flex;flex-direction:column;gap:8px}
+.scene-card header{flex:0 0 auto;max-height:40%;min-height:0;overflow:auto}
+.scene-text-area{position:relative;min-width:0;min-height:0}
+.scene-title-inline{flex:1;font-weight:700;cursor:text}
+.scene-title-text{white-space:pre-wrap;overflow-wrap:anywhere;outline:none;min-height:1.4em}
+.scene-summary-area{flex:1;overflow:hidden}
+.scene-card .scene-summary{box-sizing:border-box;height:100%;max-height:none;min-height:0;margin:0;padding:0 6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain;cursor:text;outline:none}
+.scene-summary:empty::before{content:attr(data-placeholder);color:#766d4d;opacity:.65;pointer-events:none}
+.scene-summary::-webkit-scrollbar{width:8px}.scene-summary::-webkit-scrollbar-track{background:rgba(70,60,30,.06);border-radius:5px}.scene-summary::-webkit-scrollbar-thumb{background:rgba(90,77,40,.35);border-radius:5px;border:2px solid transparent;background-clip:padding-box}
+.scene-summary[data-editing],.scene-title-text[data-editing]{caret-color:#252525}
+.scene-text-status{position:absolute;bottom:0;left:0;right:0;background:#fff6d7;color:#805c30;font-size:12px;padding:3px 5px;pointer-events:none}

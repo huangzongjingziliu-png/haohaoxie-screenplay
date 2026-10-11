@@ -29,7 +29,7 @@ it('General settings changes and remembers the interface language',()=>{
  mockBackend.on('agent_list_skills',()=>[]);mockBackend.on('agent_get_config',()=>({cloudAiEnabled:false}));
  render(<UnifiedSettings initial="general" onClose={()=>{}}/>);
  fireEvent.change(screen.getByLabelText('界面语言'),{target:{value:'en'}});
- expect(screen.getByRole('heading',{name:'General'})).toBeTruthy();
+ expect(screen.getByRole('heading',{name:'Language'})).toBeTruthy();
  expect(screen.getByLabelText('Interface language')).toHaveProperty('value','en');
  fireEvent.change(screen.getByLabelText('Interface language'),{target:{value:'zh'}});
  expect(screen.getByLabelText('界面语言')).toHaveProperty('value','zh');

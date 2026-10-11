@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { ipc } from '@/ipc/client';
 import { useEditorStore } from '@/stores/editor';
 import ModelPicker from './ModelPicker';
+import SkillCreator from './SkillCreator';
 import {flushPendingEdits} from '@/utils/pendingEdits';
 import AgentWorkStatus from './AgentWorkStatus';
 export default function AgentPanel({onClose}:{onClose:()=>void}) {
+ const [creatingSkill,setCreatingSkill]=useState(false);
  const doc=useEditorStore(s=>s.document),active=useEditorStore(s=>s.activeBlockId),toast=useEditorStore(s=>s.pushToast);
  const [turns,setTurns]=useState<{role:string;content:string}[]>([]),[text,setText]=useState(''),[busy,setBusy]=useState(false),[skill,setSkill]=useState('');
  const [skills,setSkills]=useState<{id:string;name:string}[]>([]);const bottom=useRef<HTMLDivElement>(null);
@@ -18,6 +20,7 @@ export default function AgentPanel({onClose}:{onClose:()=>void}) {
  return <aside className="agent-panel harness-panel">
  <header><strong>{tr("编剧助理")}</strong><button aria-label={tr("关闭编剧助理")} onClick={onClose}>×</button></header>
  <div className="harness-conversation" aria-live="polite">{!turns.length&&<div className="harness-welcome"><h3>{tr("一起把故事写好")}</h3><p>{tr("讨论人物、梳理场景，或选中正文后预览改稿。")}</p><p>{tr("输入“记住我的偏好：…”可跨项目记住写作习惯。记忆可在设置中查看和编辑。")}</p></div>}{turns.map((t,i)=><div key={i} className={'chat-turn '+t.role}>{t.content}</div>)}{busy&&<p role="status">{tr("正在阅读上下文并思考…")}</p>}<div ref={bottom}/></div>
- <div className="harness-composer"><div className="harness-tools"><button disabled={busy} onClick={()=>void attach()}>{tr("＋ 附件")}</button><button disabled={busy} onClick={()=>void preview().catch(e=>toast('error',String(e)))}>{tr("预览改稿")}</button><button onClick={()=>window.dispatchEvent(new Event('open-settings'))}>{tr("设置")}</button></div><textarea aria-label={tr("与编剧助理对话")} placeholder={tr("输入想法或要求…（⌘ Enter 发送）")} value={text} disabled={busy} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();void send();}}}/><div className="harness-send-row"><select aria-label={tr("选择技能")} value={skill} onChange={e=>setSkill(e.target.value)}><option value="">{tr("通用编剧")}</option>{skills.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><ModelPicker/><button className="harness-send" aria-label={tr("发送")} title={tr("发送 · ⌘ Enter")} disabled={busy||!text.trim()||!doc} onClick={()=>void send()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 3 18 9-18 9 4-9-4-9Z M7 12h14"/></svg></button></div></div>
+ <div className="harness-composer"><div className="harness-tools"><button disabled={busy} onClick={()=>setCreatingSkill(true)}>{tr("创建技能")}</button><button disabled={busy} onClick={()=>void attach()}>{tr("＋ 附件")}</button><button disabled={busy} onClick={()=>void preview().catch(e=>toast('error',String(e)))}>{tr("预览改稿")}</button><button onClick={()=>window.dispatchEvent(new Event('open-settings'))}>{tr("设置")}</button></div><textarea aria-label={tr("与编剧助理对话")} placeholder={tr("输入想法或要求…（⌘ Enter 发送）")} value={text} disabled={busy} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();void send();}}}/><div className="harness-send-row"><select aria-label={tr("选择技能")} value={skill} onChange={e=>setSkill(e.target.value)}><option value="">{tr("通用编剧")}</option>{skills.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><ModelPicker/><button className="harness-send" aria-label={tr("发送")} title={tr("发送 · ⌘ Enter")} disabled={busy||!text.trim()||!doc} onClick={()=>void send()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 3 18 9-18 9 4-9-4-9Z M7 12h14"/></svg></button></div></div>
+ {creatingSkill&&<SkillCreator onClose={()=>setCreatingSkill(false)}/>}
  {busy&&<AgentWorkStatus label={tr("编剧助理正在处理，请稍候")}/>}</aside>;
 }

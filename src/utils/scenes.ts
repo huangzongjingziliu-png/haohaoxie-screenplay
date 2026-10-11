@@ -5,7 +5,7 @@ import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 export const defaultBoard = (): SceneBoard => ({color:'#FFF2A8', summaries_enabled:false, cards:{}, groups:[], links:[], hide_links:false});
-export const defaultCard = (): SceneCard => ({color:'',width:0,height:0,summary:'',summary_source:'',comments:[]});
+export const defaultCard = (): SceneCard => ({color:'',width:0,height:0,summary:'',summary_source:'',summary_manual:false,comments:[]});
 export function scenesOf(doc: ScreenplayDocument | null) {
   const blocks = doc?.blocks ?? [];
   const scenes: {id:string;title:string;source:string}[] = [];

@@ -15,16 +15,37 @@ export function useBoardZoom() {
   useEffect(()=> {
     const canvas=canvasRef.current;if(!canvas)return;
     let gesture=false,start=1;
-    const down=(e:PointerEvent)=>{if(e.button===2){right.current=true;used.current=false;}};
-    const up=()=>{right.current=false;};
-    const wheel=(e:WheelEvent)=>{if(!right.current && !e.ctrlKey && !e.metaKey)return;e.preventDefault();if(gesture)return;used.current=true;const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?canvas.clientHeight:1);changeZoom(current.current*Math.exp(-delta*.003),e.clientX,e.clientY);};
-    const context=(e:Event)=>{if(used.current){e.preventDefault();used.current=false;}};
+    let pendingContext:{target:EventTarget|null;x:number;y:number}|null=null;
+    const down=(e:MouseEvent)=>{if(e.button===2){right.current=true;used.current=false;pendingContext=null;}};
+    const release=(e:MouseEvent)=>{
+      if(e.button!==2&&(e.buttons&2)!==0)return;
+      right.current=false;
+      const pending=pendingContext;pendingContext=null;
+      // WebKit can open a context menu on right-button DOWN. Defer the app's
+      // menu until release so it cannot swallow the wheel while held.
+      if(pending&&!used.current&&pending.target instanceof Node&&pending.target.isConnected)
+        pending.target.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:pending.x,clientY:pending.y}));
+    };
+    const reset=()=>{right.current=false;pendingContext=null;used.current=false;};
+    const wheel=(e:WheelEvent)=>{
+      if(!(right.current||(e.buttons&2)!==0||e.ctrlKey||e.metaKey))return;
+      e.preventDefault();e.stopPropagation();if(gesture)return;used.current=true;pendingContext=null;
+      const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?canvas.clientHeight:1);
+      changeZoom(current.current*Math.exp(-delta*.003),e.clientX,e.clientY);
+    };
+    const context=(e:MouseEvent)=>{
+      e.preventDefault();
+      if(right.current){pendingContext={target:e.target,x:e.clientX,y:e.clientY};e.stopPropagation();}
+      else if(used.current)e.stopPropagation();
+    };
     const begin=(e:Event)=>{e.preventDefault();gesture=true;start=current.current;};
     const update=(e:Event)=>{e.preventDefault();const g=e as Event & {scale:number;clientX?:number;clientY?:number};if(Number.isFinite(g.scale))changeZoom(start*g.scale,g.clientX,g.clientY);};
     const end=()=>{gesture=false;};
-    canvas.addEventListener('pointerdown',down);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up);window.addEventListener('blur',up);
-    canvas.addEventListener('wheel',wheel,{passive:false});canvas.addEventListener('contextmenu',context);canvas.addEventListener('gesturestart',begin,{passive:false});canvas.addEventListener('gesturechange',update,{passive:false});canvas.addEventListener('gestureend',end);
-    return ()=>{canvas.removeEventListener('pointerdown',down);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);window.removeEventListener('blur',up);canvas.removeEventListener('wheel',wheel);canvas.removeEventListener('contextmenu',context);canvas.removeEventListener('gesturestart',begin);canvas.removeEventListener('gesturechange',update);canvas.removeEventListener('gestureend',end);};
+    const captureWheel={passive:false,capture:true};
+    canvas.addEventListener('pointerdown',down,true);canvas.addEventListener('mousedown',down,true);
+    window.addEventListener('pointerup',release,true);window.addEventListener('mouseup',release,true);window.addEventListener('pointercancel',reset,true);window.addEventListener('blur',reset);
+    canvas.addEventListener('wheel',wheel,captureWheel);canvas.addEventListener('contextmenu',context,true);canvas.addEventListener('gesturestart',begin,{passive:false});canvas.addEventListener('gesturechange',update,{passive:false});canvas.addEventListener('gestureend',end);
+    return ()=>{canvas.removeEventListener('pointerdown',down,true);canvas.removeEventListener('mousedown',down,true);window.removeEventListener('pointerup',release,true);window.removeEventListener('mouseup',release,true);window.removeEventListener('pointercancel',reset,true);window.removeEventListener('blur',reset);canvas.removeEventListener('wheel',wheel,true);canvas.removeEventListener('contextmenu',context,true);canvas.removeEventListener('gesturestart',begin);canvas.removeEventListener('gesturechange',update);canvas.removeEventListener('gestureend',end);reset();};
   },[]);
   return {canvasRef,zoom,changeZoom};
 }
