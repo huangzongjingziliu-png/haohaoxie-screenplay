@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr} from '@/i18n';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -14,7 +15,7 @@ export default function ModelPicker({manage=false}:{manage?:boolean}={}) {
  const active=all.profiles.find(p=>p.id===all.activeId);
  return <>
  {manage?<button className="model-picker-button" onClick={()=>setOpen(true)}>{tr("管理自定义模型…")}</button>:<select className="model-picker-button" aria-label={tr("选择模型")} value={all.activeId} onChange={e=>{if(e.target.value==='__settings')window.dispatchEvent(new Event('open-model-settings'));else void run(()=>ipc.agentSelectModel(e.target.value));}}><option value="" disabled>{tr("选择模型")}</option>{all.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}<option value="__settings">{tr("配置模型…")}</option></select>}
- {open&&createPortal(<div className="modal-backdrop" style={{zIndex:1300}}><div className="modal model-manager" role="dialog" aria-label={tr("自定义模型")}>
+ {open&&createPortal(<ModalBackdrop onDismiss={()=>{setOpen(false);setEdit(null);}} disabled={busy} message={tr("放弃尚未保存的模型配置并关闭？")} style={{zIndex:1300}}><div className="modal model-manager" role="dialog" aria-label={tr("自定义模型")}>
  <h2>{tr("自定义模型")}</h2>
  <p className="modal-hint">{tr("密钥输入一次即可记住；您可以保存多个模型，并随时切换。")}</p>
  {all.profiles.map(p=><div key={p.id} className={'model-choice '+(p.id===all.activeId?'selected':'')}>
@@ -33,6 +34,6 @@ export default function ModelPicker({manage=false}:{manage?:boolean}={}) {
  <div className="modal-actions"><button type="button" disabled={busy} onClick={()=>setEdit(null)}>{tr("取消")}</button><button disabled={busy} type="submit">{busy?tr("保存中…"):tr("保存并使用")}</button></div>
  </form>}
  <div className="modal-actions"><button disabled={busy} onClick={()=>{setOpen(false);setEdit(null);}}>{tr("完成")}</button></div>
- </div></div>,document.body)}
+ </div></ModalBackdrop>,document.body)}
  </>;
 }

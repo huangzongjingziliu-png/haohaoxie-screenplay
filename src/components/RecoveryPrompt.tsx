@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import { useEffect, useState } from 'react';
 import { ipc, type PendingRecovery } from '@/ipc/client';
@@ -66,7 +67,7 @@ export default function RecoveryPrompt() {
   };
 
   return (
-    <div className="modal-backdrop recovery-backdrop">
+    <ModalBackdrop className="modal-backdrop recovery-backdrop" onDismiss={()=>setDismissed(true)} disabled={busy}>
       <div className="modal recovery-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
         <div className="recovery-icon" aria-hidden>
           ⟲
@@ -100,10 +101,11 @@ export default function RecoveryPrompt() {
         </div>
 
         <div className="modal-actions">
+          <button disabled={busy} onClick={()=>setDismissed(true)}>{tr("取消")}</button>
           <button disabled={busy} onClick={() => void discard()}>{tr("丢弃")}</button>
           <button disabled={busy} className="primary" onClick={() => void adopt()}>{tr(" 恢复这些内容 ")}</button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

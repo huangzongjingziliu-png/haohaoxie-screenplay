@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { ipc, ScreenplayError } from '@/ipc/client';
@@ -128,7 +129,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <ModalBackdrop onDismiss={onClose} message={tr("放弃尚未提交的版本操作并关闭？")}>
       <div className="modal version-modal" onClick={(e) => e.stopPropagation()}>
         <div className="version-header">
           <h2>{tr("版本与历史")}</h2>
@@ -281,6 +282,6 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
           <button onClick={onClose}>{tr("关闭")}</button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

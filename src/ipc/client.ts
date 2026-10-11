@@ -229,6 +229,7 @@ export const ipc = {
   toFountain: () => call<string>('to_fountain'),
   updateSettings: (patch: {
     elementStyles?: Record<string, import("./types/ElementStyle").ElementStyle>;
+    projectMemory?: import("./types/ProjectMemory").ProjectMemory;
     stylePresetName?: string;
     ocrLanguages?: string[];
     typography?: string;
@@ -274,6 +275,8 @@ export const ipc = {
 
   // Agent（智能编剧助理）
   agentChat: (projectId:string,instruction:string,history:{role:string;content:string}[],skillId?:string,blockId?:string) => call<string>('agent_chat',{projectId,instruction,history,skillId,blockId,uiLanguage:effectiveLanguage()}),
+  agentShareProject: (path:string,includeMemory:boolean)=>call<void>('agent_share_project',{path,includeMemory}),
+  agentRefreshMemory: (projectId:string,discussion?:string,force=false)=>call<void>('agent_refresh_memory',{projectId,discussion,force}),
   agentMemory: (scope:string,projectId:string) => call<string>('agent_memory',{scope,projectId}),
   agentSaveMemory: (scope:string,projectId:string,text:string) => call<void>('agent_save_memory',{scope,projectId,text}),
   agentListSkills: () =>

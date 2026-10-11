@@ -896,6 +896,7 @@ fn to_fountain(state: State<'_, AppState>) -> IpcResult<String> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
+    pub project_memory: Option<screenplay_core::ast::ProjectMemory>,
     pub element_styles: Option<std::collections::BTreeMap<String, screenplay_core::ast::ElementStyle>>,
     pub style_preset_name: Option<String>,
     pub ocr_languages: Option<Vec<String>>,
@@ -918,6 +919,12 @@ fn update_settings(
     }
     if patch.element_styles.as_ref().is_some_and(|v| !screenplay_core::typography::validate_styles(v)) {
         return Err(IpcError::InvalidArgument { message: "元素样式无效：字号须为 8–36 pt，颜色须为十六进制颜色".into() });
+    }
+    if let Some(memory)=patch.project_memory {
+        if memory.markdown.len()+memory.author_notes.len()>128*1024||memory.history.len()>20||memory.history.iter().any(|s|s.len()>128*1024){return Err(IpcError::InvalidArgument{message:"项目记忆过大".into()});}
+        let doc=state.project.document()?;
+        let r=state.project.run(|svc|svc.update_project_memory(&doc.id,Some(doc.revision),memory))?;
+        broadcast(&app,"memory",&r);return Ok(r);
     }
     let r = state.project.run(|svc| {
         svc.mutate_document(Origin::GuiLeft, |doc| {
@@ -1767,6 +1774,8 @@ pub fn run() {
             remove_recent,
             // Agent
             agent_harness::agent_chat,
+            agent_harness::agent_refresh_memory,
+            agent_harness::agent_share_project,
             agent_harness::agent_generate_skill,
             agent_harness::agent_create_skill,
             agent_harness::agent_memory,

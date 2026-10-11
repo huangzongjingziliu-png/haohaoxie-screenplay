@@ -1488,3 +1488,30 @@ body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark b
 .scene-summary::-webkit-scrollbar{width:8px}.scene-summary::-webkit-scrollbar-track{background:rgba(70,60,30,.06);border-radius:5px}.scene-summary::-webkit-scrollbar-thumb{background:rgba(90,77,40,.35);border-radius:5px;border:2px solid transparent;background-clip:padding-box}
 .scene-summary[data-editing],.scene-title-text[data-editing]{caret-color:#252525}
 .scene-text-status{position:absolute;bottom:0;left:0;right:0;background:#fff6d7;color:#805c30;font-size:12px;padding:3px 5px;pointer-events:none}
+
+/* Side panels participate in layout so the paper centers in the available space. */
+.main { position: relative; min-height: 0; }
+.main > .harness-panel { position: relative; top: auto; right: auto; bottom: auto; width: clamp(300px, 30vw, 440px); flex: 0 0 clamp(300px, 30vw, 440px); min-height: 0; z-index: 10; box-shadow: none; border-left: 1px solid #e0e0e6; }
+.navigator-toggle { position: absolute; top: 5px; left: 5px; z-index: 20; display: grid; place-items: center; width: 28px; height: 28px; padding: 3px; border: 1px solid #dce2ea; border-radius: 7px; background: #f8f9fb; color: #667085; cursor: pointer; }
+.main > .navigator .navigator-tabs { padding-top: 38px; }
+.main > .navigator-toggle + .editors .pane-heading { padding-left: 40px; }
+.main > .editors { min-width: 0; }
+.dismiss-confirm-backdrop { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 24px; background: #18233345; }
+.dismiss-confirm { width: min(420px, 90vw); }
+.dismiss-confirm p { margin-top: 14px; line-height: 1.7; }
+.memory-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; padding: 14px; background: #f5f7fa; border: 1px solid #e1e6ed; border-radius: 9px; font: 13px/1.7 system-ui; margin: 10px 0; }
+.project-memory-overview h4 { margin: 16px 0 8px; }
+.project-memory-overview p { line-height: 1.6; color: #667085; margin: 8px 0; }
+.navigator-body li.navigator-entity { display: block; padding: 3px; }
+.navigator-entity-heading { display: flex; align-items: center; gap: 2px; }
+.navigator-entity-heading button { border: none; background: transparent; color: inherit; font: inherit; cursor: pointer; border-radius: 6px; }
+.navigator-entity-name { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex: 1; min-width: 0; padding: 7px; text-align: left; }
+.navigator-entity-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navigator-entity-name small { white-space: nowrap; color: #86868b; }
+.navigator-occurrence-toggle { padding: 7px; }
+.navigator-occurrences { max-height: 280px; overflow-y: auto; padding: 3px 4px 5px 12px; }
+.navigator-occurrences button { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 3px; padding: 8px; margin: 3px 0; border: 1px solid #e1e5ec; border-radius: 7px; background: #fff; color: #404552; cursor: pointer; font: inherit; }
+.navigator-occurrences button.active { border-color: #bda658; background: #fff4c4; }
+.navigator-occurrences button span,.navigator-occurrences button small { overflow-wrap: anywhere; }
+.navigator-occurrences button small { color: #86868b; }
+.navigator-body li.active { box-shadow: inset 3px 0 #c8ab4d; background: #fff4ce; }

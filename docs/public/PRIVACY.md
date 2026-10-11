@@ -15,3 +15,7 @@ Bug reports are public. Remove API keys, private screenplay text, personal file 
 本测试版不新增产品使用追踪。GitHub、商店和模型服务商各自有独立政策。AI 请求可能发送剧本上下文、所选文字、识别附件、记忆和技能内容给用户配置的服务商。没有授权时不要发送机密稿件。外部 CLI/MCP 能操作本机工程，只在可信客户端中启用。
 
 问题报告是公开的；不要上传密钥、私人稿件、个人路径和身份信息。
+
+Project memory, author notes and memory history are embedded in saved `.screenplay` projects. Shared copies can exclude them. User-written personalization stays on this Mac. When enabled with a usable model, automatic memory sends screenplay text in chunks, existing memory and author notes to the configured provider after an editing pause or discussion. Disable automatic memory in Settings → Project memory if you do not want this background processing.
+
+项目记忆、作者笔记和记忆历史包含在保存的工程文件中，分享副本可选择排除。个性化保存在本机。启用自动记忆且模型可用时，软件会在停止编辑一段时间或讨论结束后，向配置的服务发送正文分段、已有记忆和作者笔记进行整理；可以在“设置 → 项目记忆”关闭此后台处理。

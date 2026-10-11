@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import { useMemo, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
@@ -41,7 +42,7 @@ export default function ImportReview({ onClose }: { onClose: () => void }) {
     setType(block?.block_type ?? null);
   };
 
-  return <div className="modal-backdrop import-review-backdrop">
+  return <ModalBackdrop className="modal-backdrop import-review-backdrop" onDismiss={onClose} disabled={saving}>
     <section className="modal import-review" role="dialog" aria-modal="true" aria-labelledby="import-review-title">
       <header className="import-review-header">
         <div>
@@ -83,5 +84,5 @@ export default function ImportReview({ onClose }: { onClose: () => void }) {
       </div>
       <footer className="modal-actions"><button disabled={saving} onClick={onClose}>{tr("完成")}</button></footer>
     </section>
-  </div>;
+  </ModalBackdrop>;
 }

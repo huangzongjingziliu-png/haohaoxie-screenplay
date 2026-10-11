@@ -1,4 +1,4 @@
-import {sourceSegments} from '@/utils/sourcePositions';
+import {sourceSegments,sourceBlockAt} from '@/utils/sourcePositions';
 import {tr} from '@/i18n';
 import { useCallback, useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useEditorStore } from '@/stores/editor';
@@ -74,6 +74,8 @@ export default function SourceEditor() {
   };
 
   const segments=draft===sourceText?sourceSegments(draft,blocks??[]):[];
+  const syncSelection=()=>{const el=textareaRef.current;if(el&&el.value===sourceText){const id=sourceBlockAt(segments,el.selectionStart);if(id)useEditorStore.getState().setActiveBlock(id);}};
+  useEffect(()=>{if(document.activeElement===textareaRef.current)syncSelection();},[sourceText,blocks]);
   const mirrored:React.ReactNode[]=[];let cursor=0;
   for(const segment of segments){mirrored.push(draft.slice(cursor,segment.from));mirrored.push(<span key={segment.from} data-source-blocks={segment.ids.join(" ")} className={active&&segment.ids.includes(active)?"source-corresponding active":"source-corresponding"}>{draft.slice(segment.from,segment.to)}</span>);cursor=segment.to;}
   mirrored.push(draft.slice(cursor),"\n");
@@ -83,6 +85,9 @@ export default function SourceEditor() {
     <textarea style={{fontSize:`${fontSize}pt`}} ref={textareaRef} defaultValue={sourceText} spellCheck={false}
       aria-label={tr("自由剧本文本")} placeholder={tr("在此输入或粘贴剧本文本…")}
       onScroll={e=>{if(layerRef.current){layerRef.current.style.transform=`translate(${-e.currentTarget.scrollLeft}px, ${-e.currentTarget.scrollTop}px)`;layerRef.current.style.width=`${e.currentTarget.clientWidth}px`;}}}
+      onSelect={syncSelection}
+      onKeyUp={syncSelection}
+      onPointerUp={syncSelection}
       onInput={schedule}
       onCompositionStart={() => { composing.current = true; window.clearTimeout(timer.current); useEditorStore.getState().setComposing(true); }}
       onCompositionEnd={() => {

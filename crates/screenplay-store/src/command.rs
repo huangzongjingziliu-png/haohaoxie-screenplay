@@ -184,6 +184,7 @@ impl CommandService {
     /// 因此撤销可以被追溯（说明书要求）。
     pub fn undo(&self, origin: Origin) -> Result<CommandResult, CommandError> {
         let current = self.store.snapshot();
+        let memory=current.settings.project_memory.clone();
         let popped = {
             let mut h = self.store.history.lock().unwrap();
             h.pop_undo(current)
@@ -196,6 +197,7 @@ impl CommandService {
                 })
             }
         };
+        doc.settings.project_memory=memory;
         doc.revision = self.store.revision();
         self.store.log_operation(
             origin,
@@ -212,6 +214,7 @@ impl CommandService {
     /// 重做一步
     pub fn redo(&self, origin: Origin) -> Result<CommandResult, CommandError> {
         let current = self.store.snapshot();
+        let memory=current.settings.project_memory.clone();
         let popped = {
             let mut h = self.store.history.lock().unwrap();
             h.pop_redo(current)
@@ -224,6 +227,7 @@ impl CommandService {
                 })
             }
         };
+        doc.settings.project_memory=memory;
         doc.revision = self.store.revision();
         self.store.log_operation(
             origin,
@@ -699,6 +703,18 @@ impl CommandService {
     /// 就地修改文档（设置、标题页等非 block 级修改）
     ///
     /// 与 block 级命令一样：走 check_revision → commit → 审计日志。
+    /// Auxiliary project memory has its own history and must not consume writing undo.
+    pub fn update_project_memory(&self, project_id:&str, expected:Option<u64>, memory:screenplay_core::ast::ProjectMemory)->Result<CommandResult,CommandError> {
+        {
+            let mut doc=self.store.doc.lock().unwrap();
+            if doc.id!=project_id{return Err(CommandError::InvalidArgument{message:"项目已切换".into()});}
+            if let Some(expected)=expected {if doc.revision!=expected{return Err(CommandError::RevisionConflict{expected,actual:doc.revision,message:"剧本已变化，记忆未应用".into()});}}
+            doc.settings.project_memory=memory;
+            doc.revision+=1;doc.updated_at=now_iso();
+        }
+        Ok(self.result(Vec::new(),None))
+    }
+
     pub fn mutate_document<F>(
         &self,
         origin: Origin,
@@ -1741,6 +1757,19 @@ mod history_tests {
         );
         assert_eq!(doc.characters.len(), chars_before, "人物实体也应恢复");
     }
+    #[test]
+    fn memory_updates_do_not_consume_writing_undo_and_reject_stale_results() {
+        let s=svc();seed(&s);
+        let doc=s.get_document().document;
+        let mut memory=doc.settings.project_memory.clone();memory.markdown="人物设定".into();
+        s.update_project_memory(&doc.id,Some(doc.revision),memory.clone()).unwrap();
+        assert!(s.update_project_memory(&doc.id,Some(doc.revision),memory).is_err());
+        s.undo(Origin::GuiLeft).unwrap();
+        assert_eq!(s.get_document().document.settings.project_memory.markdown,"人物设定");
+        s.redo(Origin::GuiLeft).unwrap();
+        assert_eq!(s.get_document().document.settings.project_memory.markdown,"人物设定");
+    }
+
 }
 
 #[cfg(test)]
@@ -1935,4 +1964,6 @@ mod perf_tests {
         );
         assert!(!r.pagination.pages.is_empty());
     }
+
+
 }

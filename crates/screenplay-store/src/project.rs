@@ -338,4 +338,25 @@ mod security_tests {
         assert_eq!(loaded.original_source.as_deref(), Some(original.as_slice()));
         assert_eq!(loaded.document.metadata.title, "原稿归档测试");
     }
+    #[test]
+    fn project_memory_travels_with_container() {
+        let tmp=tempfile::NamedTempFile::new().unwrap();
+        let mut doc=ScreenplayDocument::blank("记忆迁移");
+        doc.settings.project_memory.markdown="# 人物\n剑客寡言".into();
+        doc.settings.project_memory.author_notes="不改结局".into();
+        doc.settings.project_memory.history=vec!["旧设定".into()];
+        save_project(tmp.path(),&doc,None,None,None,None).unwrap();
+        let loaded=load_project(tmp.path()).unwrap();
+        assert_eq!(loaded.document.settings.project_memory,doc.settings.project_memory);
+    }
+    #[test]
+    fn old_settings_without_memory_remain_compatible() {
+        let settings=screenplay_core::ast::ScreenplaySettings::default();
+        let mut json=serde_json::to_value(settings).unwrap();
+        json.as_object_mut().unwrap().remove("project_memory");
+        let restored:screenplay_core::ast::ScreenplaySettings=serde_json::from_value(json).unwrap();
+        assert!(restored.project_memory.auto_enabled);
+        assert!(restored.project_memory.markdown.is_empty());
+    }
+
 }

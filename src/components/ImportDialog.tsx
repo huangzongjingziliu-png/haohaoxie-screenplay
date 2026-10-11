@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import AgentWorkStatus from './AgentWorkStatus';
 import { useRef, useState } from 'react';
@@ -120,7 +121,7 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
   const groups = ["文档", "文本", "图片"] as const;
 
   return (
-    <div className="modal-backdrop" onClick={() => { if (!busy) onClose(); }}>
+    <ModalBackdrop onDismiss={onClose} disabled={busy} message={tr("放弃当前导入选项并关闭？")}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{tr("导入剧本")}</h2>
         <p className="modal-hint">{tr(" PDF和图片默认通过文字识别和内置Agent转换Skill整理为标准剧本，请先配置模型。识别文字会发送给您配置的模型。 ")}</p>
@@ -161,6 +162,6 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
           {!busy && <button onClick={onClose}>{tr("关闭")}</button>}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

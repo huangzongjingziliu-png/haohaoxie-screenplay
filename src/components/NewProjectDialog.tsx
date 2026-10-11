@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr} from '@/i18n';
 import { useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
@@ -24,7 +25,7 @@ export default function NewProjectDialog({ onClose, onCreated }: { onClose: () =
     } catch (e) { useEditorStore.getState().pushToast('error', String(e)); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+  return <ModalBackdrop onDismiss={onClose} disabled={busy} dirty={!!title.trim()} message={tr("放弃已填写的剧本名称并关闭新建窗口？")}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
     <h2 id="new-project-title">{tr("新建剧本")}</h2>
     <label>{tr("剧本名称")}<input autoFocus aria-label={tr("剧本名称")} value={title} onChange={(e) => setTitle(e.target.value)} /></label>
     <p>{tr("选择文件夹后创建，方便以后查找、移动或删除。也可以暂不保存，先在好好写剧本里试写。")}</p>
@@ -33,5 +34,5 @@ export default function NewProjectDialog({ onClose, onCreated }: { onClose: () =
       <button disabled={busy} onClick={() => void create(false)}>{tr("暂不保存，开始写作")}</button>
       <button disabled={busy} className="primary" onClick={() => void create(true)}>{tr("选择保存位置并创建")}</button>
     </div>
-  </section></div>;
+  </section></ModalBackdrop>;
 }

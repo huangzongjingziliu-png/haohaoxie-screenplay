@@ -369,9 +369,25 @@ impl Default for SceneBoard {
     fn default() -> Self { Self { color: "#FFF2A8".into(), summaries_enabled: false, groups: Vec::new(), links: Vec::new(), hide_links: false, cards: BTreeMap::new() } }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, Default)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct ProjectMemory {
+    pub markdown: String,
+    pub author_notes: String,
+    pub history: Vec<String>,
+    pub source_fingerprint: String,
+    pub updated_at: String,
+    #[serde(default = "memory_enabled")]
+    pub auto_enabled: bool,
+}
+fn memory_enabled() -> bool { true }
+fn default_project_memory() -> ProjectMemory { ProjectMemory { auto_enabled: true, ..Default::default() } }
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]
 pub struct ScreenplaySettings {
+    #[serde(default = "default_project_memory")]
+    pub project_memory: ProjectMemory,
     #[serde(default)]
     pub scene_board: SceneBoard,
     #[serde(default = "default_typography")]
@@ -408,6 +424,7 @@ fn default_typography() -> String { "hollywood".into() }
 impl Default for ScreenplaySettings {
     fn default() -> Self {
         Self {
+            project_memory: default_project_memory(),
             scene_board: SceneBoard::default(),
             paper: PaperSettings::default(),
             typography: default_typography(),

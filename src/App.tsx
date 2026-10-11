@@ -1,3 +1,5 @@
+import {useProjectMemory} from '@/hooks/useProjectMemory';
+import ModalBackdrop from '@/components/ModalBackdrop';
 import {useSplitSync} from '@/hooks/useSplitSync';
 import {tr,useUiLanguage} from '@/i18n';
 import ModelPicker from '@/components/ModelPicker';
@@ -29,6 +31,7 @@ import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ip
 export default function App() {
   useUiLanguage();
   useSplitSync();
+  useProjectMemory();
   const project = useEditorStore((s) => s.project);
   const viewMode = useEditorStore((s) => s.viewMode);
   const pushToast = useEditorStore((s) => s.pushToast);
@@ -203,7 +206,7 @@ export default function App() {
     } catch (e) { pushToast('error', String(e)); }
   };
   const exitDialog = showExit && (
-    <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
+    <ModalBackdrop onDismiss={()=>setShowExit(false)} disabled={exiting}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
       <h2 id="exit-title">{tr(exitTarget === 'quit' ? "保存修改后退出？" : "保存修改后关闭？")}</h2>
       <p className="modal-hint">{tr("不保存会放弃尚未落盘的修改，不保留本次恢复副本。已经保存到文件的内容不受影响。")}</p>
       <div className="modal-actions">
@@ -217,7 +220,7 @@ export default function App() {
           } finally { setExiting(false); }
         }}>{tr(exitTarget === 'quit' ? "保存并退出" : "保存并关闭")}</button>
       </div>
-    </section></div>
+    </section></ModalBackdrop>
   );
 
   // Keep import state mounted when an empty workspace becomes a project.
@@ -254,7 +257,7 @@ export default function App() {
       )}
       {showSearch && <SearchBar onClose={()=>setShowSearch(false)}/>}
       <div className="main">
-        {showNav && <Navigator />}
+        {viewMode !== 'focus' && <button className="navigator-toggle" aria-label={tr(showNav?"折叠导航":"展开导航")} title={tr(showNav?"折叠导航":"展开导航")} aria-expanded={showNav} onClick={()=>setShowNavigator(!showNavigator)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>}{showNav && <Navigator />}
         <div className="editors" ref={resizerRef}>
           {showLeft && (
             <div className="editor-pane" style={{ flex: showRight ? leftSplitRatio : 1, order: sourceFirst ? 2 : 0 }}>
@@ -272,6 +275,7 @@ export default function App() {
             </div>
           )}
         </div>
+        {showAgent && viewMode !== 'focus' && <AgentPanel onClose={() => setShowAgent(false)} />}
       </div>
       <StatusBar />
       {showBoard && <SceneBoard onJump={id=> {setShowBoard(false);setViewMode('left');useEditorStore.getState().setActiveBlock(id);let attempts=0;const jump=()=>{const el=document.querySelector<HTMLElement>(`.screenplay-editor [data-block-id="${id}"] .screenplay-block`);if(el){el.scrollIntoView({block:'center',behavior:'smooth'});el.focus();}else if(attempts++<30)requestAnimationFrame(jump);};requestAnimationFrame(jump);}} onClose={() => setShowBoard(false)} onConfigure={() => {setShowBoard(false);setSettingsTab('models');setShowSettings(true);}} />}
@@ -280,7 +284,6 @@ export default function App() {
       {showVersions && <VersionPanel onClose={() => setShowVersions(false)} />}
       <AgentContextMenu/>
       {agentTarget && <AgentSelectionPanel target={agentTarget} onClose={()=>setAgentTarget(null)} onConfigure={()=>{setAgentTarget(null);setSettingsTab('models');setShowSettings(true);}}/>}
-      {showAgent && viewMode !== 'focus' && <AgentPanel onClose={() => setShowAgent(false)} />}
     </div>
   );
   }

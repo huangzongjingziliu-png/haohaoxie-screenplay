@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr, effectiveLanguage} from '@/i18n';
 import { useEffect, useState } from 'react';
 import { ipc } from '@/ipc/client';
@@ -38,7 +39,7 @@ ${quote(info.cli)} status
     try { setMessage(await action()); } catch (e) { setMessage(String(e)); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop" onClick={onClose}>
+  return <ModalBackdrop onDismiss={onClose}>
     <section className="modal connection-panel" role="dialog" aria-modal="true" aria-labelledby="connection-title" onClick={(e) => e.stopPropagation()}>
       <h2 id="connection-title">{tr("连接外部 Agent，让它操作好好写剧本")}</h2>
       <p>{tr("把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 和 MCP 都已内置，无需安装 Codex CLI。")}</p>
@@ -79,5 +80,5 @@ ${quote(info.cli)} status
       <pre role="status">{message}</pre>
       <div className="modal-actions"><button onClick={onClose}>{tr("关闭")}</button></div>
     </section>
-  </div>;
+  </ModalBackdrop>;
 }

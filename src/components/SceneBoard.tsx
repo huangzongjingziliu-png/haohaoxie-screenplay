@@ -1,3 +1,4 @@
+import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import InlineSceneText from './InlineSceneText';
 import {flushPendingEdits} from '@/utils/pendingEdits';
@@ -114,7 +115,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       </article>;}
 
 
-  return <div className="scene-board-backdrop"><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
+  return <ModalBackdrop className="scene-board-backdrop" onDismiss={onClose} message={tr("关闭白板？已经应用的场景与便签修改会保留，尚未提交的输入会放弃。")}><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
     <header className="board-heading"><div><h2>{tr("场景白板")}</h2><span>{scenes.length}{tr(" 个场景 · 拖动标题调整顺序，与剧本和场景列表同步")}</span></div><button onClick={onClose}>{tr("返回写作 ×")}</button></header>
     <div className="board-tools">
       <div className="board-color-field">{tr("默认颜色 ")}<BoardColorPicker label={tr("默认便签颜色")} value={shownColor} onChange={changeDefaultColor}/></div>
@@ -122,7 +123,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       <div className="board-color-field">{tr("选中便签 ")}<BoardColorPicker label={tr("选中便签颜色")} disabled={!selected} value={selectedCard?.color || shownColor} onChange={color=>{if(selected)cardEdit(selected,{color});}}/></div>
       <span className="board-swatches" aria-label={tr("常用便签颜色")}>{[['#FFF2A8',tr("黄色")],['#FFD7DE',tr("粉色")],['#CDE9FF',tr("蓝色")],['#D7F0D2',tr("绿色")],['#E7DBFF',tr("紫色")]].map(([color,name])=><button key={color} aria-label={fmt("便签颜色：{0}",name)} title={selected ? fmt("将选中便签设为{0}",name) : fmt("将默认便签设为{0}",name)} style={{background:color}} onClick={()=>{if(selected)cardEdit(selected,{color});else changeDefaultColor(color);}} />)}</span>
       <button disabled={!selected} onClick={()=> {if(selected)cardEdit(selected,{width:240,height:240});}}>{tr("恢复正方形")}</button>
-      <button onClick={()=>void useEditorStore.getState().undo()}>{tr("撤销")}</button><button onClick={()=>void useEditorStore.getState().redo()}>{tr("重做")}</button>
+      <button aria-label={tr("撤销")} title={tr("撤销")} onClick={()=>void useEditorStore.getState().undo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14"/></svg></button><button aria-label={tr("重做")} title={tr("重做")} onClick={()=>void useEditorStore.getState().redo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m16 4 5 5-5 5M21 9H11a7 7 0 0 0 0 14"/></svg></button>
       <div className="board-zoom-tools" aria-label={tr("白板缩放")}><button aria-label={tr("缩小白板")} onClick={()=>changeZoom(zoom-.1)}>−</button><output aria-label={tr("白板缩放比例")}>{Math.round(zoom*100)}%</output><button aria-label={tr("放大白板")} onClick={()=>changeZoom(zoom+.1)}>＋</button><button onClick={()=>changeZoom(1)}>{tr("重置缩放")}</button></div>
       <label className="board-ai-toggle"><input type="checkbox" checked={enabled} disabled={configured !== true} onChange={e=> {const checked=e.currentTarget.checked;paused.current=false;edit(b=>({...b,summaries_enabled:checked}));}}/>{tr("自动概括场景")}</label>
       <button onClick={onConfigure}>{tr("配置模型…")}</button>
@@ -166,5 +167,5 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
     {selectionBox&&<div className="board-selection-box" style={selectionBox}/> }
     <button className="board-hide-links" onClick={()=>edit(b=>({...b,hide_links:!b.hide_links}))}>{board.hide_links?tr("显示连线"):tr("隐藏连线")}</button>
     {commentId&&<BoardNotes id={commentId} title={scenes.find(s=>s.id===commentId)?.title??tr("场景")} board={board} onSave={comments=>cardEdit(commentId,{comments})} onClose={()=>setCommentId(null)}/>}
-  </section></div>;
+  </section></ModalBackdrop>;
 }
