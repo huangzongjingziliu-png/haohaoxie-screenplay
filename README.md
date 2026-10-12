@@ -6,15 +6,17 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Public beta 0.1.39 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Source preview 0.1.39 · Released installer 0.1.35 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.39-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+
+The next installer is being refined for PDF import and model setup. Use the existing release or build the latest source while it is under review.
 
 ## See it in action
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-[Download the original-quality demo](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.39-beta.1/haohaoxie-demo-original.mp4) · A 49-second introduction, with a lightweight preview above.
+A 49-second introduction. The original-quality video will be downloadable with the next installer release.
 
 ## Get the scene down. See the formatted page.
 

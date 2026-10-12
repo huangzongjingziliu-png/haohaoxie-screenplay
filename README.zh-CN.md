@@ -6,15 +6,17 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**公开测试版 0.1.39 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新源码 0.1.39 · 已发布安装版 0.1.35 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.39-beta.1) · [English](README.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [English](README.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+
+新版安装包正在完善 PDF 导入与模型配置，发布前请先使用已有安装版，或构建最新源码。
 
 ## 看看它怎么用
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-[下载原画质宣传片](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.39-beta.1/haohaoxie-demo-original.mp4) · 约 49 秒，页面内为轻量预览。
+约 49 秒，页面内为轻量预览。原画质宣传片会随下一次安装包发布提供下载。
 
 ## 先把戏写出来，格式可以一起看
 
