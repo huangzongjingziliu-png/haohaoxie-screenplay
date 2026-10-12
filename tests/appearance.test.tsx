@@ -40,3 +40,12 @@ it('损坏预设记录被跳过，不影响设置界面打开', () => {
   expect(readPresets()).toEqual([]);
   expect(() => render(<SettingsPanel onClose={() => undefined}/>)).not.toThrow();
 });
+it('场景标题提供参考默认、美式及自定义模板并随项目保存',async()=>{
+  const view=render(<SettingsPanel onClose={()=>{}}/>);
+  expect((view.getByLabelText('场景标题模板') as HTMLInputElement).value).toBe('{type}。{location}——{time}');
+  fireEvent.change(view.getByLabelText('标题格式预设'),{target:{value:'en'}});
+  expect((view.getByLabelText('场景标题模板') as HTMLInputElement).value).toBe('{type}. {location} - {time}');
+  fireEvent.click(view.getByText('保存设置'));
+  await waitFor(()=>expect(mockBackend.callsTo('update_settings')).toHaveLength(1));
+  expect(mockBackend.callsTo('update_settings')[0].args?.patch).toMatchObject({sceneHeadingAuto:true,sceneHeadingLanguage:'en',sceneHeadingTemplate:'{type}. {location} - {time}'});
+});

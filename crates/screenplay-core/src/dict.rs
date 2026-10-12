@@ -107,7 +107,7 @@ pub fn scene_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r#"(?x)
+            r#"(?ix)
             ^\s*
             (?:(?P<num>\d{1,4}[A-Za-z]?|[零〇一二三四五六七八九十百千万]{1,12})\s*[.、,)）:：]?\s*)?      # 可选场景编号 "1." 或 "1 "
             (?P<int_ext>内景\s*/\s*外景|外景\s*/\s*内景|内\s*/\s*外|外\s*/\s*内|内\s*[．.]\s*外|外\s*[．.]\s*内|内外|外内|内景|外景|室内|室外|内|外|INT\s*/\s*EXT|EXT\s*/\s*INT|I\s*/\s*E|INT|EXT)

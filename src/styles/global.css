@@ -1515,3 +1515,5 @@ body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark b
 .navigator-occurrences button span,.navigator-occurrences button small { overflow-wrap: anywhere; }
 .navigator-occurrences button small { color: #86868b; }
 .navigator-body li.active { box-shadow: inset 3px 0 #c8ab4d; background: #fff4ce; }
+
+.board-create-scene{width:min(520px,90vw)}.board-create-scene>label{display:flex;flex-direction:column;gap:8px;margin:16px 0}.board-create-scene input,.board-create-scene textarea{width:100%;box-sizing:border-box;border:1px solid #dce2ea;border-radius:8px;padding:10px;font:inherit;background:#fff;color:#20232a}.board-create-scene textarea{resize:vertical}.board-create-scene>p{line-height:1.6;color:#657080}

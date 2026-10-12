@@ -169,6 +169,7 @@ export const ipc = {
     call<SearchHit[]>('search', { query, caseSensitive }),
 
   reorderScenes: (sceneIds: string[], expectedRevision: number) => call<CommandResult>('reorder_scenes', {sceneIds, expectedRevision}),
+  createBoardScene: (title: string, summary: string, expectedRevision: number) => call<CommandResult>('create_board_scene', {title, summary, expectedRevision}),
   updateSceneBoard: (board: import('./types/SceneBoard').SceneBoard, expectedRevision: number,sceneIds?:string[]) => call<CommandResult>('update_scene_board', {board, expectedRevision,sceneIds}),
   summarizeScene: (sceneId: string) => call<{summary: string; source: string; projectId: string}>('agent_summarize_scene', {sceneId}),
   // 修改（全部经 CommandService）
@@ -228,6 +229,9 @@ export const ipc = {
   documentStats: () => call<DocumentStats>('document_stats'),
   toFountain: () => call<string>('to_fountain'),
   updateSettings: (patch: {
+    sceneHeadingTemplate?: string;
+    sceneHeadingLanguage?: string;
+    sceneHeadingAuto?: boolean;
     elementStyles?: Record<string, import("./types/ElementStyle").ElementStyle>;
     projectMemory?: import("./types/ProjectMemory").ProjectMemory;
     stylePresetName?: string;

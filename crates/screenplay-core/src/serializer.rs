@@ -56,16 +56,13 @@ pub fn to_compact_source(doc: &ScreenplayDocument) -> String {
                 i += 1;
             }
             BlockType::SceneHeading => {
-                let display = b
-                    .scene_heading
-                    .as_ref()
-                    .map(parser::format_scene_heading)
-                    .unwrap_or_else(|| b.text.clone());
+                let display = if parser::parse_scene_heading(&b.text).is_some() { b.text.clone() } else { format!(".{}",b.text) };
                 let num = b
                     .scene_heading
                     .as_ref()
                     .and_then(|d| d.scene_number.clone());
                 match num {
+                    Some(n) if display.starts_with('.') => parts.push(format!(".{}. {}", n, &display[1..])),
                     Some(n) => parts.push(format!("{}. {}", n, strip_markdown(&display))),
                     None => parts.push(display),
                 }

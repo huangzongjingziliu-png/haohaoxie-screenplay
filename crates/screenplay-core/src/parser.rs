@@ -168,7 +168,7 @@ fn split_location_time(rest: &str, zh: bool) -> (String, String) {
         }
     }
     // 先按显式分隔符切
-    for sep in ["——", " - ", " – ", " — ", " · ", "・", "-", "–", "—", "·"] {
+    for sep in ["——", " - ", " – ", " — ", " · ", "・", "-", "–", "—", "·", "，", ","] {
         if let Some(idx) = rest.rfind(sep) {
             let (l, t) = rest.split_at(idx);
             let l = l.trim().trim_end_matches(['.', '．']).trim();
@@ -184,8 +184,8 @@ fn split_location_time(rest: &str, zh: bool) -> (String, String) {
         let parts: Vec<&str> = rest.split_whitespace().collect();
         if parts.len() >= 2 {
             let last = parts[parts.len() - 1];
-            if TIME_ZH.contains(&last) {
-                return (parts[..parts.len() - 1].join(" "), last.to_string());
+            if looks_like_time(last, true) {
+                return (parts[..parts.len() - 1].join(" ").trim_end_matches([',','，']).trim().to_string(), last.to_string());
             }
         }
         // 无空格：后缀匹配时间词
@@ -216,7 +216,7 @@ fn split_location_time(rest: &str, zh: bool) -> (String, String) {
 
 fn looks_like_time(s: &str, zh: bool) -> bool {
     if zh {
-        TIME_ZH.contains(&s)
+        TIME_ZH.contains(&s) || ["次日", "翌日", "当日", "同日"].iter().any(|prefix| s.strip_prefix(prefix).is_some_and(|rest| TIME_ZH.contains(&rest))) || TIME_EN.iter().any(|t| s.eq_ignore_ascii_case(t))
     } else {
         let u = s.to_ascii_uppercase();
         TIME_EN.iter().any(|t| u == *t)
@@ -556,6 +556,17 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
             continue;
         }
 
+        // Fountain forced scene heading supports custom project templates.
+        if raw.starts_with('.') && !raw.starts_with("..") && !raw[1..].trim().is_empty() {
+            let body=raw[1..].trim();
+            let numbered=body.split_once(". ").filter(|(n,_)|!n.is_empty()&&n.len()<=5&&n.chars().next().is_some_and(|c|c.is_ascii_digit())&&n.chars().all(|c|c.is_ascii_alphanumeric()));
+            let heading=numbered.map(|(_,t)|t).unwrap_or(body);
+            let idx=push(&mut blocks,&current_scene,&mut last_type,BlockType::SceneHeading,heading.to_string(),1.0);
+            let mut data=parse_scene_heading(heading).map(|v|v.0).unwrap_or_default();
+            if let Some((n,_))=numbered {data.scene_number=Some(n.into());}
+            blocks[idx].scene_heading=Some(data);
+            current_scene=Some(blocks[idx].id.clone());blocks[idx].scene_id=current_scene.clone();i+=1;continue;
+        }
         // 2) 场景标题
         if let Some((data, display)) = parse_scene_heading(&raw) {
             let idx = push(&mut blocks, &current_scene, &mut last_type, BlockType::SceneHeading, display, 0.98);

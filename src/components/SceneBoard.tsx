@@ -17,11 +17,14 @@ import type { SceneCard } from '@/ipc/types/SceneCard';
 export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>void; onConfigure:()=>void; onJump?:(id:string)=>void}) {
   const {canvasRef,zoom,changeZoom}=useBoardZoom();
   const colorSequence=useRef(0);
+  const closingBoard=useRef(false);
   const [draftColor,setDraftColor]=useState<string | null>(null);
   const {startDrag,pointerTarget,insertion} = useSceneDrag('horizontal',(from,to,side)=>{const current=useEditorStore.getState().document;return current?(current.settings.scene_board.groups.length?moveBoardUnit(current.id,from,to,side):moveScene(from,to,side)):Promise.resolve();});
   const cardsRef=useRef<HTMLDivElement>(null);
   const [checked,setChecked]=useState<string[]>([]);
   const [groupName,setGroupName]=useState('');
+  const [adding,setAdding]=useState(false),[newTitle,setNewTitle]=useState(''),[newSummary,setNewSummary]=useState(''),[creating,setCreating]=useState(false),[createError,setCreateError]=useState('');
+
   const [selectionBox,setSelectionBox]=useState<{left:number;top:number;width:number;height:number}|null>(null);
   const stopSelection=useRef<(()=>void)|null>(null);
   useEffect(()=>()=>stopSelection.current?.(),[]);
@@ -46,7 +49,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const live = useRef(true);
   const stopResize = useRef<(()=>void) | null>(null);
   useEffect(()=> { live.current = true; void ipc.agentGetConfig().then(c=>setConfigured(c.providerKind !== 'echo' && !!c.model && (c.providerKind !== 'compatible' || !!c.baseUrl))).catch(()=>setConfigured(false)); return ()=> {live.current=false;stopResize.current?.();}; }, []);
-  useEffect(()=> { const escape=(e:KeyboardEvent)=> {if(e.key==='Escape') onClose();};window.addEventListener('keydown',escape);return ()=>window.removeEventListener('keydown',escape); }, [onClose]);
+  useEffect(()=> { const escape=(e:KeyboardEvent)=> {if(e.key==='Escape'&&!adding) void closeBoard();};window.addEventListener('keydown',escape);return ()=>window.removeEventListener('keydown',escape); }, [onClose,adding]);
   useEffect(()=> {
     const previous = document.activeElement as HTMLElement | null;
     dialogRef.current?.focus();
@@ -65,6 +68,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const changeDefaultColor=(color:string)=> {const sequence=++colorSequence.current;setDraftColor(color);if(doc)void updateBoard(doc.id,b=>({...b,color})).then(()=>{if(sequence===colorSequence.current)setDraftColor(null);}).catch(e=>{if(sequence===colorSequence.current)setDraftColor(null);report(e);});};
   const enabled = board.summaries_enabled;
   const report = (e: unknown) => { if (live.current) setError(String(e)); };
+  const closeBoard=async()=>{if(closingBoard.current)return;closingBoard.current=true;try{await flushPendingEdits();onClose();}catch(e){report(e);}finally{closingBoard.current=false;}};
   const edit = (change: Parameters<typeof updateBoard>[1]) => { if (doc) void updateBoard(doc.id, change).catch(report); };
   const cardEdit = (id:string, patch:Partial<SceneCard>) => edit(b=>({...b,cards:{...b.cards,[id]:{...(b.cards[id] ?? defaultCard()),...patch}}}));
 
@@ -88,6 +92,20 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
     return ()=>window.clearTimeout(timer);
   }, [doc, enabled, configured, tick]);
   if (!doc) return null;
+  const createScene=async()=>{
+    if(creating||!newTitle.trim())return;
+    setCreating(true);setCreateError('');
+    try {
+      await flushPendingEdits();
+      const state=useEditorStore.getState(),current=state.document;
+      if(current?.id!==doc.id)throw new Error(tr("项目已切换"));
+      const result=await ipc.createBoardScene(newTitle.trim(),newSummary,current.revision);
+      if(useEditorStore.getState().document?.id!==doc.id)throw new Error(tr("项目已切换"));
+      await state.applyResult(result);
+      const id=result.affected[0];setSelected(id);setChecked([id]);setAdding(false);setNewTitle('');setNewSummary('');
+      requestAnimationFrame(()=>cardsRef.current?.querySelector(`[data-scene-id="${id}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}));
+    }catch(e){setCreateError(String(e));}finally{setCreating(false);}
+  };
   const selectedCard = selected ? board.cards[selected] ?? defaultCard() : null;
   const resize = (e: React.PointerEvent, id:string, width:number, height:number) => {
     e.preventDefault(); e.stopPropagation(); setSelected(id); stopResize.current?.();
@@ -106,18 +124,19 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const groupByScene=new Map<string,string>();(board.groups??[]).forEach(g=>g.scene_ids.forEach(id=>groupByScene.set(id,g.id)));
   const units:{kind:'scene'|'group';id:string}[]=[];const emitted=new Set<string>();scenes.forEach(scene=>{const group=groupByScene.get(scene.id);if(group){if(!emitted.has(group)){units.push({kind:'group',id:group});emitted.add(group);}}else units.push({kind:'scene',id:scene.id});});
   const renderCard=(s:typeof scenes[number],i:number)=> { const c=board.cards[s.id] ?? defaultCard(), size=preview?.id===s.id ? preview : {width:c.width||240,height:c.height||240}; return <article onDoubleClick={e=>{if(!(e.target as HTMLElement).closest("header,button,textarea,input"))e.currentTarget.querySelector(".scene-summary-inline")?.dispatchEvent(new MouseEvent("dblclick",{bubbles:true}));}} key={s.id} data-scene-id={s.id} data-board-node={s.id} data-insertion={insertion?.id===s.id?insertion.side:undefined} onPointerDown={e=>startDrag(e,s.id)} draggable onDragStart={e=>{setDragged(s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDragged(null);setDropTarget(null);}} className={`scene-card ${checked.includes(s.id)||selected===s.id?'selected':''} ${(dropTarget===s.id || pointerTarget===s.id)?'drop-target':''}`} style={{background:c.color||shownColor,width:size.width,height:size.height}} tabIndex={0} aria-label={fmt("场景 {0}：{1}",i+1,s.title)} onClick={e=>{setSelected(s.id);selectNode(s.id);setChecked(ids=>e.metaKey||e.ctrlKey ? ids.includes(s.id)?ids.filter(id=>id!==s.id):[...ids,s.id] : [s.id]);}} onFocus={()=>setSelected(s.id)} onKeyDown={e=> {if(e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const next=scenes[i+(['ArrowLeft','ArrowUp'].includes(e.key)?-1:1)];if(next)reorder(s.id,next.id);}}} onDragOver={e=>{if(dragged){e.preventDefault();setDropTarget(s.id);}}} onDrop={e=>{e.preventDefault();const from=e.dataTransfer.getData('application/x-muben-scene')||dragged;setDragged(null);setDropTarget(null);if(from)reorder(from,s.id);}}>
-        <header draggable title={tr("拖动场景标题以调整顺序；Option + 方向键也可排序")} onDragStart={e=>{setDragged(s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDragged(null);setDropTarget(null);}}><span className="scene-card-number">{i+1}</span><InlineSceneText title value={s.title} label={fmt("编辑场景 {0} 标题",i+1)} onSave={async(text,original)=>{await flushPendingEdits();const state=useEditorStore.getState(),current=state.document;if(current?.id!==doc.id)throw new Error(tr("项目已切换"));const block=current.blocks.find(b=>b.id===s.id);if(!block)throw new Error(tr("场景已删除"));if(block.text!==original)throw new Error(tr("场景标题已被修改，请重新打开编辑"));await state.applyResult(await ipc.replaceBlock(s.id,text,current.revision));}}/></header>
+        <header draggable title={tr("拖动场景标题以调整顺序；Option + 方向键也可排序")} onDragStart={e=>{setDragged(s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDragged(null);setDropTarget(null);}}><span className="scene-card-number">{i+1}</span><InlineSceneText title value={s.title} label={fmt("编辑场景 {0} 标题",i+1)} onSave={async(text,original)=>{const state=useEditorStore.getState(),current=state.document;if(current?.id!==doc.id)throw new Error(tr("项目已切换"));const block=current.blocks.find(b=>b.id===s.id);if(!block)throw new Error(tr("场景已删除"));if(block.text!==original)throw new Error(tr("场景标题已被修改，请重新打开编辑"));await state.applyResult(await ipc.replaceBlock(s.id,text,current.revision));}}/></header>
 
         <button className="card-jump" title={tr("跳转到此场景的标准剧本")} aria-label={fmt("跳转到场景 {0} 的标准剧本",i+1)} onClick={e=>{e.stopPropagation();onJump?.(s.id);}}>↗</button>
-        <InlineSceneText value={c.summary_manual||c.summary_source===s.source?c.summary:''} label={fmt("编辑场景 {0} 概括",i+1)} onSave={async(text)=>{if(useEditorStore.getState().document?.id!==doc.id)throw new Error(tr("项目已切换"));await updateBoard(doc.id,b=>{const scene=scenesOf(useEditorStore.getState().document).find(scene=>scene.id===s.id);if(!scene)throw new Error(tr("场景已删除"));return {...b,cards:{...b.cards,[s.id]:{...(b.cards[s.id]??defaultCard()),summary:text,summary_source:scene.source,summary_manual:!!text.trim()}}};});}}/>
+        <InlineSceneText value={c.summary_manual||c.summary_source===s.source?c.summary:''} label={fmt("编辑场景 {0} 概括",i+1)} onSave={async(text)=>{if(useEditorStore.getState().document?.id!==doc.id)throw new Error(tr("项目已切换"));await updateBoard(doc.id,b=>{const scene=scenesOf(useEditorStore.getState().document).find(scene=>scene.id===s.id);if(!scene)throw new Error(tr("场景已删除"));return {...b,cards:{...b.cards,[s.id]:{...(b.cards[s.id]??defaultCard()),summary:text,summary_source:scene.source,summary_manual:!!text.trim()}}};},undefined,false);}}/>
         <button className="card-comment" draggable={false} aria-label={fmt("场景 {0} 评论",i+1)} title={fmt("评论 · {0} 条",c.comments?.length||0)} onClick={e=>{e.stopPropagation();setCommentId(s.id);}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>{!!c.comments?.length&&<span className="card-comment-dot" aria-hidden="true"/>}</button>
         <button draggable={false} className="card-resize" title={tr("拖动调整便签宽高")} aria-label={fmt("调整场景 {0} 便签大小",i+1)} onPointerDown={e=>resize(e,s.id,size.width,size.height)}>◢</button>
       </article>;}
 
 
-  return <ModalBackdrop className="scene-board-backdrop" onDismiss={onClose} message={tr("关闭白板？已经应用的场景与便签修改会保留，尚未提交的输入会放弃。")}><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
-    <header className="board-heading"><div><h2>{tr("场景白板")}</h2><span>{scenes.length}{tr(" 个场景 · 拖动标题调整顺序，与剧本和场景列表同步")}</span></div><button onClick={onClose}>{tr("返回写作 ×")}</button></header>
+  return <ModalBackdrop className="scene-board-backdrop" onDismiss={()=>void closeBoard()} message={tr("关闭白板？已经应用的场景与便签修改会保留，尚未提交的输入会放弃。")}><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
+    <header className="board-heading"><div><h2>{tr("场景白板")}</h2><span>{scenes.length}{tr(" 个场景 · 拖动标题调整顺序，与剧本和场景列表同步")}</span></div><button onClick={()=>void closeBoard()}>{tr("返回写作 ×")}</button></header>
     <div className="board-tools">
+      <button className="primary" onClick={()=>{setCreateError('');setAdding(true);}}>{tr("新增便签")}</button>
       <div className="board-color-field">{tr("默认颜色 ")}<BoardColorPicker label={tr("默认便签颜色")} value={shownColor} onChange={changeDefaultColor}/></div>
       <button onClick={()=>edit(b=>({...b,cards:Object.fromEntries(Object.entries(b.cards).filter((entry): entry is [string,SceneCard]=>!!entry[1]).map(([id,c])=>[id,{...c,color:''}]))}))}>{tr("应用到全部便签")}</button>
       <div className="board-color-field">{tr("选中便签 ")}<BoardColorPicker label={tr("选中便签颜色")} disabled={!selected} value={selectedCard?.color || shownColor} onChange={color=>{if(selected)cardEdit(selected,{color});}}/></div>
@@ -157,7 +176,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       const finish=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',finish);window.removeEventListener('pointercancel',finish);setSelectionBox(null);stopSelection.current=null;};
       stopSelection.current=finish;window.addEventListener('pointermove',move);window.addEventListener('pointerup',finish);window.addEventListener('pointercancel',finish);
     }}><div className="board-cards" ref={cardsRef} style={{zoom,width:`${100/zoom}%`}}>
-      {!scenes.length && <p>{tr("暂无场景。请先在剧本中添加场景标题。")}</p>}
+      {!scenes.length && <p>{tr("还没有场景。点击“新增便签”，从第一场戏开始构思。")}</p>}
       <BoardConnections root={cardsRef} board={board} zoom={zoom} onEdit={setEditingLink}/>
       {units.map(unit=>unit.kind==='scene'?renderCard(scenes.find(s=>s.id===unit.id)!,scenes.findIndex(s=>s.id===unit.id)):(()=>{const group=board.groups.find(g=>g.id===unit.id)!;const id='group:'+group.id;return <section className={`board-group ${selectedNode===id?'selected':''}`} key={id} data-board-node={id} data-scene-id={id} data-insertion={insertion?.id===id?insertion.side:undefined}>
         <header onPointerDown={e=>{e.stopPropagation();startDrag(e,id);}} onClick={()=>selectNode(id)} tabIndex={0}><strong>{group.name}</strong><span>{group.scene_ids.length}{tr(" 场")}</span><input aria-label={fmt("组名 {0}",group.name)} value={group.name} maxLength={200} onChange={e=>{const name=e.currentTarget.value;edit(b=>({...b,groups:b.groups.map(g=>g.id===group.id?{...g,name}:g)}));}}/><button onClick={()=>{edit(b=>({...b,groups:b.groups.filter(g=>g.id!==group.id),links:b.links.filter(l=>l.from!==id&&l.to!==id)}));}}>{tr("取消成组")}</button></header>
@@ -166,6 +185,12 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
     </div></div>
     {selectionBox&&<div className="board-selection-box" style={selectionBox}/> }
     <button className="board-hide-links" onClick={()=>edit(b=>({...b,hide_links:!b.hide_links}))}>{board.hide_links?tr("显示连线"):tr("隐藏连线")}</button>
-    {commentId&&<BoardNotes id={commentId} title={scenes.find(s=>s.id===commentId)?.title??tr("场景")} board={board} onSave={comments=>cardEdit(commentId,{comments})} onClose={()=>setCommentId(null)}/>}
+    {adding&&<ModalBackdrop disabled={creating} dirty={!!(newTitle||newSummary)} onDismiss={()=>setAdding(false)} message={tr("放弃这张尚未添加的便签？场景标题和梗概不会保存。")}><form className="modal board-create-scene" role="dialog" aria-modal="true" aria-label={tr("新增便签")} onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();void createScene();}}>
+      <h3>{tr("新增便签")}</h3><p>{tr("便签添加到最后一场，之后可以拖动排序。正文只添加场景标题，梗概留在白板。")}</p>
+      <label>{tr("场景标题")}<input autoFocus disabled={creating} aria-label={tr("新便签场景标题")} placeholder={tr("例如：内景。咖啡馆——白天")} maxLength={1000} value={newTitle} onChange={e=>setNewTitle(e.target.value.replace(/[\r\n]+/g,' '))}/></label>
+      <label>{tr("场景梗概（可选）")}<textarea disabled={creating} aria-label={tr("新便签场景梗概")} rows={5} maxLength={1000} value={newSummary} onChange={e=>setNewSummary(e.target.value)}/></label>
+      {createError&&<p role="alert">{createError}</p>}<div className="modal-actions"><button type="button" disabled={creating} onClick={()=>setAdding(false)}>{tr("取消")}</button><button type="submit" className="primary" disabled={creating||!newTitle.trim()}>{creating?tr("保存中…"):tr("添加场景")}</button></div>
+    </form></ModalBackdrop>}
+    {commentId&&<BoardNotes id={commentId} title={scenes.find(s=>s.id===commentId)?.title??tr("场景")} board={board} onSave={(comments,expected)=>updateBoard(doc.id,b=>{const current=b.cards[commentId]??defaultCard();if(JSON.stringify(current.comments)!==JSON.stringify(expected))throw new Error(tr("评论已更新，请重新检查后提交"));return {...b,cards:{...b.cards,[commentId]:{...current,comments}}};})} onClose={()=>setCommentId(null)}/>}
   </section></ModalBackdrop>;
 }

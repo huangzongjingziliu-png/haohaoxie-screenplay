@@ -386,6 +386,12 @@ fn default_project_memory() -> ProjectMemory { ProjectMemory { auto_enabled: tru
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]
 pub struct ScreenplaySettings {
+    #[serde(default = "default_heading_template")]
+    pub scene_heading_template: String,
+    #[serde(default = "default_heading_language")]
+    pub scene_heading_language: String,
+    #[serde(default = "default_heading_auto")]
+    pub scene_heading_auto: bool,
     #[serde(default = "default_project_memory")]
     pub project_memory: ProjectMemory,
     #[serde(default)]
@@ -417,6 +423,10 @@ pub struct ScreenplaySettings {
     pub ocr_languages: Vec<String>,
 }
 
+fn default_heading_template() -> String { "{type}。{location}——{time}".into() }
+fn default_heading_language() -> String { "zh".into() }
+fn default_heading_auto() -> bool { true }
+
 fn default_save_interval() -> u64 { 30 }
 
 fn default_typography() -> String { "hollywood".into() }
@@ -424,6 +434,9 @@ fn default_typography() -> String { "hollywood".into() }
 impl Default for ScreenplaySettings {
     fn default() -> Self {
         Self {
+            scene_heading_template: default_heading_template(),
+            scene_heading_language: default_heading_language(),
+            scene_heading_auto: true,
             project_memory: default_project_memory(),
             scene_board: SceneBoard::default(),
             paper: PaperSettings::default(),

@@ -808,6 +808,13 @@ fn reorder_scenes(app: AppHandle, state: State<'_, AppState>, scene_ids: Vec<Str
 }
 
 #[tauri::command]
+fn create_board_scene(app: AppHandle, state: State<'_, AppState>, title: String, summary: String, expected_revision: u64) -> IpcResult<CommandResult> {
+    let r = state.project.run(|svc| svc.create_board_scene(Origin::GuiLeft, &title, &summary, expected_revision))?;
+    broadcast(&app, "gui-left", &r);
+    Ok(r)
+}
+
+#[tauri::command]
 fn update_scene_board(app: AppHandle, state: State<'_, AppState>, board: screenplay_core::ast::SceneBoard, expected_revision: u64, scene_ids: Option<Vec<String>>) -> IpcResult<CommandResult> {
     fn color(v: &str) -> bool { v.len() == 7 && v.starts_with('#') && v[1..].bytes().all(|b| b.is_ascii_hexdigit()) }
     if !color(&board.color) || board.cards.len() > 10000 || board.cards.values().any(|c| (!c.color.is_empty() && !color(&c.color)) || !c.width.is_finite() || !c.height.is_finite() || (c.width != 0.0 && !(160.0..=640.0).contains(&c.width)) || (c.height != 0.0 && !(160.0..=640.0).contains(&c.height)) || c.summary.chars().count() > 1000 || c.summary_source.len() > 2000000 || c.comments.len()>1000 || c.comments.iter().any(|s|s.chars().count()>10000)) {
@@ -896,6 +903,9 @@ fn to_fountain(state: State<'_, AppState>) -> IpcResult<String> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
+    pub scene_heading_template: Option<String>,
+    pub scene_heading_language: Option<String>,
+    pub scene_heading_auto: Option<bool>,
     pub project_memory: Option<screenplay_core::ast::ProjectMemory>,
     pub element_styles: Option<std::collections::BTreeMap<String, screenplay_core::ast::ElementStyle>>,
     pub style_preset_name: Option<String>,
@@ -914,6 +924,9 @@ fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> IpcResult<CommandResult> {
+    if patch.scene_heading_template.as_deref().is_some_and(|v| !screenplay_core::heading_format::valid_template(v)) || patch.scene_heading_language.as_deref().is_some_and(|v| !matches!(v,"zh"|"en")) {
+        return Err(IpcError::InvalidArgument { message: "场景模板必须各包含一次 {type}、{location}、{time}，且不能换行".into() });
+    }
     if patch.typography.as_deref().is_some_and(|v| v != "hollywood" && v != "chinese-reading") {
         return Err(IpcError::InvalidArgument { message: "无效的剧本排版模板".into() });
     }
@@ -926,8 +939,19 @@ fn update_settings(
         let r=state.project.run(|svc|svc.update_project_memory(&doc.id,Some(doc.revision),memory))?;
         broadcast(&app,"memory",&r);return Ok(r);
     }
+    let normalize_headings = patch.scene_heading_template.is_some() || patch.scene_heading_language.is_some() || patch.scene_heading_auto.is_some();
     let r = state.project.run(|svc| {
         svc.mutate_document(Origin::GuiLeft, |doc| {
+            if let Some(v) = patch.scene_heading_template { doc.settings.scene_heading_template = v; }
+            if let Some(v) = patch.scene_heading_language { doc.settings.scene_heading_language = v; }
+            if let Some(v) = patch.scene_heading_auto { doc.settings.scene_heading_auto = v; }
+            if normalize_headings {
+                for b in &mut doc.blocks {
+                    if b.block_type != screenplay_core::ast::BlockType::SceneHeading { continue; }
+                    let n=screenplay_core::heading_format::format_heading(&b.text,&doc.settings).or_else(||b.scene_heading.as_ref().and_then(|d|screenplay_core::heading_format::format_heading(&screenplay_core::parser::format_scene_heading(d),&doc.settings)));
+                    if let Some((text,data))=n { b.text=text; b.scene_heading=Some(data); }
+                }
+            }
             if let Some(styles) = patch.element_styles { doc.settings.element_styles = styles; }
             if let Some(name) = patch.style_preset_name { doc.settings.style_preset_name = name; }
             if let Some(langs) = patch.ocr_languages { doc.settings.ocr_languages = langs; }
@@ -1722,6 +1746,7 @@ pub fn run() {
             set_block_type,
             reorder_scenes,
             update_scene_board,
+            create_board_scene,
             agent_summarize_scene,
             agent_text::agent_transform_text,
             agent_text::agent_attachment_text,

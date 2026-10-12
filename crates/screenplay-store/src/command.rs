@@ -156,12 +156,29 @@ impl CommandService {
         merge: bool,
         recompute_ranges: bool,
     ) {
+        let mut doc = doc;
+        let format_changed = before.settings.scene_heading_template != doc.settings.scene_heading_template || before.settings.scene_heading_language != doc.settings.scene_heading_language || before.settings.scene_heading_auto != doc.settings.scene_heading_auto;
+        let mut formatted = false;
+        let old_blocks: std::collections::BTreeMap<_,_> = before.blocks.iter().map(|b|(b.id.as_str(),b)).collect();
+        for block in &mut doc.blocks {
+            if block.block_type != BlockType::SceneHeading { continue; }
+            if !format_changed && old_blocks.get(block.id.as_str()).is_some_and(|old| old.text == block.text && old.block_type == block.block_type) { continue; }
+            let normalized = screenplay_core::heading_format::format_heading(&block.text, &doc.settings).or_else(|| {
+                if !format_changed { return None; }
+                block.scene_heading.as_ref().and_then(|data| screenplay_core::heading_format::format_heading(&screenplay_core::parser::format_scene_heading(data), &doc.settings))
+            });
+            if let Some((text, mut data)) = normalized {
+                if data.scene_number.is_none() { data.scene_number = block.scene_heading.as_ref().and_then(|d|d.scene_number.clone()); }
+                formatted |= text != block.text;
+                block.text = text; block.scene_heading = Some(data);
+            }
+        }
         self.store
             .history
             .lock()
             .unwrap()
             .push(before, origin.as_str(), command, target, merge);
-        self.commit(doc, recompute_ranges);
+        self.commit(doc, recompute_ranges || formatted);
     }
 
     // -----------------------------------------------------------------
@@ -400,6 +417,25 @@ impl CommandService {
         );
         self.commit_with_history(before, doc, origin, "insert_block", None, false, true);
         Ok(self.result(vec![new_id], None))
+    }
+
+    /// Create a heading and its manual planning summary as one undoable edit.
+    pub fn create_board_scene(&self, origin: Origin, title: &str, summary: &str, expected_revision: u64) -> Result<CommandResult, CommandError> {
+        self.check_revision(Some(expected_revision))?;
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 1000 || title.contains(['\n', '\r']) || summary.chars().count() > 1000 {
+            return Err(CommandError::InvalidArgument { message: "场景标题不能为空，标题和梗概各不能超过1000字".into() });
+        }
+        let before = self.store.snapshot();
+        let mut doc = before.clone();
+        let mut heading = ScreenplayBlock::new(BlockType::SceneHeading, title);
+        heading.revision = doc.revision + 1;
+        let id = heading.id.clone();
+        doc.blocks.push(heading);
+        doc.settings.scene_board.cards.insert(id.clone(), SceneCard { summary: summary.into(), summary_source: title.into(), summary_manual: !summary.trim().is_empty(), ..SceneCard::default() });
+        self.store.log_operation(origin, "create_board_scene", &id, "", title, None);
+        self.commit_with_history(before, doc, origin, "create_board_scene", None, false, true);
+        Ok(self.result(vec![id], None))
     }
 
     /// 删除 block
@@ -653,8 +689,11 @@ impl CommandService {
         self.check_revision(expected_revision)?;
         let before = self.store.snapshot();
         let old_doc = before.clone();
+        let configured_source=text.lines().map(|line| {
+            if screenplay_core::heading_format::parse_configured_heading(line,&old_doc.settings).is_some() { format!(".{}",line.trim().trim_start_matches('.').trim()) } else {line.to_string()}
+        }).collect::<Vec<_>>().join("\n");
         let outcome = screenplay_core::parse(
-            text,
+            &configured_source,
             &screenplay_core::ParseOptions {
                 title: Some(old_doc.metadata.title.clone()),
                 denoise: false,
@@ -670,9 +709,24 @@ impl CommandService {
         doc.id = old_doc.id.clone();
         // Keep board references and unchanged paragraphs stable when editing free text.
         let mut available:std::collections::BTreeMap<(String,String),std::collections::VecDeque<_>>=std::collections::BTreeMap::new();
-        let key=|b:&ScreenplayBlock| (b.block_type.as_str().to_string(),if b.block_type==BlockType::SceneHeading{b.text.chars().filter(|c|c.is_alphanumeric()).flat_map(char::to_uppercase).collect()}else{b.text.clone()});
+        let key=|b:&ScreenplayBlock| (b.block_type.as_str().to_string(),if b.block_type==BlockType::SceneHeading{screenplay_core::heading_format::format_heading(&b.text,&old_doc.settings).map(|v|v.0).unwrap_or_else(||b.text.clone()).chars().filter(|c|c.is_alphanumeric()).flat_map(char::to_uppercase).collect()}else{b.text.clone()});
         for b in &old_doc.blocks {available.entry(key(b)).or_default().push_back(b);}
-        for b in &mut doc.blocks {if let Some(old)=available.get_mut(&key(b)).and_then(|q|q.pop_front()){b.id=old.id.clone();b.metadata=old.metadata.clone();if b.block_type==BlockType::SceneHeading{b.text=old.text.clone();}}}
+        for b in &mut doc.blocks {if let Some(old)=available.get_mut(&key(b)).and_then(|q|q.pop_front()){b.id=old.id.clone();b.metadata=old.metadata.clone();if b.block_type==BlockType::SceneHeading{b.text=old.text.clone();b.scene_heading=old.scene_heading.clone();}}}
+        // A single renamed heading at the same scene position is still the same scene.
+        // Exact matches above handle reorderings; ambiguous bulk changes keep fresh IDs.
+        let old_scenes:Vec<_>=old_doc.blocks.iter().filter(|b|b.block_type==BlockType::SceneHeading).collect();
+        let new_scenes:Vec<_>=doc.blocks.iter().enumerate().filter(|(_,b)|b.block_type==BlockType::SceneHeading).map(|(i,_)|i).collect();
+        if old_scenes.len()==new_scenes.len() {
+            let new_ids:std::collections::HashSet<_>=new_scenes.iter().map(|i|doc.blocks[*i].id.as_str()).collect();
+            let old_ids:std::collections::HashSet<_>=old_scenes.iter().map(|b|b.id.as_str()).collect();
+            let unmatched_old:Vec<_>=old_scenes.iter().enumerate().filter(|(_,b)|!new_ids.contains(b.id.as_str())).collect();
+            let unmatched_new:Vec<_>=new_scenes.iter().enumerate().filter(|(_,i)|!old_ids.contains(doc.blocks[**i].id.as_str())).collect();
+            if unmatched_old.len()==1&&unmatched_new.len()==1&&unmatched_old[0].0==unmatched_new[0].0 {
+                let old=unmatched_old[0].1;let new=&mut doc.blocks[*unmatched_new[0].1];
+                new.id=old.id.clone();new.metadata=old.metadata.clone();
+                if let Some(data)=new.scene_heading.as_mut() {if data.scene_number.is_none(){data.scene_number=old.scene_heading.as_ref().and_then(|d|d.scene_number.clone());}}
+            }
+        }
         if origin==Origin::Agent {for old in &old_doc.blocks {if old.metadata.locked && !doc.blocks.iter().any(|b|b.id==old.id&&b.text==old.text&&b.block_type==old.block_type){return Err(CommandError::BlockLocked{id:old.id.clone()});}}}
         if doc.metadata.author.is_empty() { doc.metadata.author = old_doc.metadata.author.clone(); }
         doc.settings = old_doc.settings.clone();
@@ -1125,6 +1179,41 @@ mod tests {
     }
 
     #[test]
+    fn scene_formats_keep_board_identity_across_source_settings_and_undo() {
+        let svc=make_service();let rev=svc.get_document().revision;
+        let r=svc.create_board_scene(Origin::GuiLeft,"内，咖啡馆 白天","两人见面",rev).unwrap();let id=r.affected[0].clone();
+        assert_eq!(r.document.blocks.last().unwrap().text,"内景。咖啡馆——白天");
+        assert!(r.source_text.contains("内景。咖啡馆——白天"));
+        svc.mutate_document(Origin::GuiLeft,|d| { d.settings.scene_heading_template="{location} / {type} / {time}".into(); }).unwrap();
+        let custom=svc.get_document();assert_eq!(custom.document.blocks.last().unwrap().text,"咖啡馆 / 内景 / 白天");
+        let r=svc.replace_source_text(Origin::GuiRight,&custom.source_text,Some(custom.revision)).unwrap();
+        assert_eq!(r.document.blocks.last().unwrap().id,id);
+        assert_eq!(r.document.settings.scene_board.cards[&id].summary,"两人见面");
+        svc.mutate_document(Origin::GuiLeft,|d| { d.settings.scene_heading_template="{type}. {location} - {time}".into();d.settings.scene_heading_language="en".into(); }).unwrap();
+        assert_eq!(svc.get_document().document.blocks.last().unwrap().text,"INT. 咖啡馆 - 白天");
+        svc.undo(Origin::GuiLeft).unwrap();assert_eq!(svc.get_document().document.blocks.last().unwrap().text,"咖啡馆 / 内景 / 白天");
+    }
+
+    #[test]
+    fn board_scene_is_heading_only_atomic_and_revision_guarded() {
+        let svc = make_service();
+        let before = svc.get_document().document;
+        let r = svc.create_board_scene(Origin::GuiLeft, "INT. CAFE - DAY", "They finally meet", before.revision).unwrap();
+        let id = &r.affected[0];
+        assert_eq!(r.document.blocks.len(), before.blocks.len() + 1);
+        assert_eq!(r.document.blocks.last().unwrap().block_type, BlockType::SceneHeading);
+        assert!(!r.source_text.contains("They finally meet"));
+        assert!(r.document.settings.scene_board.cards[id].summary_manual);
+        assert!(svc.create_board_scene(Origin::GuiLeft,"EXT. ROAD - NIGHT","",before.revision).is_err());
+        assert!(svc.create_board_scene(Origin::GuiLeft," ","",r.revision).is_err());
+        let undone = svc.undo(Origin::GuiLeft).unwrap();
+        assert_eq!(undone.document.blocks, before.blocks);
+        assert!(!undone.document.settings.scene_board.cards.contains_key(id));
+        let redone = svc.redo(Origin::GuiLeft).unwrap();
+        assert_eq!(redone.document.settings.scene_board.cards[id].summary,"They finally meet");
+    }
+
+    #[test]
     fn markdown_metadata_and_bios_survive_subsequent_plain_source_edits() {
         let svc = make_service();
         svc.replace_source_text(Origin::GuiRight, include_str!("../../screenplay-core/fixtures/synthetic-markdown.md"), None).unwrap();
@@ -1278,7 +1367,7 @@ mod tests {
         // revision 不变
         assert_eq!(svc.store.revision(), before);
         // 文本未变
-        assert_eq!(svc.get_document().document.blocks[0].text, "EXT. BAR - NIGHT");
+        assert_eq!(svc.get_document().document.blocks[0].text, "外景。BAR——NIGHT");
     }
 
     #[test]
@@ -1295,7 +1384,7 @@ mod tests {
         assert_eq!(r.document.blocks[0].text, "transaction ok");
         assert!(r.version_id.is_some(), "Agent changes must retain a checkpoint");
         let undone = svc.undo(Origin::Cli).unwrap();
-        assert_eq!(undone.document.blocks[0].text, "EXT. BAR - NIGHT");
+        assert_eq!(undone.document.blocks[0].text, "外景。BAR——NIGHT");
         let redone = svc.redo(Origin::Cli).unwrap();
         assert_eq!(redone.document.blocks[0].text, "transaction ok");
     }
@@ -1480,7 +1569,7 @@ mod tests {
         let ids: Vec<_> = before.blocks.iter().filter(|b|b.block_type==BlockType::SceneHeading).map(|b|b.id.clone()).collect();
         let order = vec![ids[2].clone(),ids[0].clone(),ids[1].clone()];
         let r = svc.reorder_scenes(Origin::GuiLeft,&order,Some(before.revision)).unwrap();
-        assert_eq!(r.document.blocks.iter().map(|b|b.text.as_str()).collect::<Vec<_>>(),vec!["前言","INT. C - DAY","C动作","INT. A - DAY","A动作","甲","A对白","EXT. B - NIGHT","B动作"]);
+        assert_eq!(r.document.blocks.iter().map(|b|b.text.as_str()).collect::<Vec<_>>(),vec!["前言","内景。C——DAY","C动作","内景。A——DAY","A动作","甲","A对白","外景。B——NIGHT","B动作"]);
         for b in &before.blocks { assert!(r.document.blocks.iter().any(|a|a.id==b.id && a.text==b.text && a.block_type==b.block_type)); }
         assert_eq!(r.document.scenes.len(),3);
         assert!(r.source_text.find("C动作").unwrap()<r.source_text.find("A动作").unwrap());
@@ -1966,4 +2055,34 @@ mod perf_tests {
     }
 
 
+}
+
+#[cfg(test)]
+mod custom_scene_source_health {
+ use super::*;
+ #[test]
+ fn template_order_and_numbers_keep_card_identity_in_free_text() {
+  let store=std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("test")));
+  let svc=CommandService::new(store);
+  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","别丢这段梗概",0).unwrap();let id=r.affected[0].clone();
+  svc.mutate_document(Origin::GuiLeft,|d|d.blocks[0].scene_heading.as_mut().unwrap().scene_number=Some("12A".into())).unwrap();
+  for template in ["{type} {time} {location}","{location} / {type} / {time}","{type} | {location} | {time}"] {
+   svc.mutate_document(Origin::GuiLeft,|d|d.settings.scene_heading_template=template.into()).unwrap();
+   let before=svc.get_document();let r=svc.replace_source_text(Origin::GuiRight,&before.source_text,Some(before.revision)).unwrap();
+   assert_eq!(r.document.blocks[0].id,id);assert_eq!(r.document.blocks[0].block_type,BlockType::SceneHeading);
+   assert_eq!(r.document.blocks[0].scene_heading.as_ref().unwrap().scene_number.as_deref(),Some("12A"));
+   assert_eq!(r.document.settings.scene_board.cards[&id].summary,"别丢这段梗概");
+  }
+ }
+}
+#[cfg(test)] mod renamed_scene_health {
+ use super::*;
+ #[test] fn one_heading_rename_keeps_manual_summary_and_locked_agent_guard() {
+  let store=std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("test")));let svc=CommandService::new(store);
+  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","保留我的梗概",0).unwrap();let id=r.affected[0].clone();
+  let r=svc.replace_source_text(Origin::GuiRight,"外景。城堡——夜",Some(r.revision)).unwrap();
+  assert_eq!(r.document.blocks[0].id,id);assert_eq!(r.document.settings.scene_board.cards[&id].summary,"保留我的梗概");
+  svc.mutate_document(Origin::GuiLeft,|d|d.blocks[0].metadata.locked=true).unwrap();
+  assert!(svc.replace_source_text(Origin::Agent,"内景。房间——日",None).is_err());
+ }
 }

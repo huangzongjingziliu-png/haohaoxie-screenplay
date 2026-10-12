@@ -35,9 +35,11 @@ export async function moveScene(from: string, to: string, side?: 'before' | 'aft
 }
 // Queue presentation updates and merge each edit with the latest authoritative document.
 let boardQueue: Promise<unknown> = Promise.resolve();
-export function updateBoard(projectId: string, change: (board: SceneBoard) => SceneBoard, order?: (ids:string[],board:SceneBoard)=>string[]) {
+export async function updateBoard(projectId: string, change: (board: SceneBoard) => SceneBoard, order?: (ids:string[],board:SceneBoard)=>string[], flushDrafts=true) {
+  // Flush before taking the board queue slot: a pending card may enqueue its own save.
+  // Holding the slot while waiting for that card would deadlock both operations.
+  if(flushDrafts)await flushPendingEdits();
   const task = boardQueue.catch(()=>undefined).then(async () => {
-    await flushPendingEdits();
     const store = useEditorStore.getState(), doc = store.document;
     if (!doc || doc.id !== projectId) return;
     const board = change(structuredClone(doc.settings.scene_board ?? defaultBoard()));

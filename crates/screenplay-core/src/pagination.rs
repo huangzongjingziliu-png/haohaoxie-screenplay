@@ -260,7 +260,11 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
     let mut i = 0usize;
 
     while i < blocks.len() {
-        let b = &blocks[i];
+        let original = &blocks[i];
+        let normalized = if original.block_type == BlockType::SceneHeading {
+            crate::heading_format::format_heading(&original.text, s).map(|(text, data)| { let mut b=original.clone();b.text=text;b.scene_heading=Some(data);b })
+        } else { None };
+        let b = normalized.as_ref().unwrap_or(original);
         let bt = b.block_type;
 
         if bt == BlockType::PageBreak {

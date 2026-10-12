@@ -6,9 +6,15 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**公开测试版 0.1.35 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**公开测试版 0.1.39 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [English](README.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.39-beta.1) · [English](README.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+
+## 看看它怎么用
+
+https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
+
+[下载原画质宣传片](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.39-beta.1/haohaoxie-demo-original.mp4) · 约 49 秒，页面内为轻量预览。
 
 ## 先把戏写出来，格式可以一起看
 
@@ -19,6 +25,8 @@
 ![自由文本与标准剧本同步显示，当前段落在两侧对应高亮](docs/public/images/split-writing.png)
 
 ## 一场戏一张便签，把整部故事放到眼前
+
+还没想好正文，也能从白板开始。新增便签，写下场景标题和梗概，正文会同步出现标题，梗概留在白板上。
 
 想调整结构，不必先剪切半天正文。白板便签、左侧场景列表和剧本共用场景顺序，拖动一张便签，那场戏就跟着移动。
 
@@ -56,6 +64,7 @@
 
 ## 日常写作需要的，也备着
 
+- 场景标题在标准剧本中按项目设置统一格式，默认“外景。地点——时间”；支持美式和自定义模板。
 - 标准剧本与中文阅读排版，按段落类型调整字体、字号、粗细、颜色和倾斜，保存命名样式。
 - 自动保存、恢复、版本历史、最近项目，以及新工程保存位置选择。也能暂不保存试写。
 - 搜索与场景、人物、地点、大纲导航。光标位置对应高亮，人物与地点可展开全部出现位置。

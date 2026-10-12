@@ -27,7 +27,7 @@ it('括注显示真实括号，编辑文本不包含装饰且不重复已有括�
   ] }] }));
   const { container } = render(<ScreenplayEditor />);
   await waitFor(() => expect(container.querySelectorAll('.parenthetical-shell')).toHaveLength(2));
-  expect(container.querySelectorAll('.parenthetical-shell')[0].textContent).toBe('（轻声）');
+  await waitFor(()=>expect(container.querySelectorAll('.parenthetical-shell')[0].textContent).toBe('（轻声）'));
   expect(container.querySelector('.block-parenthetical')?.textContent).toBe('轻声');
   expect(container.querySelectorAll('.parenthetical-shell')[1].textContent).toBe('（停顿）');
 });
@@ -102,4 +102,14 @@ it('标准剧本视图隐藏左右互换，只在分栏显示', () => {
  expect(view.getByRole('button',{name:'左右互换 ⇄'})).toBeTruthy();
  act(()=>useEditorStore.getState().setViewMode('right'));
  expect(view.queryByRole('button',{name:'左右互换 ⇄'})).toBeNull();
+});
+
+it('纸面采用分页规范标题，退焦不会还原成工程中的旧写法',async()=>{
+ useEditorStore.setState({document:{id:'qa',revision:1,blocks:[{id:'heading',block_type:'scene_heading',text:'外．城堡外，日'}],settings} as never,activeBlockId:null,changeBlockText:vi.fn().mockResolvedValue(true)});
+ mockBackend.on('get_pagination',()=>({total_pages:1,pages:[{number:1,blocks:[{block_id:'heading',block_type:'scene_heading',text:'外景。城堡外——日',start_line:0,line_count:1}]}]}));
+ const {container}=render(<ScreenplayEditor/>);
+ await waitFor(()=>expect(container.querySelector('.block-scene_heading')?.textContent).toBe('外景。城堡外——日'));
+ const el=container.querySelector('.block-scene_heading') as HTMLElement;
+ el.focus();el.blur();
+ await waitFor(()=>expect(el.textContent).toBe('外景。城堡外——日'));
 });

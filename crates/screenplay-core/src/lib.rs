@@ -16,3 +16,5 @@ pub use ast::*;
 pub use parser::{parse, ParseOptions, ParseOutcome};
 
 mod markdown;
+
+pub mod heading_format;

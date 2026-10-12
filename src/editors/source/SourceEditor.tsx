@@ -95,7 +95,7 @@ export default function SourceEditor() {
         useEditorStore.getState().setComposing(false);
         requestAnimationFrame(schedule);
       }}
-      onBlur={() => { if (!composing.current) submit(); }} /></div>
+      onBlur={() => { if (!composing.current) void flush().then(()=>{const el=textareaRef.current;if(!el||edited.current||document.activeElement===el)return;const latest=useEditorStore.getState().sourceText;el.value=latest;setDraft(latest);acknowledged.current=latest;}).catch(e=>pushToast('error',String(e))); }} /></div>
     <div className="source-font-tools"><label htmlFor="source-font-size">{tr("文字大小")}</label><input id="source-font-size" aria-label={tr("自由文本字号")} type="range" min="8" max="36" step="1" value={fontSize} onChange={e=>resizeText(Number(e.target.value))}/><output>{fontSize} pt</output><button onClick={()=>resizeText(null)}>{tr("恢复默认字号")}</button></div>
   </div>;
 }

@@ -196,3 +196,46 @@ it('标题编辑期间并发修改不会覆盖新标题，失败保留输入',as
 it('双击便签空白区域打开概括编辑，不显示编辑按钮',()=>{
  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);expect(view.queryByText('编辑概括')).toBeNull();fireEvent.doubleClick(view.container.querySelector('[data-scene-id="a"]')!);expect(view.getByRole('textbox',{name:'编辑场景 1 概括'})).toBeTruthy();fireEvent.keyDown(view.getByRole('textbox',{name:'编辑场景 1 概括'}),{key:'Escape'});expect(view.getByRole('dialog',{name:'场景白板'})).toBeTruthy();expect(view.queryByRole('textbox',{name:'编辑场景 1 概括'})).toBeNull();
 });
+
+it('空白项目可从便签开始构思，只添加标题并保留手写梗概',async()=>{
+  useEditorStore.setState({document:{...doc() as object,blocks:[]} as never});
+  mockBackend.on('create_board_scene',args=>({affected:['new-scene'],document:{...doc() as object,revision:2,blocks:[{id:'new-scene',block_type:'scene_heading',text:args.title}],settings:{scene_board:{...defaultBoard(),cards:{'new-scene':{color:'',width:0,height:0,comments:[],summary:args.summary,summary_source:args.title,summary_manual:true}}}}},revision:2}));
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  fireEvent.click(screen.getByRole('button',{name:'新增便签'}));
+  fireEvent.change(screen.getByLabelText('新便签场景标题'),{target:{value:'INT. CAFE - DAY'}});
+  fireEvent.change(screen.getByLabelText('新便签场景梗概'),{target:{value:'两个人终于见面'}});
+  fireEvent.click(screen.getByRole('button',{name:'添加场景'}));
+  await waitFor(()=>expect(view.container.querySelectorAll('.scene-card')).toHaveLength(1));
+  expect(mockBackend.callsTo('create_board_scene')[0].args).toMatchObject({title:'INT. CAFE - DAY',summary:'两个人终于见面',expectedRevision:1});
+  expect(screen.getByText('两个人终于见面')).toBeTruthy();
+  expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
+});
+it('新增便签失败保留输入，不留下半张便签',async()=>{
+  mockBackend.on('create_board_scene',()=>{throw new Error('REVISION_CONFLICT');});
+  render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  fireEvent.click(screen.getByRole('button',{name:'新增便签'}));
+  fireEvent.change(screen.getByLabelText('新便签场景标题'),{target:{value:'新场景'}});
+  fireEvent.click(screen.getByRole('button',{name:'添加场景'}));
+  await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('REVISION_CONFLICT'));
+  expect((screen.getByLabelText('新便签场景标题') as HTMLInputElement).value).toBe('新场景');
+  expect(useEditorStore.getState().document?.blocks).toEqual(blocks);
+});
+it('修改梗概后立刻改色不会在便签提交队列里互相等待',async()=>{
+ const {flushPendingEdits}=await import('@/utils/pendingEdits');
+ mockBackend.on('update_scene_board',args=>({affected:[],document:{...useEditorStore.getState().document,revision:2,settings:{scene_board:args.board}},revision:2}));
+ render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+ fireEvent.doubleClick(screen.getByRole('button',{name:'编辑场景 1 概括'}));
+ const node=screen.getByRole('textbox',{name:'编辑场景 1 概括'});node.textContent='新梗概';
+ await act(async()=>{await updateBoard('board-qa',b=>({...b,color:'#CDE9FF'}));await flushPendingEdits();});
+ expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.summary).toBe('新梗概');
+ expect(useEditorStore.getState().document?.settings.scene_board.color).toBe('#CDE9FF');
+});
+it('关闭白板前提交便签标题，不会把失焦中正在保存的草稿丢下',async()=>{
+ const close=vi.fn();mockBackend.on('replace_block',args=>({affected:['a'],document:{...doc() as object,revision:2,blocks:blocks.map(b=>b.id==='a'?{...b,text:args.text}:b)},revision:2}));
+ render(<SceneBoard onClose={close} onConfigure={()=>{}}/>);
+ fireEvent.doubleClick(screen.getByRole('button',{name:'编辑场景 1 标题'}));
+ const node=screen.getByRole('textbox',{name:'编辑场景 1 标题'});node.textContent='INT. NEW ROOM - NIGHT';
+ fireEvent.click(screen.getByText('返回写作 ×'));
+ await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+ expect(useEditorStore.getState().document?.blocks[1].text).toBe('INT. NEW ROOM - NIGHT');
+});

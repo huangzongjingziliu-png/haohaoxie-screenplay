@@ -44,6 +44,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
   const [author, setAuthor] = useState('');
   const [language, setLanguage] = useState('zh');
   const [sceneNumbers, setSceneNumbers] = useState(false);
+  const [headingAuto,setHeadingAuto]=useState(true),[headingTemplate,setHeadingTemplate]=useState('{type}。{location}——{time}'),[headingLanguage,setHeadingLanguage]=useState('zh');
   const [typography, setTypography] = useState('hollywood');
   const style = styles[element] ?? defaultElementStyle(element, typography);
   const [template, setTemplate] = useState<'us-letter' | 'a4'>('us-letter');
@@ -68,6 +69,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
     setStyles(Object.fromEntries(Object.entries(doc.settings.element_styles ?? {}).filter((entry): entry is [string, ElementStyle] => !!entry[1])));
     setPresetName(doc.settings.style_preset_name ?? '');
     setSceneNumbers(doc.settings.show_scene_numbers ?? false);
+    setHeadingAuto(doc.settings.scene_heading_auto??true);setHeadingTemplate(doc.settings.scene_heading_template??'{type}。{location}——{time}');setHeadingLanguage(doc.settings.scene_heading_language??'zh');
     setTitle(doc.metadata.title);
     setTypography(doc.settings.typography ?? "hollywood");
     setAuthor(doc.metadata.author);
@@ -88,6 +90,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
     if (!Object.values(styles).every(validElementStyle)) {
       setPresetError(tr("请检查元素字体、字号和颜色：字号范围为 8–36 pt")); return false;
     }
+    if(headingAuto&&(['{type}','{location}','{time}'].some(t=>headingTemplate.split(t).length!==2)||/[{}]/.test(headingTemplate.replace('{type}','').replace('{location}','').replace('{time}',''))||/[\r\n]/.test(headingTemplate))){setPresetError(tr("场景模板必须各包含一次 {type}、{location}、{time}，且不能换行"));return false;}
     const isA4 = template === 'a4';
     try {
       await flushPendingEdits();
@@ -100,6 +103,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
         stylePresetName: presetName.trim(),
         ocrLanguages: ocrLangs,
         showSceneNumbers: sceneNumbers,
+        sceneHeadingAuto:headingAuto,sceneHeadingTemplate:headingTemplate,sceneHeadingLanguage:headingLanguage,
         paper: {
           template,
           page_width_inch: isA4 ? 8.27 : 8.5,
@@ -175,6 +179,15 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
           </select>
 
         </label>
+        <section className="custom-style-settings">
+          <h3>{tr("场景标题格式")}</h3>
+          <label><input type="checkbox" checked={headingAuto} onChange={e=>setHeadingAuto(e.target.checked)}/>{tr("自动统一场景标题")}</label>
+          <label className="field"><span>{tr("标题格式预设")}</span><select aria-label={tr("标题格式预设")} value={headingTemplate==='{type}。{location}——{time}'&&headingLanguage==='zh'?'zh':headingTemplate==='{type}. {location} - {time}'&&headingLanguage==='en'?'en':'custom'} onChange={e=>{if(e.target.value==='zh'){setHeadingTemplate('{type}。{location}——{time}');setHeadingLanguage('zh');}else if(e.target.value==='en'){setHeadingTemplate('{type}. {location} - {time}');setHeadingLanguage('en');}else setHeadingTemplate('{type} · {location} · {time}');}}><option value="zh">{tr("中文参考格式")}</option><option value="en">{tr("美式场景格式")}</option><option value="custom">{tr("自定义格式")}</option></select></label>
+          <label className="field"><span>{tr("内外景用词")}</span><select aria-label={tr("内外景用词")} value={headingLanguage} onChange={e=>setHeadingLanguage(e.target.value)}><option value="zh">内景 / 外景</option><option value="en">INT / EXT</option></select></label>
+          <label className="field"><span>{tr("场景标题模板")}</span><input aria-label={tr("场景标题模板")} maxLength={160} value={headingTemplate} onChange={e=>setHeadingTemplate(e.target.value)}/></label>
+          <p className="modal-hint">{tr("用 {type}、{location}、{time} 分别代表内外景、地点、时间，各出现一次。保存后统一已有可识别标题，新标题也自动整理；缺少时间或无法识别时保留原文。设置随工程保存。")}</p>
+          <div className="style-preview">{headingTemplate.replace('{type}',headingLanguage==='zh'?'外景':'EXT').replace('{location}',tr('咖啡馆')).replace('{time}',tr('白天'))}</div>
+        </section>
         <section className="custom-style-settings">
           <h3>{tr("自定义元素样式")}</h3>
           <p className="modal-hint">{tr("基于上方默认格式修改。样式随工程保存；命名预设可用于其他剧本。大字号会相应增加行距。")}</p>

@@ -6,9 +6,15 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Public beta 0.1.35 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Public beta 0.1.39 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.39-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+
+## See it in action
+
+https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
+
+[Download the original-quality demo](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.39-beta.1/haohaoxie-demo-original.mp4) · A 49-second introduction, with a lightweight preview above.
 
 ## Get the scene down. See the formatted page.
 
@@ -19,6 +25,8 @@ Start in free-writing mode if formatting is unfamiliar, or write directly on the
 ![Free text and formatted screenplay with matching paragraph highlights](docs/public/images/split-writing.png)
 
 ## One scene per card. See the whole story.
+
+Start on the board before writing the scene. Add a card with a heading and summary; its heading appears in the script while the summary stays on the board.
 
 The board, scene navigator and screenplay share scene order. Move a card and its scene moves in the script.
 
@@ -56,6 +64,7 @@ Personalization holds preferences you write yourself. It stays on your Mac and a
 
 ## The everyday tools are here too
 
+- Consistent scene heading presentation, with Chinese reference, US and custom project templates.
 - Screenplay and Chinese reading layouts, with fonts, size, weight, color and italics by paragraph type, plus named style presets.
 - Autosave, recovery, version history, recent projects and a choice of save location. Try writing without saving first.
 - Search and scene, character, location and outline navigation. Highlights follow the caret; characters and locations can list all occurrences.
@@ -77,7 +86,7 @@ Read the [privacy notes](docs/public/PRIVACY.md) for details on data processing.
 
 ## Build from source
 
-On Apple Silicon macOS, install Node.js 22+, recent Rust stable and Apple's Swift/Xcode command-line tools.
+On Apple Silicon macOS, install Node.js 22.12+ (LTS), recent Rust stable and Apple's Swift/Xcode command-line tools.
 
 ```sh
 source scripts/env.sh

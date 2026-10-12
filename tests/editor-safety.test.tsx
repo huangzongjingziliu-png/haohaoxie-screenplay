@@ -86,3 +86,11 @@ it('未保存项目首次保存会打开路径选择，取消不会假保存', a
   expect(mockBackend.callsTo('save_project')).toHaveLength(0);
   expect(useEditorStore.getState().project.dirty).toBe(true);
 });
+it('自由文本结束编辑后显示后端统一的标题，提交期间不替换正在输入的文字',async()=>{
+  useEditorStore.setState({changeSourceText:vi.fn(async()=>{useEditorStore.setState({sourceText:'内景。咖啡馆——白天'});return true;})});
+  render(<SourceEditor/>);
+  const input=screen.getByRole('textbox') as HTMLTextAreaElement;
+  input.focus();fireEvent.input(input,{target:{value:'内，咖啡馆 白天'}});
+  await act(async()=>{input.blur();});
+  expect(input.value).toBe('内景。咖啡馆——白天');
+});

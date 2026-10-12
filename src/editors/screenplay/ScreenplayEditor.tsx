@@ -619,7 +619,7 @@ function BlockView({
           const txt = e.clipboardData.getData('text/plain');
           document.execCommand('insertText', false, txt);
         }}
-        onBlur={() => { setCompletionInput(null); void flush().catch((e) => onError(String(e))); if (ref.current) setBlockText(ref.current, ref.current.textContent ?? "", false); }}
+        onBlur={() => { setCompletionInput(null); void flush().then(()=>{const el=ref.current;if(!el||composing.current||userEdited.current||document.activeElement===el)return;const current=useEditorStore.getState().document?.blocks.find(b=>b.id===pb.block_id);if(current){const display=current.block_type==='scene_heading'&&current.text===sceneBlock?.text?pb.text:current.text;setBlockText(el,display,false);backendText.current=display;externalWhileEditing.current=null;}}).catch((e) => onError(String(e))); }}
         onKeyDown={(e) => {
           if (!composing.current && !e.nativeEvent.isComposing && suggestions.length) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

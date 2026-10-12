@@ -10,7 +10,7 @@
 
 Interface shortcuts / 界面快捷键: ⌘S save, ⇧⌘S save as, ⌘F search, ⌘, settings, Esc leave focus mode. Paragraph shortcuts are configurable in text settings.
 
-## Public beta 0.1.35 / 公开测试版 0.1.35
+## Public beta 0.1.39 / 公开测试版 0.1.39
 
 - Free-writing text size defaults to the screenplay size. Use the bottom slider to adjust it; Reset restores the project default without changing export formatting. / 自由文本默认跟随剧本字号；底部滑杆可独立调整，恢复默认回到该项目字号，不改变导出排版。
 - Settings save before switching sections or closing by clicking outside. A failed save keeps the dialog open. / 切换设置栏目或点击弹框外部会先保存；保存失败会保留窗口。
@@ -35,3 +35,9 @@ Project memory travels in `.screenplay` files, including author-locked notes and
 左侧场景、地点和大纲会高亮当前光标对应的位置，自由模式同样支持。点击人物或地点名称会跳到最近的出现位置；有多处时，点击旁边箭头展开全部位置。人物条目显示所在场景和对白片段，用于区分同一场景里的多次发言；地点按场景列出。
 
 Scene, location and outline highlights follow the caret, including free-writing mode. Click a character or location name to jump to its nearest occurrence. Expand the arrow to choose another occurrence; character entries include scene labels and dialogue previews.
+
+## 从白板开始构思 / Plan on the board first
+
+白板的“新增便签”可以直接添加场景标题和梗概。正文只增加标题，梗概留在便签中；拖动排序会同步改变正文。场景标题格式在“设置 → 文字与排版”配置，随工程保存。
+
+Use Add scene card to enter a heading and summary. Only the heading is added to the script; the summary stays on the card. Reordering updates the script. Configure heading formats in Settings → Text & layout; they travel with the project.

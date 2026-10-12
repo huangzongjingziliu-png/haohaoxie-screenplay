@@ -8,3 +8,17 @@ it('preview and editing share the same element and preserve scrolling without op
  const {container}=render(<Harness/>);const preview=screen.getByRole('button',{name:'概括'});preview.scrollTop=90;fireEvent.doubleClick(preview);const editor=screen.getByRole('textbox',{name:'概括'});expect(editor).toBe(preview);expect(editor.scrollTop).toBe(90);expect(editor.getAttribute('contenteditable')).toBe('plaintext-only');expect(container.querySelector('textarea,input')).toBeNull();editor.textContent='自己写的概括';fireEvent.input(editor);fireEvent.pointerDown(document.body);await waitFor(()=>expect(saved).toHaveBeenCalledWith('自己写的概括'));await waitFor(()=>expect(screen.getByRole('button',{name:'概括'})).toBe(preview));expect(preview.textContent).toBe('自己写的概括');
 });
 it('empty preview placeholder is visual guidance, not content saved to the project',async()=>{const save=vi.fn();render(<InlineSceneText value="" label="概括" onSave={save}/>);const node=screen.getByRole('button',{name:'概括'});expect(node.textContent).toBe('');expect(node.dataset.placeholder).toBe('双击填写场景概括');fireEvent.doubleClick(node);fireEvent.pointerDown(document.body);await waitFor(()=>expect(screen.getByRole('button',{name:'概括'})).toBe(node));expect(save).not.toHaveBeenCalled();});
+it('保存工程前等待便签提交，即使失焦已经开始提交',async()=>{
+ const {flushPendingEdits}=await import('@/utils/pendingEdits');
+ let finish!:()=>void;const save=vi.fn(()=>new Promise<void>(r=>{finish=r;}));
+ render(<InlineSceneText value="原文" label="概括" onSave={save}/>);
+ fireEvent.doubleClick(screen.getByRole('button',{name:'概括'}));const node=screen.getByRole('textbox',{name:'概括'});node.textContent='最后一句';fireEvent.blur(node);
+ let done=false;const waiting=flushPendingEdits().then(()=>{done=true;});await Promise.resolve();expect(done).toBe(false);
+ finish();await waiting;expect(save).toHaveBeenCalledTimes(1);
+});
+it('便签提交失败会阻止工程保存，保留输入供重试',async()=>{
+ const {flushPendingEdits}=await import('@/utils/pendingEdits');
+ render(<InlineSceneText value="原文" label="概括" onSave={async()=>{throw new Error('保存失败');}}/>);
+ fireEvent.doubleClick(screen.getByRole('button',{name:'概括'}));const node=screen.getByRole('textbox',{name:'概括'});node.textContent='不能丢';
+ await expect(flushPendingEdits()).rejects.toThrow('保存失败');expect(node.textContent).toBe('不能丢');
+});
