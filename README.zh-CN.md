@@ -6,11 +6,16 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新测试版 0.1.53 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.54 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.2) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.54-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
+
+
+**普通用户只下载 DMG 安装包，其余文件不用下载。** [下载安装包（Apple 芯片 Mac）](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.54-beta.1/haohaoxie-screenplay_0.1.54_aarch64.dmg)
+
+此测试版未经过 Apple 公证，首次打开可能仍被 macOS 拦截；请阅读安装说明。
 
 ## 看看它怎么用
 

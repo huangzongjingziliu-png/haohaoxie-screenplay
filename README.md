@@ -6,11 +6,16 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Latest beta 0.1.53 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.54 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.2) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.54-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
+
+
+**Installing the app? Download only the DMG.** [Download the Apple Silicon Mac installer](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.54-beta.1/haohaoxie-screenplay_0.1.54_aarch64.dmg)
+
+This beta is not Apple-notarized and may still be blocked on first launch. See the installation notes.
 
 ## See it in action
 
