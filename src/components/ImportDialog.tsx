@@ -54,7 +54,7 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
       await flushPendingEdits();
       const r = await ipc.importFile(path, id);
       await applyResult(r);
-      if (r.document.import_info && (r.document.blocks.some((b) => b.confidence > 0 && b.confidence < 0.75) || r.document.import_info.removed_noise.length > 0)) {
+      if (r.document.import_info && (['pdf','image'].includes(r.document.import_info.source_type) || r.document.blocks.some((b) => b.confidence > 0 && b.confidence < 0.75) || r.document.import_info.removed_noise.length > 0)) {
         window.dispatchEvent(new Event('import-review-requested'));
       }
       pushToast(

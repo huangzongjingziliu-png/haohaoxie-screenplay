@@ -1,3 +1,5 @@
+import HelpPanel from '@/components/HelpPanel';
+import ModelRequiredDialog from '@/components/ModelRequiredDialog';
 import {useProjectMemory} from '@/hooks/useProjectMemory';
 import ModalBackdrop from '@/components/ModalBackdrop';
 import {useSplitSync} from '@/hooks/useSplitSync';
@@ -55,6 +57,8 @@ export default function App() {
   const [exiting, setExiting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showImportReview, setShowImportReview] = useState(false);
+  const [helpSection,setHelpSection]=useState<string|null>(null);
+  useEffect(()=>{const open=(e:Event)=>setHelpSection((e as CustomEvent<string>).detail||'start');window.addEventListener('open-help',open);return()=>window.removeEventListener('open-help',open);},[]);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab,setSettingsTab]=useState('text');
   const [showSearch,setShowSearch]=useState(false);
@@ -226,13 +230,13 @@ export default function App() {
   // Keep import state mounted when an empty workspace becomes a project.
   const content = project.state === 'empty' ? (
       <div className="app">
-        <Toolbar onNew={() => setShowNew(true)} onImport={() => setShowImport(true)} onSettings={()=>{setSettingsTab('text');setShowSettings(true);}} />
+        <Toolbar onHelp={()=>setHelpSection('start')} onNew={() => setShowNew(true)} onImport={() => setShowImport(true)} onSettings={()=>{setSettingsTab('text');setShowSettings(true);}} />
         <Welcome onNew={() => setShowNew(true)} onConnections={() => setShowConnections(true)} recent={recent} onOpened={() => void ipc.listRecent().then(setRecent)} />
         <div className="status-bar"><span className="spacer" /><ModelPicker /></div>
       </div>
     ) : renderEditor();
 
-  return <>{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}</>;
+  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}</>;
 
   function renderEditor() {
 
@@ -243,7 +247,7 @@ export default function App() {
   return (
     <div className="app">
       {viewMode !== 'focus' && (
-        <Toolbar
+        <Toolbar onHelp={()=>setHelpSection('start')}
           onNew={() => setShowNew(true)}
           onCloseProject={() => void requestProjectClose()}
           onImport={() => setShowImport(true)}
@@ -306,6 +310,7 @@ function Welcome({
       <h1>{tr("好好写剧本")}</h1>
       <p style={{ color: '#86868b' }}>{tr("让作者用最舒服的方法写，让软件负责把它变成专业剧本")}</p>
       <div className="welcome-actions">
+        <button onClick={()=>window.dispatchEvent(new CustomEvent('open-help',{detail:'start'}))}>{tr("帮助与教程")}</button>
         <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>
         <button onClick={onNew}>{tr("新建剧本")}</button>
         <button onClick={async () => {

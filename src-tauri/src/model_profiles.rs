@@ -64,7 +64,8 @@ pub fn active_config() -> Option<AgentConfig> {
 fn persist_settings(cfg: &AgentConfig) -> IpcResult<()> {
  crate::agent_config::save(&crate::agent_config::ProviderSettings {cloud_ai_enabled:cfg.cloud_ai_enabled,provider_kind:cfg.provider_kind.clone(),model:cfg.model.clone(),base_url:cfg.base_url.clone()}).map_err(error)
 }
-fn config(p: &Profile)->AgentConfig {AgentConfig {cloud_ai_enabled:true,provider_kind:p.provider_kind.clone(),model:p.model.clone(),base_url:p.base_url.clone(),api_key:p.api_key.clone()}}
+fn config(p: &Profile)->AgentConfig {config_with_permission(p,crate::agent_config::load().cloud_ai_enabled)}
+fn config_with_permission(p: &Profile,cloud_ai_enabled:bool)->AgentConfig {AgentConfig {cloud_ai_enabled,provider_kind:p.provider_kind.clone(),model:p.model.clone(),base_url:p.base_url.clone(),api_key:p.api_key.clone()}}
 pub fn remember(cfg: &AgentConfig) -> Result<(),String> {
     let _lock=LOCK.lock().unwrap();
     let mut all=load_at(&folder())?;
@@ -137,5 +138,49 @@ pub fn agent_delete_model(state: tauri::State<AppState>, id: String)->IpcResult<
  assert!(serde_json::to_value(&loaded).unwrap()["profiles"][0].get("apiKey").is_none());
  let mut corrupt=std::fs::read(dir.join("profiles.enc")).unwrap();corrupt[15]^=1;std::fs::write(dir.join("profiles.enc"),corrupt).unwrap();assert!(load_at(&dir).is_err());
  std::fs::remove_dir_all(dir).unwrap();
+ }
+}
+
+#[tauri::command]
+pub async fn agent_test_model(mut profile:Profile)->IpcResult<serde_json::Value> {
+    use screenplay_agent::provider::ModelProvider;
+    if profile.model.trim().is_empty(){return Err(error("请输入模型 ID"));}
+    if profile.api_key.is_empty() && !profile.id.is_empty(){let _lock=LOCK.lock().unwrap();let all=load_at(&folder()).map_err(error)?;profile.api_key=all.profiles.iter().find(|p|p.id==profile.id).map(|p|p.api_key.clone()).unwrap_or_default();}
+    let provider=match profile.provider_kind.as_str() {
+        "ollama"=>screenplay_agent::OpenAiProvider::ollama(&profile.model),
+        "openai"=>{if profile.api_key.trim().is_empty(){return Err(error("请输入 API Key"));}screenplay_agent::OpenAiProvider::openai(&profile.api_key,&profile.model)},
+        "compatible"=>{if profile.api_key.trim().is_empty(){return Err(error("请输入 API Key"));}let url=tauri::Url::parse(&profile.base_url).map_err(|_|error("服务地址无效"))?;
+            if !(url.scheme()=="https" || url.scheme()=="http"&&matches!(url.host_str(),Some("localhost"|"127.0.0.1")))||!url.username().is_empty()||url.password().is_some()||url.query().is_some()||url.fragment().is_some(){return Err(error("服务地址需要 HTTPS，且不能包含账号、查询参数或片段"));}
+            screenplay_agent::OpenAiProvider::compatible(&profile.base_url,&profile.api_key,&profile.model)},
+        _=>return Err(error("模型类型无效")),
+    };
+    let start=std::time::Instant::now();
+    let messages=[screenplay_agent::ChatMessage{role:"user".into(),content:"Connection test. Reply only OK.".into()}];
+    let response=tokio::time::timeout(std::time::Duration::from_secs(20),provider.chat(&messages,0.0)).await.map_err(|_|error("连接超时，请检查服务地址、网络或本机模型是否运行"))?;
+    let response=response.map_err(|e|{let message=format!("{e:#}");error(if profile.api_key.is_empty(){message}else{message.replace(&profile.api_key,"[REDACTED]")})})?;
+    if response.trim().is_empty(){return Err(error("服务已响应，但没有返回模型内容"));}
+    Ok(serde_json::json!({"success":true,"model":profile.model,"latencyMs":start.elapsed().as_millis()}))
+}
+#[cfg(test)] mod connection_tests {
+ use super::*;
+ fn profile(url:String)->Profile {Profile{id:String::new(),name:"probe".into(),provider_kind:"compatible".into(),model:"probe-model".into(),base_url:url,api_key:"fake-test-key".into()}}
+ #[tokio::test] async fn probes_actual_completion_without_a_project_or_vault_write(){
+  use std::io::{Read,Write};
+  let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();let addr=listener.local_addr().unwrap();
+  let server=std::thread::spawn(move||{let (mut stream,_)=listener.accept().unwrap();stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();let mut bytes=Vec::new();let mut buffer=[0;4096];loop{let n=stream.read(&mut buffer).unwrap();bytes.extend_from_slice(&buffer[..n]);let text=String::from_utf8_lossy(&bytes);if let Some((head,body))=text.split_once("\r\n\r\n"){let length=head.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v|v.trim().parse::<usize>().ok())).unwrap();if body.len()>=length{break;}}}
+   let text=String::from_utf8(bytes).unwrap();let body=text.split_once("\r\n\r\n").unwrap().1;let request:serde_json::Value=serde_json::from_str(body).unwrap();assert_eq!(request["model"],"probe-model");assert_eq!(request["messages"][0]["content"],"Connection test. Reply only OK.");
+   let response=r#"{"choices":[{"finish_reason":"stop","message":{"content":"OK"}}]}"#;write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
+  });
+  let result=agent_test_model(profile(format!("http://{addr}/v1"))).await.unwrap();server.join().unwrap();assert_eq!(result["success"],true);assert_eq!(result["model"],"probe-model");assert!(!result.to_string().contains("fake-test-key"));
+ }
+ #[tokio::test] async fn invalid_remote_endpoint_is_rejected_before_network(){assert!(agent_test_model(profile("http://example.invalid/v1".into())).await.is_err());}
+}
+
+#[cfg(test)] mod cloud_permission_regression {
+ use super::*;
+ #[test] fn choosing_a_model_preserves_explicit_cloud_permission(){
+  let p=Profile{id:"test".into(),name:"test".into(),provider_kind:"compatible".into(),model:"test".into(),base_url:"https://example.com/v1".into(),api_key:"fake".into()};
+  assert!(!config_with_permission(&p,false).cloud_ai_enabled);
+  assert!(config_with_permission(&p,true).cloud_ai_enabled);
  }
 }

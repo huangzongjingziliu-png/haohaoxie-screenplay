@@ -4,20 +4,24 @@ import type { BlockType } from "./BlockType";
 /**
  * 每个元素占用的页面行数（用于诊断）
  */
-export type PageBlock = { block_id: string, block_type: BlockType, text: string, scene_id: string | null, start_line: number, line_count: number, 
+export type PageBlock = { block_id: string, block_type: BlockType, text: string, scene_id: string | null, start_line: number, line_count: number,
 /**
  * 该元素被分页切断
  */
-split: boolean, 
+split: boolean,
 /**
  * 显示 (MORE)
  */
-more: boolean, 
+more: boolean,
 /**
  * 显示 (CONT'D)
  */
-contd: boolean, 
+contd: boolean,
 /**
  * 续页时重复的人物名
  */
-contd_character: string | null, };
+contd_character: string | null, auto_contd?: boolean,
+/**
+ * UTF-16 offsets in the original dialogue, for safe page-fragment editing.
+ */
+source_start?: number, source_end?: number, };

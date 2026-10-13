@@ -73,6 +73,16 @@ pub struct PageBlock {
     pub contd: bool,
     /// 续页时重复的人物名
     pub contd_character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub auto_contd: Option<bool>,
+    /// UTF-16 offsets in the original dialogue, for safe page-fragment editing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_start: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_end: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -221,6 +231,26 @@ pub fn split_to_lines(text: &str, units: f64) -> Vec<String> {
     out
 }
 
+fn line_source_ranges(text:&str,lines:&[String])->Vec<(usize,usize)>{
+ let chars=text.chars().collect::<Vec<_>>();let mut offsets=vec![0];
+ for c in &chars {offsets.push(offsets.last().unwrap()+c.len_utf16());}
+ let mut cursor=0;let mut ranges=Vec::new();
+ for line in lines {
+  while cursor<chars.len() && chars[cursor].is_whitespace(){cursor+=1;}
+  let start=cursor;
+  for c in line.chars().filter(|c|!c.is_whitespace()) {
+   while cursor<chars.len() && chars[cursor].is_whitespace(){cursor+=1;}
+   debug_assert_eq!(chars.get(cursor),Some(&c));
+   cursor=(cursor+1).min(chars.len());
+  }
+  ranges.push((offsets[start],offsets[cursor]));
+ }
+ ranges
+}
+fn utf16_slice(text:&str,start:usize,end:usize)->String{
+ let mut offset=0;text.chars().filter(|c|{let here=offset;offset+=c.len_utf16();here>=start && here<end}).collect()
+}
+
 /// 把若干行文本按每页可用行数切分成 (页内行, 该页用掉行数)。
 pub fn paginate_lines(text: &str, units: f64, page_lines: f64) -> Vec<(Vec<String>, f64)> {
     let all = split_to_lines(text, units);
@@ -257,13 +287,14 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
     pages.push(cur.clone());
 
     let blocks = &doc.blocks;
+    let continued=crate::typography::continued_cues(doc);
     let mut i = 0usize;
 
     while i < blocks.len() {
         let original = &blocks[i];
         let normalized = if original.block_type == BlockType::SceneHeading {
             crate::heading_format::format_heading(&original.text, s).map(|(text, data)| { let mut b=original.clone();b.text=text;b.scene_heading=Some(data);b })
-        } else { None };
+        } else if original.block_type==BlockType::Character && continued.contains(&original.id) {let mut b=original.clone();b.text=crate::typography::continued_cue(&b.text);Some(b)} else { None };
         let b = normalized.as_ref().unwrap_or(original);
         let bt = b.block_type;
 
@@ -340,6 +371,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
             // 本页还能放几行
             let room = (total_lines - page.used_lines - space).floor().max(1.0) as usize;
             let all_lines = split_to_lines(&b.text, units);
+            let source_ranges=line_source_ranges(&b.text,&all_lines);
             let room = if all_lines.len() > room { room.saturating_sub(1).max(1) } else { room };
             let head_n = room.min(all_lines.len());
 
@@ -347,7 +379,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                 block_id: b.id.clone(),
                 block_type: bt,
                 // 关键：只放本页容纳的部分
-                text: all_lines[..head_n].join("\n"),
+                text: if head_n==all_lines.len(){b.text.clone()}else{utf16_slice(&b.text,0,source_ranges[head_n-1].1)},
                 scene_id: b.scene_id.clone(),
                 start_line,
                 line_count: head_n as f64,
@@ -355,6 +387,8 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                 more: head_n < all_lines.len(),
                 contd: false,
                 contd_character: None,
+                        auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
+                        source_start: Some(0), source_end: Some(if head_n==all_lines.len(){b.text.encode_utf16().count()}else{source_ranges[head_n-1].1}),
             });
             page.used_lines = start_line + head_n as f64 + if head_n < all_lines.len() { 1.0 } else { 0.0 };
 
@@ -368,6 +402,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                     .map(|x| x.text.clone());
 
                 let mut rest = &all_lines[head_n..];
+                let mut source_line=head_n;
                 while !rest.is_empty() {
                     new_page(&mut pages);
                     let p = pages.last_mut().unwrap();
@@ -378,7 +413,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                         p.blocks.push(PageBlock {
                             block_id: format!("{}:contd:{}", b.id, p.number),
                             block_type: BlockType::Character,
-                            text: format!("{sp} (CONT'D)"),
+                            text: crate::typography::continued_cue(sp),
                             scene_id: b.scene_id.clone(),
                             start_line: 0.0,
                             line_count: 1.0,
@@ -386,6 +421,8 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                             more: false,
                             contd: true,
                             contd_character: Some(sp.clone()),
+                            auto_contd: None,
+                            source_start: None, source_end: None,
                         });
                         y = 1.0;
                     }
@@ -395,7 +432,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                     p.blocks.push(PageBlock {
                         block_id: format!("{}:part:{}", b.id, p.number),
                         block_type: bt,
-                        text: rest[..take].join("\n"),
+                        text: utf16_slice(&b.text,source_ranges[source_line].0,if source_line+take==all_lines.len(){b.text.encode_utf16().count()}else{source_ranges[source_line+take-1].1}),
                         scene_id: b.scene_id.clone(),
                         start_line: y,
                         line_count: take as f64,
@@ -403,8 +440,11 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                         more: take < rest.len(),
                         contd: false,
                         contd_character: None,
+                        auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
+                        source_start: Some(source_ranges[source_line].0), source_end: Some(if source_line+take==all_lines.len(){b.text.encode_utf16().count()}else{source_ranges[source_line+take-1].1}),
                     });
                     p.used_lines = y + take as f64 + if take < rest.len() { 1.0 } else { 0.0 };
+                    source_line += take;
                     rest = &rest[take..];
                 }
             }
@@ -430,6 +470,8 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
             more: false,
             contd: false,
             contd_character: None,
+                        auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
+                        source_start: None, source_end: None,
         });
         page.used_lines = start_line + lines;
         i += 1;
@@ -440,6 +482,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
         pages.pop();
     }
 
+    for page in &mut pages {for block in &mut page.blocks {if matches!(block.block_type,BlockType::Character|BlockType::Parenthetical){block.text=crate::typography::normalize_continuation(&block.text);}}}
     let total = pages.len();
     Pagination {
         pages,
@@ -833,4 +876,17 @@ mod cross_page_tests {
             }
         }
     }
+}
+
+#[cfg(test)] mod fragment_source_regressions {
+ use super::*;
+ #[test] fn dialogue_pages_point_to_exact_source_including_emoji_and_spaces(){
+  let mut doc=crate::parser::parse(&format!("@人物\n{}","他看着海。 hello 😀 world ".repeat(160)),&Default::default()).document;
+  doc.settings.paper.page_height_inch=5.0;
+  let original=doc.blocks.iter().find(|b|b.block_type==BlockType::Dialogue).unwrap();
+  let pages=paginate(&doc);let pieces=pages.pages.iter().flat_map(|p|&p.blocks).filter(|b|b.block_type==BlockType::Dialogue).collect::<Vec<_>>();
+  assert!(pieces.len()>1);
+  for piece in &pieces {assert_eq!(piece.text,utf16_slice(&original.text,piece.source_start.unwrap(),piece.source_end.unwrap()));}
+  let first=pieces[0];let remainder=utf16_slice(&original.text,first.source_end.unwrap(),original.text.encode_utf16().count());assert!(!remainder.is_empty());
+ }
 }

@@ -113,3 +113,12 @@ it('纸面采用分页规范标题，退焦不会还原成工程中的旧写法'
  el.focus();el.blur();
  await waitFor(()=>expect(el.textContent).toBe('外景。城堡外——日'));
 });
+it('聚焦但没有本地草稿的纸面段落立即显示撤销或外部修改',async()=>{
+ const block={id:'a',block_type:'action',text:'修改前'};
+ useEditorStore.setState({document:{id:'qa',revision:1,blocks:[block],settings} as never});
+ mockBackend.on('get_pagination',()=>({pages:[{number:1,blocks:useEditorStore.getState().document!.blocks.map(b=>({...b,block_id:b.id,start_line:0,line_count:1}))}]}));
+ const {container}=render(<ScreenplayEditor/>);await waitFor(()=>expect(container.querySelector('.screenplay-block')?.textContent).toBe('修改前'));
+ const el=container.querySelector('.screenplay-block') as HTMLElement;el.focus();
+ act(()=>useEditorStore.setState({document:{id:'qa',revision:2,blocks:[{...block,text:'撤销后的内容'}],settings} as never}));
+ await waitFor(()=>expect(el.textContent).toBe('撤销后的内容'));
+});

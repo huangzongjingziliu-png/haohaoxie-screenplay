@@ -6,17 +6,17 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新源码 0.1.39 · 已发布安装版 0.1.35 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.47 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [English](README.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.47-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
-新版安装包正在完善 PDF 导入与模型配置，发布前请先使用已有安装版，或构建最新源码。
+软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
 ## 看看它怎么用
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-约 49 秒，页面内为轻量预览。原画质宣传片会随下一次安装包发布提供下载。
+约 49 秒，页面内为轻量预览。[下载原画质宣传片](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.47-beta.1/haohaoxie-promo-20261012.mp4)。
 
 ## 先把戏写出来，格式可以一起看
 
@@ -52,6 +52,8 @@ https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
 ![保存多个自定义模型，并选择当前使用的模型](docs/public/images/custom-models.png)
 
+模型配置不用猜。中文教程介绍国内的 DeepSeek 和硅基流动，写明官网入口、密钥获取、接口地址和连接测试。每个平台都有简短介绍，本机 Ollama 也有说明。
+
 ## 也能让你惯用的 Agent 来写
 
 安装包内置 **CLI 和 MCP**。具备本机工具能力的 Codex、WorkBuddy、TRAE 等客户端，配置接入后可以读取场景、修改对白、调整结构。你可以留在熟悉的 Agent 里工作，幕后的修改落到剧本工程中。
@@ -66,7 +68,7 @@ https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
 ## 日常写作需要的，也备着
 
-- 场景标题在标准剧本中按项目设置统一格式，默认“外景。地点——时间”；支持美式和自定义模板。
+- 场景标题在标准剧本中按项目设置统一格式，默认按“内外景、地点、时间”统一显示；支持美式和自定义模板。
 - 标准剧本与中文阅读排版，按段落类型调整字体、字号、粗细、颜色和倾斜，保存命名样式。
 - 自动保存、恢复、版本历史、最近项目，以及新工程保存位置选择。也能暂不保存试写。
 - 搜索与场景、人物、地点、大纲导航。光标位置对应高亮，人物与地点可展开全部出现位置。
@@ -89,6 +91,8 @@ PDF／图片转写需要配置模型并允许对应服务处理内容。识别�
 ## 一起把它磨顺手
 
 遇到问题，请在 [Issues](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/issues) 写上版本、macOS版本、操作步骤和期望结果。最好用一小段自制剧本复现，别上传密钥或私人稿件。
+
+也欢迎直接联系作者，邮箱 851194703@qq.com，微信 ziliu_huangzongjing。请勿发送密钥、密码或未经许可的剧本。
 
 测试版免费。我们想先知道它能不能留在你的日常写作里，再考虑官方维护版与支持服务；星标很好看，持续使用更有说服力。
 

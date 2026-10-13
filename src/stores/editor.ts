@@ -135,6 +135,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   undo: async () => {
     try {
+      await flushPendingEdits();
       const r = await ipc.undo();
       await get().applyResult(r);
     } catch (e) {
@@ -144,6 +145,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   redo: async () => {
     try {
+      await flushPendingEdits();
       const r = await ipc.redo();
       await get().applyResult(r);
     } catch (e) {
@@ -244,9 +246,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   refreshDocument: async () => {
+    const requestedProject = get().document?.id;
     try {
       const b = await ipc.bootstrap();
       const current = get().document;
+      if (current?.id !== requestedProject) return;
       // 忽略晚到的同项目旧快照，且不重置用户的选择。
       if (current && b.document?.id === current.id && b.document.revision < current.revision) return;
       set({ document: b.document, project: b.project, sourceText: b.sourceText });
@@ -358,6 +362,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // -----------------------------------------------------------------
 
   applyResult: async (r) => {
+    const current = get().document;
+    if (current?.id === r.document.id && r.document.revision < current.revision) return;
     set({
       document: r.document,
       sourceText: r.source_text,
@@ -371,8 +377,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   refreshProjectInfo: async () => {
+    const requestedProject = get().document?.id;
     try {
       const info = await ipc.projectInfo();
+      const current = get().document;
+      if (current?.id !== requestedProject || current && info.revision < current.revision) return;
       set({ project: info });
     } catch {
       /* 轮询失败不打扰用户 */

@@ -29,3 +29,10 @@ it('展示低置信度、完整原文和去噪记录，并将人工确认写回�
   expect(changeBlockType).toHaveBeenCalledWith('b1', 'dialogue');
   expect(screen.getByText('所有低置信度元素均已确认。')).toBeTruthy();
 });
+it('PDF可抽查高分元素的类型，不把语法高分当成模型分类保证',async()=>{
+ const d=sourceDoc();d.import_info!.source_type='pdf';d.blocks[0].confidence=0.99;useEditorStore.setState({document:d});
+ render(<ImportReview onClose={()=>{}}/>);
+ fireEvent.click(screen.getByRole('checkbox',{name:'查看全部元素（抽查分类）'}));
+ expect(screen.getAllByText('老板娘：走吧')).toHaveLength(2);
+ expect(screen.getByText(/语法解析分/)).toBeTruthy();
+});

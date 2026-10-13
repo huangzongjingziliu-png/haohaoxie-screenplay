@@ -269,10 +269,12 @@ pub fn to_plain_text(doc: &ScreenplayDocument) -> String {
 }
 
 pub fn to_html(doc: &ScreenplayDocument) -> String {
+    let continued=crate::typography::continued_cues(doc);
     let mut body = String::new();
     for b in &doc.blocks {
         let cls = b.block_type.as_str();
-        let mut display = crate::typography::display_text(b.block_type, &b.text);
+        let cue=if continued.contains(&b.id){crate::typography::continued_cue(&b.text)}else{b.text.clone()};
+        let mut display = crate::typography::display_text(b.block_type, &cue);
         if let Some(label) = crate::typography::scene_label(doc, &b.id) { display = format!("{label}\n{display}"); }
         let (name, extension) = crate::typography::character_parts(&display);
         let txt = if b.block_type == BlockType::Character && extension.is_some() {

@@ -31,3 +31,14 @@ it('编辑模型不显示已有密钥，留空保留原密钥',async()=>{
  await waitFor(()=>expect(mockBackend.callsTo('agent_save_model')).toHaveLength(1));
  expect((mockBackend.callsTo('agent_save_model')[0].args?.profile as {apiKey:string}).apiKey).toBe('');
 });
+it('测试已保存模型只请求测试，不切换或重新保存密钥',async()=>{
+ mockBackend.on('agent_test_model',()=>({success:true,model:'agnes-3.0-flash',latencyMs:123}));
+ render(<ModelPicker manage/>);fireEvent.click(screen.getByText('管理自定义模型…'));await screen.findByText('agnes-3.0-flash');
+ fireEvent.click(screen.getAllByText('测试连接')[0]);await screen.findByText(/API 可用，已收到模型响应/);
+ expect(mockBackend.callsTo('agent_test_model')[0].args?.profile).toMatchObject({id:'a',model:'agnes-3.0-flash'});
+ expect(mockBackend.callsTo('agent_save_model')).toHaveLength(0);expect(mockBackend.callsTo('agent_select_model')).toHaveLength(0);
+});
+it('连接失败显示原因',async()=>{
+ mockBackend.on('agent_test_model',()=>{throw {error:'INVALID_ARGUMENT',message:'HTTP 401'};});render(<ModelPicker manage/>);fireEvent.click(screen.getByText('管理自定义模型…'));await screen.findByText('agnes-3.0-flash');
+ fireEvent.click(screen.getAllByText('测试连接')[0]);await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('HTTP 401'));
+});

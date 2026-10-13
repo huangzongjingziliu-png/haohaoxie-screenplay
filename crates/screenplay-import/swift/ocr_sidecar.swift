@@ -33,6 +33,7 @@ struct OcrConfig {
     var level: VNRequestTextRecognitionLevel = .accurate
     var pdfDpi: Double = 200
     var textFirst = false
+    var layout = false
 }
 
 func parseArgs() -> OcrConfig? {
@@ -47,6 +48,8 @@ func parseArgs() -> OcrConfig? {
     while i < args.count {
         let a = args[i]
         switch a {
+        case "--layout":
+            cfg.layout = true; i += 1
         case "--text-first":
             cfg.textFirst = true; i += 1
         case "--langs":
@@ -89,12 +92,22 @@ func ocrImage(_ image: NSImage, _ cfg: OcrConfig) throws -> [(Double, String)] {
 
     var observations: [VNRecognizedTextObservation] = (request.results ?? []) as? [VNRecognizedTextObservation] ?? []
     // Vision 坐标系原点在左下角，origin.y 越大越靠上
-    observations.sort { $0.boundingBox.origin.y > $1.boundingBox.origin.y }
+    observations.sort { a,b in
+        abs(a.boundingBox.midY-b.boundingBox.midY)>0.003 ? a.boundingBox.midY>b.boundingBox.midY : a.boundingBox.minX<b.boundingBox.minX
+    }
 
     var out: [(Double, String)] = []
+    let left=observations.map{$0.boundingBox.minX}.min() ?? 0
+    var previous:CGRect?=nil
     for obs in observations {
         if let t = obs.topCandidates(1).first {
-            out.append((Double(t.confidence), t.string))
+            if cfg.layout {
+                let number=t.string.trimmingCharacters(in:.whitespaces)
+                if number.count<=4 && !number.isEmpty && number.allSatisfy({$0.isNumber}) && (obs.boundingBox.midY<0.08 || obs.boundingBox.midY>0.92){continue}
+                if let prev=previous,prev.minY-obs.boundingBox.maxY>max(obs.boundingBox.height*0.9,0.012){out.append((1.0,""))}
+                let spaces=Int(max(0,min(60,(obs.boundingBox.minX-left)*100)))
+                out.append((Double(t.confidence),String(repeating:" ",count:spaces)+t.string));previous=obs.boundingBox
+            } else {out.append((Double(t.confidence), t.string))}
         }
     }
     return out
@@ -108,6 +121,96 @@ func renderPdfPage(_ page: PDFPage, _ dpi: Double) -> NSImage? {
     return page.thumbnail(of: scaledSize, for: .mediaBox)
 }
 
+// PDFKit decodes embedded fonts; retain reading order, indentation and inline bold.
+func pdfLayoutLines(_ page:PDFPage) -> [(Double,String)] {
+    let bounds=page.bounds(for:.mediaBox)
+    guard let selection=page.selection(for:bounds) else{return []}
+    let lines=selection.selectionsByLine().filter{!($0.string ?? "").trimmingCharacters(in:.whitespacesAndNewlines).isEmpty}.sorted{a,b in
+        let x=a.bounds(for:page),y=b.bounds(for:page)
+        return abs(x.midY-y.midY)>2 ? x.midY>y.midY : x.minX<y.minX
+    }
+    let left=lines.map{$0.bounds(for:page).minX}.min() ?? bounds.minX
+    var result:[(Double,String)]=[],previous:CGRect?=nil
+    for line in lines {
+        let box=line.bounds(for:page),text=(line.string ?? "").trimmingCharacters(in:.whitespacesAndNewlines)
+        if text.count<=4 && text.allSatisfy({$0.isNumber}) && (box.midY<bounds.minY+bounds.height*0.08 || box.midY>bounds.maxY-bounds.height*0.08){continue}
+        let attributed=line.attributedString
+        let font:NSFont?=attributed.flatMap{$0.length>0 ? $0.attribute(.font,at:0,effectiveRange:nil) as? NSFont : nil}
+        let size=font?.pointSize ?? 12
+        if let prev=previous,prev.minY-box.maxY>max(size*0.9,8){result.append((1.0,""))}
+        var marked=""
+        if let attributed=attributed,attributed.length>0 {
+            var lastBold=false
+            attributed.enumerateAttribute(.font,in:NSRange(location:0,length:attributed.length)){value,range,_ in
+                let part=(attributed.string as NSString).substring(with:range).replacingOccurrences(of:"\n",with:"")
+                let bold=(value as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) ?? false
+                let strong=bold && !part.trimmingCharacters(in:.whitespaces).isEmpty
+                if strong != lastBold {marked += "**";lastBold=strong}
+                marked += part
+            }
+            if lastBold {marked += "**"}
+        }
+        if marked.isEmpty{marked=text}
+        let spaces=Int(max(0,min(60,((box.minX-left)/6).rounded())))
+        result.append((1.0,String(repeating:" ",count:spaces)+marked.trimmingCharacters(in:.whitespacesAndNewlines)));previous=box
+    }
+    return result
+}
+
+// Some PDF exporters supply valid Unicode but invalid glyph geometry (notably
+// zero-height parenthetical glyphs). Sorting that layer relocates whole speeches.
+func pdfTextGeometryIsReliable(_ page:PDFPage) -> Bool {
+    guard let text=page.string else{return false}
+    let value=text as NSString
+    var letters=0,invalid=0
+    for i in 0..<value.length {
+        let unit=value.character(at:i)
+        // Avoid splitting surrogate pairs when inspecting the UTF-16 PDF index.
+        guard let scalar=UnicodeScalar(Int(unit)),CharacterSet.letters.contains(scalar) else{continue}
+        letters += 1
+        let box=page.characterBounds(at:i)
+        if !box.minX.isFinite || !box.minY.isFinite || box.height<0.5 || box.width<0.1 {invalid += 1}
+    }
+    return letters>=8 && (invalid<16 || invalid*100<=letters*15)
+}
+
+// OCR supplies geometry; embedded PDF text supplies spelling. Do not rewrite
+// an OCR line unless its closest original line is an unambiguous near match.
+func restorePdfSpelling(_ lines:[(Double,String)],_ page:PDFPage)->[(Double,String)] {
+ var originals=Array(Set((page.string ?? "").components(separatedBy:.newlines).map{$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter{!$0.isEmpty}))
+ var completed:[String:String]=[:]
+ let open=originals.filter{($0.hasPrefix("(") || $0.hasPrefix("（")) && !$0.hasSuffix(")") && !$0.hasSuffix("）")}
+ let tails=originals.filter{!$0.contains("(") && !$0.contains("（") && ($0.hasSuffix(")") || $0.hasSuffix("）")) && $0.count<=20}
+ if open.count==1 && tails.count==1 {completed[open[0]]=open[0]+tails[0];originals.append(open[0]+tails[0])}
+ func key(_ s:String)->[Character]{Array(s.lowercased().filter{!$0.isWhitespace && !$0.isPunctuation})}
+ func distance(_ a:[Character],_ b:[Character])->Int {
+  var previous=Array(0...b.count)
+  for (i,c) in a.enumerated(){var row=[i+1];for (j,d) in b.enumerated(){row.append(min(row[j]+1,previous[j+1]+1,previous[j]+(c==d ? 0:1)))};previous=row}
+  return previous.last ?? a.count
+ }
+ let candidates=originals.map{($0,key($0))}
+ var result:[(Double,String)]=[];var i=0
+ while i<lines.count {
+  let (confidence,line)=lines[i],stripped=line.trimmingCharacters(in:.whitespaces),a=key(stripped)
+  let indent=String(line.prefix{ $0==" " || $0=="\t" })
+  if a.count<=6 && !a.isEmpty && i+1<lines.count {
+   let next=lines[i+1].1,nextIndent=String(next.prefix{$0==" " || $0=="\t"})
+   let combined=a+key(next)
+   let matches=candidates.filter{$0.1==combined}
+   if abs(indent.count-nextIndent.count)<=6 && matches.count==1 {result.append((confidence,indent+matches[0].0));i+=2;continue;}
+  }
+  if a.isEmpty{result.append((confidence,line));i+=1;continue;}
+  let ranked=candidates.filter{abs($0.1.count-a.count)<=max(2,a.count/4)}.map{($0.0,distance(a,$0.1))}.sorted{$0.1<$1.1}
+  if let first=ranked.first,first.1<=max(1,a.count/4),ranked.count<2 || first.1<ranked[1].1 {
+   let restored=completed[first.0] ?? first.0
+   result.append((confidence,indent+restored))
+   if completed[first.0] != nil && i+1<lines.count && key(lines[i+1].1)==key(tails[0]) {i+=1}
+  }else{result.append((confidence,line))}
+  i+=1
+ }
+ return result
+}
+
 func ocrPdf(_ url: URL, _ cfg: OcrConfig) throws -> [[(Double, String)]] {
     guard let doc = PDFDocument(url: url) else {
         throw NSError(domain: "OcrSidecar", code: 2, userInfo: [NSLocalizedDescriptionKey: "PDFDocument 打开失败"])
@@ -117,11 +220,14 @@ func ocrPdf(_ url: URL, _ cfg: OcrConfig) throws -> [[(Double, String)]] {
         let lines: [(Double,String)] = try autoreleasepool {
             guard let page = doc.page(at: i) else { return [] }
             let text = page.string ?? ""
-            if cfg.textFirst && text.unicodeScalars.filter({CharacterSet.letters.contains($0)}).count >= 8 && !text.contains("�") {
+            if cfg.textFirst && (!cfg.layout || pdfTextGeometryIsReliable(page)) && text.unicodeScalars.filter({CharacterSet.letters.contains($0)}).count >= 8 && !text.contains("�") {
+                if cfg.layout {let structured=pdfLayoutLines(page);if !structured.isEmpty{return structured}}
                 return text.components(separatedBy: .newlines).filter{!$0.trimmingCharacters(in: .whitespaces).isEmpty}.map{(1.0,$0)}
             }
+            if cfg.textFirst && cfg.layout {FileHandle.standardError.write("INFO page \(i+1): unreliable PDF text geometry; using OCR\n".data(using:.utf8)!)}
             guard let image = renderPdfPage(page,cfg.pdfDpi) else {return []}
-            return try ocrImage(image,cfg)
+            let recognized=try ocrImage(image,cfg)
+            return cfg.textFirst && cfg.layout ? restorePdfSpelling(recognized,page) : recognized
         }
         pages.append(lines)
         FileHandle.standardError.write("PROGRESS \(i+1) \(doc.pageCount)\n".data(using:.utf8)!)

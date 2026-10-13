@@ -120,7 +120,7 @@ func makePDF(spec: Spec) -> Data? {
                 if line.bold && line.role != "character" {
                     attributed.addAttribute(.font, value: CTFontCreateWithName("STSongti-SC-Bold" as CFString, size, nil), range: NSRange(location: 0, length: attributed.length))
                 }
-                if line.role == "character", let regex = try? NSRegularExpression(pattern: "[（(](?:画外音|画外|旁白|离画|电话音|V\\.O\\.?|O\\.S\\.?|OFF)[）)]$", options: .caseInsensitive), let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: attributed.length)) {
+                if line.role == "character", let regex = try? NSRegularExpression(pattern: "[（(](?:画外音|画外|旁白|离画|电话音|V\\.O\\.?|O\\.S\\.?|OFF|CONT['’]?D)(?:[,，]\\s*CONT['’]?D)?[）)]$", options: .caseInsensitive), let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: attributed.length)) {
                     attributed.addAttribute(.font, value: CTFontCreateWithName("STSongti-SC-Regular" as CFString, size * 0.85, nil), range: match.range)
                 }
                 for prefix in ["镜头切换。", "镜头切换.", "蒙太奇。", "蒙太奇."] where line.text.hasPrefix(prefix) {
@@ -140,7 +140,7 @@ func makePDF(spec: Spec) -> Data? {
             let lineRef = CTLineCreateWithAttributedString(attributed)
             let centered = chinese && (line.role == "character" || line.role == "parenthetical")
             var width = CTLineGetTypographicBounds(lineRef, nil, nil, nil)
-            if chinese && line.role == "character", let regex = try? NSRegularExpression(pattern: "[（(](?:画外音|画外|旁白|离画|电话音|V\\.O\\.?|O\\.S\\.?|OFF)[）)]$", options: .caseInsensitive), let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: attributed.length)) {
+            if chinese && line.role == "character", let regex = try? NSRegularExpression(pattern: "[（(](?:画外音|画外|旁白|离画|电话音|V\\.O\\.?|O\\.S\\.?|OFF|CONT['’]?D)(?:[,，]\\s*CONT['’]?D)?[）)]$", options: .caseInsensitive), let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: attributed.length)) {
                 let name = attributed.attributedSubstring(from: NSRange(location: 0, length: match.range.location))
                 width = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(name), nil, nil, nil)
             }

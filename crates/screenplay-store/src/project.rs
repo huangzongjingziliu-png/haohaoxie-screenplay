@@ -36,10 +36,7 @@ pub fn save_project(
     if original_source.is_some_and(|bytes| bytes.len() as u64 > MAX_ORIGINAL_SOURCE_BYTES) {
         return Err("原始导入文件超过 512 MiB，无法写入项目文件".into());
     }
-    if let Some(parent) = container.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let file = std::fs::File::create(container).map_err(|e| e.to_string())?;
+    atomic_write(container, |file| {
     let mut zip = ZipWriter::new(file);
     let opts = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
@@ -108,6 +105,20 @@ pub fn save_project(
     }
 
     zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+    })
+}
+
+/// Publish only a completed, synced archive. A failed write leaves the previous
+/// project intact, including when autosaving over an existing file.
+fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(),String>)->Result<(),String>{
+    let parent=container.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|e|e.to_string())?;
+    let mut temporary=tempfile::NamedTempFile::new_in(parent).map_err(|e|e.to_string())?;
+    if let Ok(metadata)=std::fs::metadata(container){temporary.as_file().set_permissions(metadata.permissions()).map_err(|e|e.to_string())?;}
+    write(temporary.as_file_mut())?;
+    temporary.as_file().sync_all().map_err(|e|e.to_string())?;
+    temporary.persist(container).map_err(|e|e.error.to_string())?;
     Ok(())
 }
 
@@ -359,4 +370,24 @@ mod security_tests {
         assert!(restored.project_memory.markdown.is_empty());
     }
 
+}
+
+#[cfg(test)] mod atomic_save_regressions {
+ use super::*;
+ #[test] fn partial_write_failure_keeps_existing_project_byte_for_byte(){
+  let dir=tempfile::tempdir().unwrap();let path=dir.path().join("test.screenplay");
+  let doc=ScreenplayDocument::blank("original");save_project(&path,&doc,None,None,None,None).unwrap();
+  let before=std::fs::read(&path).unwrap();
+  let result=atomic_write(&path,|file|{file.write_all(b"partial damaged archive").unwrap();Err("simulated disk full".into())});
+  assert!(result.is_err());assert_eq!(std::fs::read(&path).unwrap(),before);
+  assert_eq!(load_project(&path).unwrap().document.metadata.title,"original");
+  assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(),1);
+ }
+ #[test] fn successful_save_replaces_archive_and_failed_new_save_leaves_no_partial_file(){
+  let dir=tempfile::tempdir().unwrap();let path=dir.path().join("test.screenplay");
+  assert!(atomic_write(&path,|file|{file.write_all(b"partial").unwrap();Err("failed".into())}).is_err());assert!(!path.exists());
+  save_project(&path,&ScreenplayDocument::blank("first"),None,None,None,None).unwrap();
+  save_project(&path,&ScreenplayDocument::blank("second"),None,None,None,None).unwrap();
+  assert_eq!(load_project(&path).unwrap().document.metadata.title,"second");
+ }
 }

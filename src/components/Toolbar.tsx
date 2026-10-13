@@ -14,6 +14,7 @@ const EXPORT_FORMATS = [
 ];
 
 export default function Toolbar({
+  onHelp,
   onNew,
   onCloseProject,
   onImport,
@@ -24,6 +25,7 @@ export default function Toolbar({
   onConnections,
   onBoard,
 }: {
+  onHelp?: () => void;
   onNew?: () => void;
   onCloseProject?: () => void;
   onImport: () => void;
@@ -177,6 +179,7 @@ export default function Toolbar({
             <button onClick={() => void doSaveAs()} disabled={busy || project.state === 'empty'}>{tr("另存为… ")}<small>⇧⌘S</small></button>
             <button onClick={() => onVersions?.()} disabled={project.state === 'empty'}>{tr("版本历史 ")}<small>⌘Y</small></button>
             {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent…")}</button>}
+            {onHelp && <button onClick={onHelp}>{tr("帮助与教程")}</button>}
             {onSettings && <button onClick={onSettings}>{tr("设置… ")}<small>⌘,</small></button>}
             <hr />
             <button onClick={() => onCloseProject ? onCloseProject() : void closeProject()} disabled={project.state === 'empty'}>{tr("关闭当前项目")}</button>

@@ -8,6 +8,7 @@
 pub mod bridge_host;
 pub mod diag;
 mod connection;
+mod help;
 mod agent_config;
 mod model_profiles;
 mod agent_text;
@@ -46,6 +47,8 @@ fn take_file_open_requests() -> Vec<String> {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "error", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IpcError {
+    #[serde(rename = "MODEL_REQUIRED")]
+    ModelRequired { message: String },
     #[serde(rename = "REVISION_CONFLICT")]
     RevisionConflict {
         expected: u64,
@@ -1487,7 +1490,7 @@ async fn agent_apply_skill(
     block_id: String,
     user_input: String,
 ) -> IpcResult<CommandResult> {
-    prepare_agent_credential(&state).await?;
+    agent_text::ready(&state).await?;
     let agent = build_agent(&state)?;
     let result = agent
         .apply_skill(&skill_id, &block_id, &user_input)
@@ -1505,7 +1508,7 @@ async fn agent_freeform_edit(
     state: State<'_, AppState>,
     instruction: String,
 ) -> IpcResult<CommandResult> {
-    prepare_agent_credential(&state).await?;
+    agent_text::ready(&state).await?;
     let agent = build_agent(&state)?;
     let result = agent
         .freeform_edit(&instruction, 8)
@@ -1520,6 +1523,7 @@ async fn agent_freeform_edit(
 /// Read-only model call: summarization cannot invoke editing tools.
 #[tauri::command]
 async fn agent_summarize_scene(state: State<'_, AppState>, scene_id: String) -> IpcResult<serde_json::Value> {
+    agent_text::ready(&state).await?;
     prepare_agent_credential(&state).await?;
     let cfg = state.agent.lock().unwrap().clone();
     if cfg.provider_kind != "ollama" && !cfg.cloud_ai_enabled { return Err(IpcError::InvalidArgument { message: "请先在编剧助理中启用云 AI".into() }); }
@@ -1726,6 +1730,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            help::open_help_link,
             // 生命周期
             bootstrap,
             new_project,
@@ -1814,6 +1819,7 @@ pub fn run() {
             model_profiles::agent_save_model,
             model_profiles::agent_select_model,
             model_profiles::agent_delete_model,
+            model_profiles::agent_test_model,
             agent_install_skill,
             agent_unload_skill,
         ])

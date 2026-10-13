@@ -32,6 +32,7 @@ export type IpcError =
   | { error: 'REVISION_CONFLICT'; expected: number; actual: number; message: string }
   | { error: 'NOT_FOUND'; what: string; id: string }
   | { error: 'INVALID_ARGUMENT'; message: string }
+  | { error: 'MODEL_REQUIRED'; message: string }
   | { error: 'LOCKED'; id: string }
   | { error: 'INTERNAL'; message: string }
   | { error: 'APP_STATE'; message: string }
@@ -92,7 +93,9 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   try {
     return await invoke<T>(cmd, args);
   } catch (err) {
-    throw new ScreenplayError(normalize(err));
+    const error=new ScreenplayError(normalize(err));
+    if(error.code==='MODEL_REQUIRED'&&(cmd!=='agent_refresh_memory'||args?.force))window.dispatchEvent(new CustomEvent('model-required',{detail:error.message}));
+    throw error;
   }
 }
 
@@ -151,6 +154,7 @@ export interface SearchHit {
 // ---------------------------------------------------------------------------
 
 export const ipc = {
+  openHelpLink: (url:string) => call<void>('open_help_link', {url}),
   // 生命周期
   bootstrap: () => call<Bootstrap>('bootstrap'),
   newProject: (title: string) => call<ProjectInfo>('new_project', { title }),
@@ -293,6 +297,7 @@ export const ipc = {
   agentSaveModel: (profile: ModelProfile & { apiKey?: string }) => call<ModelProfiles>('agent_save_model', { profile }),
   agentSelectModel: (id: string) => call<ModelProfiles>('agent_select_model', { id }),
   agentDeleteModel: (id: string) => call<ModelProfiles>('agent_delete_model', { id }),
+  agentTestModel: (profile: ModelProfile & {apiKey?:string}) => call<{success:boolean;model:string;latencyMs:number}>('agent_test_model',{profile}),
   agentGetConfig: () =>
     call<{ cloudAiEnabled: boolean; providerKind: string; model: string; apiKeySet: boolean; baseUrl: string }>(
       'agent_get_config'

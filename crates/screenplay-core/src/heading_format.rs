@@ -134,3 +134,11 @@ mod numbered_custom_regression {
   assert_eq!(format_heading(&text,&s).unwrap().0,text);
  }
 }
+#[cfg(test)] mod forced_number_regression {
+ #[test] fn import_anchor_number_is_metadata_not_repeated_in_text(){
+  let d=crate::parse(".2 外景。街道——白天",&crate::ParseOptions{denoise:false,..Default::default()}).document;
+  assert!(!d.blocks[0].text.starts_with('2'));
+  assert_eq!(d.blocks[0].scene_heading.as_ref().unwrap().scene_number.as_deref(),Some("2"));
+  let source=crate::serializer::to_compact_source(&d);assert!(!source.contains("2. 2"));
+ }
+}

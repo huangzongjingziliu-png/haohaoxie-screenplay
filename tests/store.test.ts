@@ -437,3 +437,30 @@ describe('块类型与合并（B5 专业编辑器）', () => {
     expect(useEditorStore.getState().project.revision).toBe(4);
   });
 });
+describe('late IPC responses and pending undo drafts', () => {
+ it('does not roll back a newer same-project snapshot', async () => {
+  useEditorStore.setState({document: makeDoc([{id:'B',text:'最新'}],8) as never,sourceText:'最新'});
+  await useEditorStore.getState().applyResult(okResult(makeDoc([{id:'B',text:'旧稿'}],7),'旧稿') as never);
+  expect(useEditorStore.getState().sourceText).toBe('最新');
+  expect(mockBackend.callsTo('project_info_cmd')).toHaveLength(0);
+ });
+ it('ignores a polling snapshot from a project already closed', async () => {
+  let reply!:(value:unknown)=>void;
+  useEditorStore.setState({document:makeDoc() as never});
+  mockBackend.on('bootstrap',()=>new Promise(resolve=>{reply=resolve;}));
+  const pending=useEditorStore.getState().refreshDocument();
+  useEditorStore.setState({document:null,project:EMPTY_PROJECT,sourceText:''});
+  reply({document:makeDoc(),project:{...EMPTY_PROJECT,state:'open'},sourceText:'已关闭的旧稿'});
+  await pending;
+  expect(useEditorStore.getState().document).toBeNull();
+ });
+ it('flushes a draft before undo and aborts undo if the draft cannot commit', async () => {
+  const {registerPendingEditor}=await import('@/utils/pendingEdits');
+  const events:string[]=[];
+  const unregister=registerPendingEditor(async()=>{events.push('flush');});
+  mockBackend.on('undo',()=>{events.push('undo');return okResult();});
+  try{await useEditorStore.getState().undo();expect(events).toEqual(['flush','undo']);}finally{unregister();}
+  const stop=registerPendingEditor(async()=>{throw new Error('不能提交草稿');});
+  try{await useEditorStore.getState().undo();expect(events).toEqual(['flush','undo']);expect(useEditorStore.getState().toasts.slice(-1)[0]?.message).toContain('不能提交草稿');}finally{stop();}
+ });
+});

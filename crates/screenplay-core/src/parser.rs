@@ -410,6 +410,7 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
         at += 1;
     }
     let paragraphs = joined;
+    let explicit_cues=paragraphs.iter().any(|p|p.starts_with('@'));
 
     let hints: std::collections::HashMap<&str, BlockType> = opts
         .layout_hints
@@ -432,6 +433,7 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
                     text: String,
                     conf: f32|
      -> usize {
+        let text=if matches!(bt,BlockType::Character|BlockType::Parenthetical){crate::typography::normalize_continuation(&text)}else{text};
         let mut b = ScreenplayBlock::new(bt, text);
         b.confidence = conf;
         b.scene_id = scene.clone();
@@ -560,10 +562,11 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
         if raw.starts_with('.') && !raw.starts_with("..") && !raw[1..].trim().is_empty() {
             let body=raw[1..].trim();
             let numbered=body.split_once(". ").filter(|(n,_)|!n.is_empty()&&n.len()<=5&&n.chars().next().is_some_and(|c|c.is_ascii_digit())&&n.chars().all(|c|c.is_ascii_alphanumeric()));
-            let heading=numbered.map(|(_,t)|t).unwrap_or(body);
+            let parsed_number=parse_scene_heading(body).and_then(|v|v.0.scene_number);
+            let heading=numbered.map(|(_,t)|t).or_else(||parsed_number.as_ref().and_then(|n|body.strip_prefix(n)).map(|rest|rest.trim_start_matches(['.','．','、',',','，',':','：',')','）']).trim_start())).unwrap_or(body);
             let idx=push(&mut blocks,&current_scene,&mut last_type,BlockType::SceneHeading,heading.to_string(),1.0);
             let mut data=parse_scene_heading(heading).map(|v|v.0).unwrap_or_default();
-            if let Some((n,_))=numbered {data.scene_number=Some(n.into());}
+            if let Some((n,_))=numbered {data.scene_number=Some(n.into());}else if parsed_number.is_some(){data.scene_number=parsed_number;}
             blocks[idx].scene_heading=Some(data);
             current_scene=Some(blocks[idx].id.clone());blocks[idx].scene_id=current_scene.clone();i+=1;continue;
         }
@@ -605,6 +608,13 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
             continue;
         }
 
+        // An explicit Fountain cue already establishes who speaks. A short
+        // question before an acting note must not invent another character.
+        if explicit_cues && matches!(last_type,Some(BlockType::Character|BlockType::Parenthetical)) && !is_parenthetical_line(&raw) {
+            push(&mut blocks,&current_scene,&mut last_type,BlockType::Dialogue,raw.clone(),0.99);
+            i+=1;continue;
+        }
+
         // Voice qualifiers are part of the character cue, not a performance block.
         let (cue_name, qualifier) = crate::typography::character_parts(&raw);
         if qualifier.is_some() && looks_like_character_name(cue_name) {
@@ -629,7 +639,7 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
         // 7) 括注独立行（跟在 character 之后）
         if is_parenthetical_line(&raw) && matches!(last_type, Some(BlockType::Character)) {
             if crate::typography::is_delivery(&strip_parens(&raw)) {
-                if let Some(cue) = blocks.last_mut() { cue.text.push_str(&format!("（{}）", strip_parens(&raw))); }
+                if let Some(cue) = blocks.last_mut() { cue.text.push_str(&format!("（{}）", crate::typography::normalize_continuation(&strip_parens(&raw)))); }
                 i += 1;
                 continue;
             }
@@ -646,7 +656,7 @@ pub fn parse(text: &str, opts: &ParseOptions) -> ParseOutcome {
         }
 
         // 7) 中文冒号对白
-        if let Some(parts) = parse_zh_dialogue(&raw) {
+        if let Some(parts) = parse_zh_dialogue(&raw).filter(|_| !matches!(last_type,Some(BlockType::Character|BlockType::Parenthetical))) {
             if let Some(conf) = is_character_dialogue(&parts, &known) {
                 let c_idx = push(&mut blocks, &current_scene, &mut last_type, BlockType::Character, if parts.parenthetical.as_deref().is_some_and(crate::typography::is_delivery) { format!("{}（{}）", parts.character, parts.parenthetical.as_deref().unwrap()) } else { parts.character.clone() }, conf);
                 known.push(parts.character.clone());
@@ -1122,4 +1132,19 @@ mod narrative_camera_tests {
         assert_eq!(data.location, "教堂");
         assert_eq!(data.time_of_day, "白天——蒙太奇");
     }
+}
+
+#[cfg(test)] mod explicit_speaker_regression {
+ #[test] fn a_name_inside_spoken_dialogue_does_not_replace_the_explicit_speaker(){
+  let d=super::parse("@经理\n小王：这个称呼就这么写。",&Default::default()).document;
+  assert_eq!(d.blocks.len(),2);assert_eq!(d.blocks[0].text,"经理");assert_eq!(d.blocks[1].text,"小王：这个称呼就这么写。");
+ }
+}
+
+#[cfg(test)] mod speech_before_parenthetical_regression {
+ #[test] fn a_short_question_does_not_become_a_character(){
+  let d=super::parse("@甲\n（拍打）\n谁让你的模型——\n（继续拍打）\n漏洞百出？",&Default::default()).document;
+  assert_eq!(d.blocks.iter().filter(|b|b.block_type==crate::ast::BlockType::Character).count(),1);
+  assert_eq!(d.blocks[2].block_type,crate::ast::BlockType::Dialogue);
+ }
 }

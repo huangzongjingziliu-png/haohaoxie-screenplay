@@ -15,7 +15,9 @@ export default function ImportReview({ onClose }: { onClose: () => void }) {
   const document = useEditorStore((s) => s.document);
   const changeBlockType = useEditorStore((s) => s.changeBlockType);
   const pushToast = useEditorStore((s) => s.pushToast);
-  const candidates = useMemo(() => document?.blocks.filter((b) => b.confidence > 0 && b.confidence < 0.75) ?? [], [document]);
+  const [showAll,setShowAll]=useState(false),[limit,setLimit]=useState(100);
+  const complex=document?.import_info?.source_type==='pdf'||document?.import_info?.source_type==='image';
+  const candidates = useMemo(() => document?.blocks.filter((b) => showAll || b.confidence > 0 && b.confidence < 0.75) ?? [], [document,showAll]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [type, setType] = useState<BlockType | null>(null);
@@ -51,16 +53,19 @@ export default function ImportReview({ onClose }: { onClose: () => void }) {
         </div>
         <button aria-label={tr("关闭导入校对")} onClick={onClose}>×</button>
       </header>
+      {complex&&<p className="modal-hint">{tr("PDF／图片由模型整理。解析分值只表示语法识别，不代表分类一定正确，可抽查全部元素。")}</p>}
+      <label><input type="checkbox" checked={showAll} onChange={e=>{setShowAll(e.target.checked);setLimit(100);setActiveId(null);}}/>{tr("查看全部元素（抽查分类）")}</label>
       <div className="import-review-content">
         <aside className="import-review-list">
           <strong>{tr("待确认 · ")}{candidates.length}</strong>
-          {candidates.length === 0 ? <p className="modal-hint">{tr("所有低置信度元素均已确认。")}</p> : candidates.map((block, index) => (
+          {candidates.length === 0 ? <p className="modal-hint">{tr("所有低置信度元素均已确认。")}</p> : candidates.slice(0,limit).map((block, index) => (
             <button key={block.id} className={(active?.id === block.id ? 'selected ' : '') + 'import-review-item'} onClick={() => selectCandidate(block.id)}>
               <span>{index + 1}. {tr(TYPE_LABEL[block.block_type])}</span>
-              <small>{tr("置信度 ")}{Math.round(block.confidence * 100)}%</small>
+              <small>{tr(complex?"语法解析分 ":"置信度 ")}{Math.round(block.confidence * 100)}%</small>
               <span className="import-review-text">{block.text}</span>
             </button>
           ))}
+          {candidates.length>limit&&<button onClick={()=>setLimit(n=>n+100)}>{tr("显示更多元素")}</button>}
         </aside>
         <div className="import-review-detail">
           {active ? <>

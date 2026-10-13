@@ -9,8 +9,21 @@ pub fn size_ratio(s: &ScreenplaySettings, t: BlockType) -> f64 {
     if chinese(s) && t == BlockType::Parenthetical { 0.85 } else { 1.0 }
 }
 pub fn bold(t: BlockType) -> bool { matches!(t, BlockType::SceneHeading | BlockType::Character | BlockType::Transition) }
+/// Normalize the OCR spelling only in cue metadata, never in dialogue/actions.
+pub fn normalize_continuation(text:&str)->String {
+ let trimmed=text.trim();
+ if matches!(trimmed.to_ascii_uppercase().as_str(),"CONTD"|"CONT'D"|"CONT’D") {return "CONT'D".into();}
+ for (open,close) in [('（','）'),('(',')')] {
+  if let Some(i)=trimmed.rfind(open).filter(|_|trimmed.ends_with(close)) {
+   let inner=&trimmed[i+open.len_utf8()..trimmed.len()-close.len_utf8()];
+   if matches!(inner.trim().to_ascii_uppercase().as_str(),"CONTD"|"CONT'D"|"CONT’D") {return format!("{}{open}CONT'D{close}",&trimmed[..i]);}
+  }
+ }
+ text.into()
+}
 pub fn display_text(t: BlockType, text: &str) -> String {
-    let text = text.trim();
+    let canonical=if matches!(t,BlockType::Character|BlockType::Parenthetical){normalize_continuation(text)}else{text.into()};
+    let text = canonical.trim();
     if t == BlockType::Parenthetical && !(text.starts_with('(') || text.starts_with('（')) { format!("（{text}）") } else { text.into() }
 }
 /// Only delivery qualifiers belong beside the name, never performance directions.
@@ -27,7 +40,8 @@ pub fn character_parts(text: &str) -> (&str, Option<&str>) {
     (text, None)
 }
 pub fn is_delivery(s: &str) -> bool {
-    matches!(s.trim().to_ascii_uppercase().as_str(), "内心独白" | "画外音" | "画外" | "旁白" | "离画" | "电话音" | "V.O." | "V.O" | "O.S." | "O.S" | "OFF")
+    if s.contains([',','，']) {return s.split([',','，']).all(is_delivery);}
+    matches!(s.trim().to_ascii_uppercase().as_str(), "内心独白" | "画外音" | "画外" | "旁白" | "离画" | "电话音" | "V.O." | "V.O" | "O.S." | "O.S" | "OFF" | "CONTD" | "CONT'D" | "CONT’D")
 }
 #[cfg(test)] mod tests {
     use super::*;
@@ -168,4 +182,61 @@ pub fn normalize_parentheticals(doc: &mut crate::ast::ScreenplayDocument) -> boo
         assert_eq!(doc.blocks[1].block_type,BlockType::Parenthetical);assert_eq!(doc.blocks[1].text,"轻声");assert_eq!(doc.blocks[2].text,"等等。");assert_eq!(doc.blocks[3].text,"小林（画外音）");
         assert!(!normalize_parentheticals(&mut doc));assert!(!doc.settings.element_styles["parenthetical"].bold);
     }
+}
+
+#[cfg(test)] mod continuation_tests {
+ use super::*;
+ #[test] fn ocr_metadata_spelling_is_canonical(){
+  assert_eq!(normalize_continuation("CONTD"),"CONT'D");
+  assert_eq!(normalize_continuation("人物（CONTD）"),"人物（CONT'D）");
+  assert_eq!(display_text(BlockType::Parenthetical,"CONTD"),"（CONT'D）");
+  assert_eq!(display_text(BlockType::Action,"纸上写着 CONTD。"),"纸上写着 CONTD。");
+ }
+ #[test] fn continuation_is_a_cue_qualifier_not_acting_direction(){
+  let d=crate::parser::parse("@人物（CONTD）\n你好。\n\n@人物\n（CONT’D）\n再见。",&Default::default()).document;
+  assert_eq!(d.blocks[0].text,"人物（CONT'D）");
+  assert!(!d.blocks.iter().any(|b|b.block_type==BlockType::Parenthetical));
+ }
+}
+
+/// Derived presentation only: source text and undo history stay untouched.
+pub fn continued_cues(doc:&crate::ast::ScreenplayDocument)->std::collections::HashSet<String>{
+ let mut ids=std::collections::HashSet::new();let mut speaker=String::new();let mut interrupted=false;
+ for b in &doc.blocks {
+  match b.block_type {
+   BlockType::SceneHeading|BlockType::Transition=>{speaker.clear();interrupted=false;},
+   BlockType::Character=>{
+    let canonical=normalize_continuation(&b.text);let (name,extension)=character_parts(&canonical);
+    if name==speaker && interrupted && !extension.is_some_and(|s|s.contains("CONT'D")){ids.insert(b.id.clone());}
+    speaker=name.into();interrupted=false;
+   },
+   BlockType::Action|BlockType::Shot=>{if !speaker.is_empty(){interrupted=true;}},
+   _=>{},
+  }
+ }
+ ids
+}
+pub fn continued_cue(text:&str)->String{
+ let canonical=normalize_continuation(text);let (_,ext)=character_parts(&canonical);
+ if ext.is_some_and(|s|s.contains("CONT'D")){return canonical;}
+ if ext.is_some(){let close=canonical.chars().last().unwrap();let end=canonical.len()-close.len_utf8();format!("{}, CONT'D{close}",&canonical[..end])}else{format!("{canonical} (CONT'D)")}
+}
+
+#[cfg(test)] mod automatic_continuation_tests {
+ use super::*;
+ #[test] fn action_interruption_adds_marker_but_scene_and_speaker_changes_reset(){
+  let source="INT. ROOM - DAY\n\n@甲\n你好。\n\n!他看着窗外。\n\n@甲\n继续。\n\n@乙\n回答。\n\n!他转身。\n\n@甲\n新话。\n\nEXT. STREET - DAY\n\n@甲\n新场。";
+  let d=crate::parser::parse(source,&Default::default()).document;
+  let ids=continued_cues(&d);assert_eq!(ids.len(),1);
+  let page=crate::pagination::paginate(&d);
+  assert_eq!(page.pages.iter().flat_map(|p|&p.blocks).filter(|b|b.auto_contd==Some(true)).count(),1);
+  assert!(!d.blocks.iter().any(|b|b.text.contains("CONT'D")));
+  let mut edited=d.clone();edited.blocks.retain(|b|b.block_type!=BlockType::Action);assert!(continued_cues(&edited).is_empty());
+  assert!(crate::serializer::to_html(&d).contains("CONT'D"));
+ }
+ #[test] fn explicit_and_voice_qualifiers_do_not_duplicate(){
+  assert_eq!(continued_cue("甲（CONT'D）"),"甲（CONT'D）");
+  assert_eq!(continued_cue("甲（画外音）"),"甲（画外音, CONT'D）");
+  assert!(is_delivery("画外音, CONT'D"));
+ }
 }

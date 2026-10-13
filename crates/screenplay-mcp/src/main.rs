@@ -1306,8 +1306,23 @@ impl ScreenplayMcpServer {
 
 // ---------------------------------------------------------------------------
 
+fn startup_project(args:&[String])->Result<Option<PathBuf>,String>{
+    match args {
+        []=>Ok(None),
+        [path] if !path.starts_with('-')=>Ok(Some(path.into())),
+        [flag,path] if flag=="--project" || flag=="-p" || flag=="--"=>Ok(Some(path.into())),
+        _=>Err("无效参数。用法：screenplay-mcp [--project <项目.screenplay>]；--help 查看说明".into()),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args=std::env::args().skip(1).collect::<Vec<_>>();
+    if args.len()==1 && matches!(args[0].as_str(),"--help"|"-h") {
+        println!("好好写剧本 MCP Server\nUsage: screenplay-mcp [--project <项目.screenplay>]\n\n通过 stdio 提供 MCP 工具；GUI 运行时连接当前工程。\n-p, --project  GUI 未运行时打开指定工程（也支持直接传入路径）\n-h, --help     查看说明并退出\n-V, --version  查看版本并退出");return Ok(());
+    }
+    if args.len()==1 && matches!(args[0].as_str(),"--version"|"-V") {println!("screenplay-mcp {}",env!("CARGO_PKG_VERSION"));return Ok(());}
+    let selected=startup_project(&args)?;
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -1317,13 +1332,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // 优先级：命令行参数 > SCREENPLAY_PROJECT 环境变量
-    let project_path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
+    let project_path = selected
         .or_else(|| std::env::var("SCREENPLAY_PROJECT").ok().map(PathBuf::from));
 
     let server = ScreenplayMcpServer::new(project_path)?;
     let service = server.serve(rmcp::transport::io::stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)] mod startup_argument_regressions {
+ use super::*;
+ #[test] fn flags_are_not_mistaken_for_project_filenames(){
+  assert!(startup_project(&["--unknown".into()]).is_err());
+  assert!(startup_project(&["--project".into()]).is_err());
+  assert_eq!(startup_project(&["--project".into(),"project.screenplay".into()]).unwrap(),Some(PathBuf::from("project.screenplay")));
+  assert_eq!(startup_project(&["project.screenplay".into()]).unwrap(),Some(PathBuf::from("project.screenplay")));
+  assert_eq!(startup_project(&[]).unwrap(),None);
+ }
 }

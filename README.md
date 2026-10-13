@@ -6,17 +6,17 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Source preview 0.1.39 · Released installer 0.1.35 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.47 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.35-beta.1) · [中文](README.zh-CN.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.47-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
-The next installer is being refined for PDF import and model setup. Use the existing release or build the latest source while it is under review.
+Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 
 ## See it in action
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-A 49-second introduction. The original-quality video will be downloadable with the next installer release.
+A 49-second introduction. [Download the original-quality video](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.47-beta.1/haohaoxie-promo-20261012.mp4).
 
 ## Get the scene down. See the formatted page.
 
@@ -51,6 +51,8 @@ Save multiple custom model profiles and switch between them. Configure OpenAI, c
 Core editing needs no model. AI features use your configured provider, with its fees and limits. No shared key is supplied. Cloud requests send relevant screenplay text, memory and skill content to that provider. Ollama requires a separately installed and running local service.
 
 ![Saved custom model profiles and the active model selection](docs/public/images/custom-models.png)
+
+The English setup guide introduces OpenAI, OpenRouter and Groq, with brief descriptions, official links, API-key steps, endpoint settings and connection tests. Local Ollama instructions are included too.
 
 ## Bring the agent you already use
 
@@ -110,3 +112,7 @@ Report bugs in [Issues](https://github.com/huangzongjingziliu-png/haohaoxie-scre
 The beta is free. We want to learn whether it earns a place in everyday writing before exploring maintained distributions or paid support. Stars are nice; returning writers tell us more.
 
 Code is [MIT licensed](LICENSE); see [THIRD_PARTY.md](THIRD_PARTY.md). Forks should not imply official affiliation.
+
+## Contact
+
+Questions or ideas? Email [huangzongjing.ziliu@gmail.com](mailto:huangzongjing.ziliu@gmail.com). Please keep API keys, passwords and confidential scripts out of reports.

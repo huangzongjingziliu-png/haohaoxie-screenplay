@@ -1,4 +1,6 @@
 import {tr} from '@/i18n';
+import { stripAutoContinuation } from '@/utils/continuation';
+import { fragmentContext, sourceBlockId, getFragmentDraft, rememberFragmentDraft } from '@/utils/pageFragments';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
@@ -80,15 +82,15 @@ export default function ScreenplayEditor() {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toolPosition, setToolPosition] = useState({ top: 0, left: 0, visible: true });
   const [shortcuts, setShortcuts] = useState(readShortcuts);
-  const targetId = focusedId;
+  const targetId = focusedId ? sourceBlockId(focusedId) : null;
   const switchType = useCallback(async (id: string, type: BlockType, restoreFocus = false) => {
-    const editable = workspaceRef.current?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(id)}"] .screenplay-block`);
+    const editable = workspaceRef.current?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(focusedId && sourceBlockId(focusedId)===id ? focusedId : id)}"] .screenplay-block`);
     const caret = editable ? getCaretOffset(editable) ?? 0 : 0;
     await flushPendingEdits();
     setActiveBlock(id);
     await useEditorStore.getState().changeBlockType(id, type);
     if (restoreFocus) requestAnimationFrame(() => { editable?.focus(); if (editable) setCaretAt(editable, caret); });
-  }, [setActiveBlock]);
+  }, [setActiveBlock, focusedId]);
   useEffect(() => {
     const refresh = () => setShortcuts(readShortcuts());
     window.addEventListener('muben-shortcuts-changed', refresh);
@@ -98,7 +100,8 @@ export default function ScreenplayEditor() {
     const handler = (e: KeyboardEvent) => {
       if (e.isComposing || composingRef.current || !(e.target instanceof HTMLElement) || !e.target.closest('.screenplay-block')) return;
       const type = ELEMENT_TYPES.find(t => shortcuts[t] && shortcuts[t] === keyCombo(e));
-      const id = e.target.closest<HTMLElement>('[data-block-id]')?.dataset.blockId;
+      const rawId = e.target.closest<HTMLElement>('[data-block-id]')?.dataset.blockId;
+      const id = rawId ? sourceBlockId(rawId) : undefined;
       if (!type || !id) return;
       e.preventDefault();
       void switchType(id, type, true).catch(error => pushToast('error', String(error)));
@@ -109,7 +112,7 @@ export default function ScreenplayEditor() {
   useEffect(() => {
     const update = () => {
       const workspace = workspaceRef.current;
-      const row = workspace?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(targetId ?? '')}"]`);
+      const row = workspace?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(focusedId ?? '')}"]`);
       if (!workspace || !row) return;
       const bounds = workspace.getBoundingClientRect(), r = row.getBoundingClientRect();
       setToolPosition({ top: r.top - bounds.top, left: Math.max(4, r.left - bounds.left - 112), visible: r.bottom >= bounds.top && r.top < bounds.bottom });
@@ -120,7 +123,7 @@ export default function ScreenplayEditor() {
     const observer = new ResizeObserver(update);
     if (workspaceRef.current) observer.observe(workspaceRef.current);
     return () => { window.removeEventListener('resize', update); document.removeEventListener('scroll', update, true); observer.disconnect(); };
-  }, [targetId, pagination, zoom]);
+  }, [focusedId, pagination, zoom]);
   const layoutRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(1000);
 
@@ -217,8 +220,12 @@ export default function ScreenplayEditor() {
         const blocks = useEditorStore.getState().document?.blocks ?? [];
         const cur = blocks.find((b) => b.id === blockId);
         if (!cur) return;
-        const full = el.textContent ?? '';
-        const caret = getCaretOffset(el) ?? full.length;
+        const local = stripAutoContinuation(el.textContent ?? '', el.dataset.autoContd === 'true');
+        const start = el.dataset.sourceStart === undefined ? undefined : Number(el.dataset.sourceStart);
+        const end = el.dataset.sourceEnd === undefined ? undefined : Number(el.dataset.sourceEnd);
+        const context = getFragmentDraft(el) ?? fragmentContext(cur.text, start, end);
+        const full = context.prefix + local + context.suffix;
+        const caret = context.prefix.length + Math.min(getCaretOffset(el) ?? local.length, local.length);
         const head = full.slice(0, caret);
         const tail = full.slice(caret);
         const nextType = nextTypeFor(cur.block_type);
@@ -245,8 +252,8 @@ export default function ScreenplayEditor() {
       }
 
       if (e.key === 'Backspace') {
-        const full = el.textContent ?? '';
-        const caret = getCaretOffset(el) ?? 0;
+        const full = stripAutoContinuation(el.textContent ?? '', el.dataset.autoContd === 'true');
+        const caret = (Number(el.dataset.sourceStart) || 0) + (getCaretOffset(el) ?? 0);
         const blocks = useEditorStore.getState().document?.blocks ?? [];
         const idx = blocks.findIndex((b) => b.id === blockId);
 
@@ -325,7 +332,7 @@ export default function ScreenplayEditor() {
   return (
     <div className="paper-workspace" ref={workspaceRef} onFocusCapture={e => {
       const element = e.target as HTMLElement;
-      if (element.matches('.screenplay-block')) setFocusedId(element.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ?? null);
+      if (element.matches('.screenplay-block') && element.isContentEditable !== false) setFocusedId(element.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ?? null);
     }} onBlurCapture={() => {
       requestAnimationFrame(() => {
         if (!workspaceRef.current?.contains(document.activeElement)) setFocusedId(null);
@@ -418,7 +425,7 @@ function PageView({
             <BlockView
               key={pb.block_id}
               pb={fresh}
-              active={activeBlockId === pb.block_id}
+              active={activeBlockId === sourceBlockId(pb.block_id)}
               onSelect={onSelect}
               onChangeText={onChangeText}
               onKeyDown={onKeyDown}
@@ -452,6 +459,9 @@ function BlockView({
   onDelete: (id: string) => Promise<void>;
   onError: (m: string) => void;
 }) {
+  const sourceId = sourceBlockId(pb.block_id);
+  const fragmentDraft = useRef<{prefix:string;suffix:string}|null>(null);
+  const captureDraft = () => {if (!userEdited.current && !fragmentDraft.current) { const doc=useEditorStore.getState().document; const source=doc?.blocks.find(b=>b.id===sourceId)?.text ?? pb.text; fragmentDraft.current=fragmentContext(source,pb.source_start,pb.source_end); baseRevision.current=doc?.revision; if(ref.current)rememberFragmentDraft(ref.current,fragmentDraft.current); }};
   const ref = useRef<HTMLDivElement>(null);
   const composing = useRef(false);
   const [completionInput, setCompletionInput] = useState<string | null>(null);
@@ -473,10 +483,11 @@ function BlockView({
     if (composing.current) return;
     if ((el.textContent ?? '') === pb.text) {
       backendText.current = pb.text;
+      fragmentDraft.current=null;rememberFragmentDraft(el,null);
       externalWhileEditing.current = null;
       return;
     }
-    if (document.activeElement === el || userEdited.current) {
+    if (userEdited.current) {
       // 正在编辑这块：记录外部新值，不打断用户
       externalWhileEditing.current = pb.text;
       return;
@@ -484,6 +495,7 @@ function BlockView({
     setBlockText(el, pb.text, true);
     backendText.current = pb.text;
     userEdited.current = false;
+    fragmentDraft.current=null;rememberFragmentDraft(el,null);
     externalWhileEditing.current = null;
   }, [pb.text, pb.block_type]);
 
@@ -509,22 +521,27 @@ function BlockView({
       externalWhileEditing.current = null;
       setBlockText(el, incoming, true);
       backendText.current = incoming;
+      fragmentDraft.current=null;rememberFragmentDraft(el,null);
       return;
     }
 
     if (inFlight.current) await inFlight.current;
     const text = el.textContent ?? '';
     if (text === backendText.current) return;
-    const task = onChangeText(pb.block_id, text, baseRevision.current);
+    const local = stripAutoContinuation(text, pb.auto_contd);
+    const context = fragmentDraft.current ?? fragmentContext(useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId)?.text ?? pb.text, pb.source_start, pb.source_end);
+    const submitted = context.prefix + local + context.suffix;
+    const task = onChangeText(sourceId, submitted, baseRevision.current);
     inFlight.current = task;
     try {
       if (!await task) throw new Error(tr("文字尚未提交成功，请重试后再保存"));
       backendText.current = text;
       userEdited.current = (el.textContent ?? '') !== text;
-      baseRevision.current = useEditorStore.getState().document?.revision;
+      if (useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId)?.text === submitted) baseRevision.current = useEditorStore.getState().document?.revision;
+
     } finally { inFlight.current = null; }
     if (userEdited.current) await flushDraft();
-  }, [onChangeText, onError, pb.block_id]);
+  }, [onChangeText, onError, sourceId, pb.auto_contd, pb.source_start, pb.source_end]);
 
   useEffect(() => registerPendingEditor(flush), [flush]);
 
@@ -536,7 +553,7 @@ function BlockView({
   const screenplayDoc = useEditorStore((s) => s.document);
   const settings = screenplayDoc?.settings;
   const sceneIndex = screenplayDoc?.blocks.filter((b) => b.block_type === 'scene_heading').findIndex((b) => b.id === pb.block_id) ?? -1;
-  const sceneBlock = screenplayDoc?.blocks.find((b) => b.id === pb.block_id);
+  const sceneBlock = screenplayDoc?.blocks.find((b) => b.id === sourceId);
   const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(sceneIndex + 1);
   const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
   const chinese = settings?.typography === 'chinese-reading';
@@ -555,7 +572,7 @@ function BlockView({
   const acceptCompletion = (value: string) => {
     const el = ref.current;
     if (!el || composing.current) return;
-    if (!userEdited.current) baseRevision.current = useEditorStore.getState().document?.revision;
+    captureDraft();
     el.textContent = value;
     setCaretAt(el, value.length);
     userEdited.current = true;
@@ -566,7 +583,7 @@ function BlockView({
   return (
     <div className={`block-row ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
       style={{ position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
-      {pb.contd && <div className="contd-marker">(CONT'D)</div>}
+      {pb.contd && pb.block_type !== 'character' && <div className="contd-marker">(CONT'D)</div>}
       {pb.more && <div className="more-marker">(MORE)</div>}
 
       {sceneLabel && <div className="scene-number-label" style={customCss} contentEditable={false}>{sceneLabel}</div>}
@@ -577,16 +594,19 @@ function BlockView({
         ref={ref}
         className={`screenplay-block block-${pb.block_type}`}
         data-block-type={pb.block_type}
+        data-source-start={pb.source_start}
+        data-source-end={pb.source_end}
+        data-auto-contd={pb.auto_contd ? 'true' : undefined}
         data-bracketed={pb.text.trim().startsWith('（') || pb.text.trim().startsWith('(')}
         style={{ ...customCss, marginLeft: pb.block_type === 'parenthetical' ? 0 : `${indent}in`, marginRight: chinese && pb.block_type !== 'parenthetical' ? `${indent}in` : undefined }}
-        contentEditable
+        contentEditable={!pb.contd}
         suppressContentEditableWarning
         spellCheck={false}
-        onFocus={() => { onSelect(pb.block_id); setCompletionInput(ref.current?.textContent ?? ""); }}
-        onClick={() => onSelect(pb.block_id)}
+        onFocus={() => { onSelect(sourceId); setCompletionInput(ref.current?.textContent ?? ""); }}
+        onClick={() => onSelect(sourceId)}
         onInput={() => {
           if (composing.current) return;
-          if (!userEdited.current) baseRevision.current = useEditorStore.getState().document?.revision;
+          captureDraft();
           userEdited.current = true;
           setCompletionInput(ref.current?.textContent ?? "");
           setCompletionIndex(0);
@@ -604,7 +624,7 @@ function BlockView({
         onCompositionEnd={() => {
           composing.current = false;
           useEditorStore.getState().setComposing(false);
-          if (!userEdited.current) baseRevision.current = useEditorStore.getState().document?.revision;
+          captureDraft();
           userEdited.current = true;
           // ⚠️ 关键：compositionend 触发时，浏览器**可能还没**把确认后的
           // 中文字写入 DOM。同步读取会拿到拼音串并提交，导致中文永久丢失。
@@ -619,7 +639,7 @@ function BlockView({
           const txt = e.clipboardData.getData('text/plain');
           document.execCommand('insertText', false, txt);
         }}
-        onBlur={() => { setCompletionInput(null); void flush().then(()=>{const el=ref.current;if(!el||composing.current||userEdited.current||document.activeElement===el)return;const current=useEditorStore.getState().document?.blocks.find(b=>b.id===pb.block_id);if(current){const display=current.block_type==='scene_heading'&&current.text===sceneBlock?.text?pb.text:current.text;setBlockText(el,display,false);backendText.current=display;externalWhileEditing.current=null;}}).catch((e) => onError(String(e))); }}
+        onBlur={() => { setCompletionInput(null); void flush().then(()=>{const el=ref.current;if(!el||composing.current||userEdited.current||document.activeElement===el)return;const current=useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId);if(current){const display=(['scene_heading','character','parenthetical'].includes(current.block_type)||pb.source_start!==undefined)&&current.text===sceneBlock?.text?pb.text:pb.source_start!==undefined?backendText.current:current.text;setBlockText(el,display,false);backendText.current=display;externalWhileEditing.current=null;}}).catch((e) => onError(String(e))); }}
         onKeyDown={(e) => {
           if (!composing.current && !e.nativeEvent.isComposing && suggestions.length) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -632,7 +652,7 @@ function BlockView({
               e.preventDefault(); e.stopPropagation(); acceptCompletion(suggestions[Math.min(completionIndex, suggestions.length - 1)]); return;
             }
           }
-          onKeyDown(e, pb.block_id);
+          if(!pb.contd)onKeyDown(e, sourceId);
         }}
       />
       {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{chinese ? '）' : ')'}</span>}
@@ -666,7 +686,7 @@ function BlockView({
 function setBlockText(el: HTMLElement, s: string, keepCaret: boolean) {
   const cur = el.textContent ?? '';
   if (document.activeElement !== el) {
-    const cue = el.dataset.blockType === 'character' ? s.match(/^(.*?)([（(](?:内心独白|画外音|画外|旁白|离画|电话音|V\.O\.?|O\.S\.?|OFF)[）)])$/i) : null;
+    const cue = el.dataset.blockType === 'character' ? s.match(/^(.*?)([（(](?:内心独白|画外音|画外|旁白|离画|电话音|V\.O\.?|O\.S\.?|OFF|CONT['’]?D)(?:[,，]\s*CONT['’]?D)?[）)])$/i) : null;
     const prefix = s.match(/^(镜头切换[。.]|蒙太奇(?=[。.]))/);
     if (cue || prefix) {
       const first = document.createElement('span');

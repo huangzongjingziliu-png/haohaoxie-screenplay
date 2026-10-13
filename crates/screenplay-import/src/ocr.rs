@@ -117,12 +117,15 @@ pub fn run_ocr(path: &Path, langs: Option<&str>) -> Result<Vec<OcrPage>, OcrErro
     run_ocr_controlled(path, langs, &crate::ImportControl::default())
 }
 
-pub fn run_ocr_controlled(path: &Path, langs: Option<&str>, control: &crate::ImportControl) -> Result<Vec<OcrPage>, OcrError> {
+pub fn run_ocr_controlled(path: &Path, langs: Option<&str>, control: &crate::ImportControl) -> Result<Vec<OcrPage>, OcrError> { run_controlled(path,langs,control,false) }
+pub fn run_layout_controlled(path: &Path, langs: Option<&str>, control: &crate::ImportControl) -> Result<Vec<OcrPage>, OcrError> { run_controlled(path,langs,control,true) }
+fn run_controlled(path: &Path, langs: Option<&str>, control: &crate::ImportControl, layout:bool) -> Result<Vec<OcrPage>, OcrError> {
     if control.is_cancelled() { return Err(OcrError::Cancelled); }
     control.report("ocr", 0, 0);
     let sidecar = find_sidecar().ok_or(OcrError::SidecarNotFound)?;
     let mut cmd = Command::new(sidecar);
     cmd.arg(path).arg("--text-first");
+    if layout {cmd.arg("--layout");}
     if let Some(l) = langs {
         cmd.arg("--langs").arg(l);
     }
