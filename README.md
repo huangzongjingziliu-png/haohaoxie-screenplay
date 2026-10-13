@@ -6,14 +6,14 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Latest beta 0.1.54 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.55 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.54-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.55-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 
 
-**Installing the app? Download only the DMG.** [Download the Apple Silicon Mac installer](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.54-beta.1/haohaoxie-screenplay_0.1.54_aarch64.dmg)
+**Installing the app? Download only the DMG.** [Download the Apple Silicon Mac installer](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.55-beta.1/haohaoxie-screenplay_0.1.55_aarch64.dmg)
 
 This beta is not Apple-notarized and may still be blocked on first launch. See the installation notes.
 
@@ -113,6 +113,12 @@ This Apple Silicon beta has **no Developer ID signature or Apple notarization**.
 
 Read the [privacy notes](docs/public/PRIVACY.md) for details on data processing.
 
+## First launch blocked?
+
+This beta is not Apple-notarized. If macOS says it cannot verify the app, click Done, then open System Settings → Privacy & Security and look for Open Anyway in the Security section. If the button is missing, close System Settings and reopen that page.
+
+If opening still fails or macOS reports damage, contact the author with your app version and a screenshot. Do not disable system security. The installer disk also displays these steps in Chinese and English.
+
 ## Build from source
 
 On Apple Silicon macOS, install Node.js 22.12+ (LTS), recent Rust stable and Apple's Swift/Xcode command-line tools.
@@ -125,7 +131,7 @@ node scripts/prepare-agent-tools.mjs
 npm test
 cargo build --locked -p screenplay-testtool
 cargo test --workspace --locked
-npm run tauri:build
+npm run tauri:build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
 The build includes OCR/PDF helpers and CLI/MCP tools. Artifacts appear in `target/release/bundle/`. No API key is needed to build or use core editing.

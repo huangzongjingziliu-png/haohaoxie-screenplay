@@ -6,14 +6,14 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新测试版 0.1.54 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.55 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.54-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.55-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
 
-**普通用户只下载 DMG 安装包，其余文件不用下载。** [下载安装包（Apple 芯片 Mac）](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.54-beta.1/haohaoxie-screenplay_0.1.54_aarch64.dmg)
+**普通用户只下载 DMG 安装包，其余文件不用下载。** [下载安装包（Apple 芯片 Mac）](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.55-beta.1/haohaoxie-screenplay_0.1.55_aarch64.dmg)
 
 此测试版未经过 Apple 公证，首次打开可能仍被 macOS 拦截；请阅读安装说明。
 
@@ -100,6 +100,12 @@ PDF／图片转写需要配置模型并允许对应服务处理内容。识别�
 每天后台检查 GitHub，有新版时显示蓝色向上箭头。点击查看更新说明，下载后由你确认保存、重启安装。不会趁你写戏时突然重启。
 
 “更多 → 检查更新”可以手动检查，“设置 → 软件更新”可以关闭自动检查。第一次仍需安装支持自动更新的版本，后续更新包会验证签名。详情见[更新说明](docs/UPDATES.md)。
+
+## 第一次打开被拦截怎么办？
+
+测试版尚未经过 Apple 公证，首次启动可能出现“Apple 无法验证”。先点“完成”，再进入“系统设置 → 隐私与安全性”，在“安全性”区域查看“仍要打开”。如果没有按钮，退出系统设置后重新进入该页面。
+
+若依旧打不开，或提示“已损坏”，请通过 Issues 或邮箱联系作者并附上版本和截图。不要关闭系统安全保护。安装盘也会直接显示这份中英文提示。
 
 ## 三步开始
 
