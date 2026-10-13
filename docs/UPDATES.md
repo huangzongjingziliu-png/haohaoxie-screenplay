@@ -15,3 +15,6 @@ The app checks this repository's GitHub releases daily, including betas. A blue 
 上传同一 Release 的三个文件：`*.app.tar.gz`、`*.app.tar.gz.sig`、`latest.json`；最后上传 manifest，再发布 Release。保留 DMG 作为手动安装入口。未提供 manifest 的新版只显示 GitHub 下载入口。禁止把本地测试 manifest 指向未上传的更新包后直接发布。
 
 Build with the script above, provide the same private key on other build machines, and upload the updater archive, its signature and latest.json to the same release. Publish the manifest last. Keep the DMG as a manual fallback. Never commit the private signing key. The key must be backed up securely; updater signatures do not replace Apple Developer ID signing.
+
+签名包和 latest.json 生成在 `target/release/bundle/updater/`。上传时保留生成的英文文件名，GitHub 会改写中文附件名，导致清单地址失效。
+The publisher script creates ASCII asset names under `target/release/bundle/updater/`; preserve these names when uploading. GitHub rewrites non-ASCII attachment names.

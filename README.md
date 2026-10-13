@@ -8,7 +8,7 @@ Write Your Script keeps the work in one project. Write freely while watching the
 
 **Latest beta 0.1.53 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.2) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 

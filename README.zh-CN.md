@@ -8,7 +8,7 @@
 
 **最新测试版 0.1.53 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.2) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
