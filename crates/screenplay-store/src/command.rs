@@ -793,8 +793,11 @@ impl CommandService {
     }
 
     pub fn update_series_planning(&self,patches:&[screenplay_core::series_planning::PlanningPatch],expected:u64)->Result<CommandResult,CommandError>{
+        self.update_series_planning_from(Origin::GuiLeft,patches,expected)
+    }
+    pub fn update_series_planning_from(&self,origin:Origin,patches:&[screenplay_core::series_planning::PlanningPatch],expected:u64)->Result<CommandResult,CommandError>{
         self.check_revision(Some(expected))?;let before=self.store.snapshot();let mut doc=before.clone();screenplay_core::series_planning::apply_patches(&mut doc,patches).map_err(|message|CommandError::InvalidArgument{message})?;
-        self.commit_with_history(before,doc,Origin::GuiLeft,"series_planning",None,false,false);Ok(self.result(Vec::new(),None))
+        self.commit_with_history(before,doc,origin,"series_planning",None,false,false);Ok(self.result(Vec::new(),None))
     }
     pub fn save_continuity_report(&self,report:ContinuityReport,expected:u64)->Result<CommandResult,CommandError>{
         self.check_revision(Some(expected))?;let before=self.store.snapshot();let mut doc=before.clone();
@@ -809,15 +812,21 @@ impl CommandService {
         self.commit_with_history(before,doc,Origin::GuiLeft,"review_continuity",None,false,false);Ok(self.result(Vec::new(),None))
     }
     pub fn replace_text_reviewed(&self,project_id:&str,query:&str,replacement:&str,scope:&str,selected:&[String],expected:u64)->Result<CommandResult,CommandError>{
+        self.replace_text_reviewed_from(Origin::GuiLeft,project_id,query,replacement,scope,selected,expected)
+    }
+    pub fn replace_text_reviewed_from(&self,origin:Origin,project_id:&str,query:&str,replacement:&str,scope:&str,selected:&[String],expected:u64)->Result<CommandResult,CommandError>{
         self.check_revision(Some(expected))?;let before=self.store.snapshot();if before.id!=project_id{return Err(CommandError::InvalidArgument{message:"项目已切换，请重新预览".into()});}let mut doc=before.clone();screenplay_core::text_replace::apply(&mut doc,query,replacement,scope,selected).map_err(|message|CommandError::InvalidArgument{message})?;
-        self.commit_with_history(before,doc,Origin::GuiLeft,"replace_text",None,false,true);Ok(self.result(Vec::new(),None))
+        self.commit_with_history(before,doc,origin,"replace_text",None,false,true);Ok(self.result(Vec::new(),None))
     }
     pub fn edit_series(&self, action:&str, id:&str, title:&str, order:&[String], expected:u64)->Result<CommandResult,CommandError>{
+        self.edit_series_from(Origin::GuiLeft,action,id,title,order,expected)
+    }
+    pub fn edit_series_from(&self,origin:Origin,action:&str,id:&str,title:&str,order:&[String],expected:u64)->Result<CommandResult,CommandError>{
         self.check_revision(Some(expected))?;
         let before=self.store.snapshot();let mut doc=before.clone();
         screenplay_core::series::edit(&mut doc,action,id,title,order).map_err(|message|CommandError::InvalidArgument{message})?;
-        self.store.log_operation(Origin::GuiLeft,"edit_series",id,action,title,None);
-        self.commit_with_history(before,doc,Origin::GuiLeft,"edit_series",Some(id),false,true);
+        self.store.log_operation(origin,"edit_series",id,action,title,None);
+        self.commit_with_history(before,doc,origin,"edit_series",Some(id),false,true);
         Ok(self.result(Vec::new(),None))
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "screenplay-desktop"
-version = "0.1.50"
+version = "0.1.53"
 edition = "2021"
 license = "MIT"
 
@@ -30,7 +30,13 @@ ts-rs = { version = "11", features = ["serde-compat"] }
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"
 ring = "0.17"
+reqwest.workspace = true
+tauri-plugin-updater = "2"
+semver = "1"
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile.workspace = true

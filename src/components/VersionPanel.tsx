@@ -125,6 +125,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   const switchBranch = async (name: string) => {
     setBusy(true);
     try {
+      await flushPendingEdits();
       await ipc.switchBranch(name);
       await reload();
       await bootstrap();
@@ -137,7 +138,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <ModalBackdrop onDismiss={onClose} message={tr("放弃尚未提交的版本操作并关闭？")}>
+    <ModalBackdrop disabled={busy} onDismiss={onClose} message={tr("放弃尚未提交的版本操作并关闭？")}>
       <div className="modal version-modal" onClick={(e) => e.stopPropagation()}>
         <div className="version-header">
           <h2>{tr("版本与历史")}</h2><p>{tr("当前稿号")} · {draftLabel||tr("尚未命名")}</p>

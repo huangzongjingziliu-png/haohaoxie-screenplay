@@ -65,6 +65,7 @@ ${quote(info.cli)} status
         <p>{tr("配置完成后，对 Agent 说：“请使用好好写剧本 MCP，只读查看当前项目，告诉我项目名称、路径和场景数量，暂时不要修改。”能正确返回这些信息，才算接通。")}</p>
         <p className="connection-note">{tr("如果提示“没有那个文件或目录”，先确认 Agent 是否运行在这台 Mac 的本地工作模式。云端或隔离环境访问不到本机路径，换成 CLI 也不能解决。")}</p>
       </div>
+      <p className="connection-note">{tr("分集工程请先让 Agent 读取 workbench_overview，确认当前集。批量改名先预览再确认；遇到冲突重新预览，不要只刷新 revision。")}</p>
       <details>
         <summary>{tr("临时接入：通过 CLI 复制操作说明")}</summary>
         <p>{tr("适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，不会自动配置 MCP，也不会授予电脑访问能力。")}</p>

@@ -233,6 +233,7 @@ describe('修改与冲突处理', () => {
   });
 
   it('t08_正常修改后使用后端返回的 source_text（不是前端拼的）', async () => {
+    useEditorStore.setState({document:makeDoc([],2) as never});
     const newDoc = makeDoc([{ id: 'B-1', text: '后端序列化结果' }]);
     mockBackend.on('insert_block', () => okResult(newDoc, '后端给的自由文本'));
 
@@ -247,6 +248,7 @@ describe('修改与冲突处理', () => {
   });
 
   it('t09_修改后自动刷新 projectInfo（dirty 由后端判定）', async () => {
+    useEditorStore.setState({document:makeDoc([],2) as never});
     mockBackend.on('insert_block', () => okResult());
     mockBackend.on('project_info_cmd', () => ({
       state: 'open',
@@ -464,3 +466,15 @@ describe('late IPC responses and pending undo drafts', () => {
   try{await useEditorStore.getState().undo();expect(events).toEqual(['flush','undo']);expect(useEditorStore.getState().toasts.slice(-1)[0]?.message).toContain('不能提交草稿');}finally{stop();}
  });
 });
+
+describe('cross-project command result isolation',()=>{
+ it('ignores a late write result after switching projects',async()=>{const newDoc={...makeDoc([{id:'new',text:'新工程'}],3),id:'new-project'};useEditorStore.setState({document:newDoc as never,sourceText:'新工程'});await useEditorStore.getState().applyResult(okResult(makeDoc([{id:'old',text:'旧工程'}],20),'旧工程') as never);expect(useEditorStore.getState().document?.id).toBe('new-project');expect(useEditorStore.getState().sourceText).toBe('新工程');expect(mockBackend.callsTo('project_info_cmd')).toHaveLength(0);});
+ it('does not reopen a closed project from a late command response',async()=>{useEditorStore.setState({document:null,sourceText:''});await useEditorStore.getState().applyResult(okResult(makeDoc(), '旧工程') as never);expect(useEditorStore.getState().document).toBeNull();});
+});
+
+describe('save response identity',()=>{
+ it('does not apply an old save result after changing project',async()=>{useEditorStore.setState({document:makeDoc() as never,project:{...EMPTY_PROJECT,state:'open',path:'/old.screenplay',dirty:true}});let reply!:(v:unknown)=>void;mockBackend.on('save_project',()=>new Promise(resolve=>{reply=resolve;}));const pending=useEditorStore.getState().save();await vi.waitFor(()=>expect(mockBackend.callsTo('save_project')).toHaveLength(1));useEditorStore.setState({document:{...makeDoc(),id:'new-project'} as never,project:{...EMPTY_PROJECT,state:'unsaved',title:'新工程',dirty:true}});reply({path:'/old.screenplay',savedRevision:3,savedAt:''});expect(await pending).toBeNull();expect(useEditorStore.getState().project.title).toBe('新工程');expect(useEditorStore.getState().project.dirty).toBe(true);expect(mockBackend.callsTo('project_info_cmd')).toHaveLength(0);});
+ it('binds a save request to the captured project identity',async()=>{useEditorStore.setState({document:makeDoc() as never,project:{...EMPTY_PROJECT,state:'open',path:'/old.screenplay'}});mockBackend.on('save_project',()=>({path:'/old.screenplay',savedRevision:3,savedAt:''}));mockBackend.on('project_info_cmd',()=>({...EMPTY_PROJECT,state:'open',revision:3}));await useEditorStore.getState().save();expect(mockBackend.callsTo('save_project')[0].args).toMatchObject({projectId:'doc-1'});});
+});
+
+it('cancels save-as if the project changes while choosing a filename',async()=>{useEditorStore.setState({document:makeDoc() as never,project:{...EMPTY_PROJECT,state:'open',title:'旧工程'}});const dialogs=await import('@tauri-apps/plugin-dialog');let choose!:(path:string|null)=>void;const spy=vi.spyOn(dialogs,'save').mockImplementationOnce(()=>new Promise(resolve=>{choose=resolve;}));try{const pending=useEditorStore.getState().saveAs();await vi.waitFor(()=>expect(spy).toHaveBeenCalled());useEditorStore.setState({document:{...makeDoc(),id:'new'} as never});choose('/old.screenplay');expect(await pending).toBeNull();expect(mockBackend.callsTo('save_project_as')).toHaveLength(0);}finally{spy.mockRestore();}});

@@ -1,3 +1,4 @@
+import UpdateDialog, {UpdateButton,checkUpdates} from './AppUpdates';
 import EpisodeControls from './EpisodeControls';
 import {tr,fmt} from '@/i18n';
 import { useState, useEffect, useRef } from 'react';
@@ -180,12 +181,13 @@ export default function Toolbar({
         {onBoard && <button onClick={onBoard} disabled={project.state === 'empty'} title={tr("场景白板：拖动便签同步调整剧本顺序")}>{tr("白板")}</button>}
         {onAgent && <button onClick={onAgent} title={tr("编剧助理")}>{tr("编剧助理")}</button>}
         {onSearch && <button onClick={onSearch} title={tr("搜索剧本 · ⌘F")}>{tr("⌕ 搜索")}</button>}
-        <div className="toolbar-more" ref={moreRef}>
+        <UpdateButton/><UpdateDialog/><div className="toolbar-more" ref={moreRef}>
           <button aria-expanded={moreOpen} aria-haspopup="true" onClick={() => setMoreOpen(!moreOpen)}>{tr("更多 ▾")}</button>
           {moreOpen && <div className="toolbar-more-menu" aria-label={tr("更多操作")} onClick={() => setMoreOpen(false)}>
             <button onClick={() => void doSaveAs()} disabled={busy || project.state === 'empty'}>{tr("另存为… ")}<small>⇧⌘S</small></button>
             <button onClick={() => onVersions?.()} disabled={project.state === 'empty'}>{tr("版本历史 ")}<small>⌘Y</small></button>
             {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent…")}</button>}
+            <button onClick={()=>void checkUpdates(true)}>{tr("检查更新")}</button>
             {onHelp && <button onClick={onHelp}>{tr("帮助与教程")}</button>}
             {onSettings && <button onClick={onSettings}>{tr("设置… ")}<small>⌘,</small></button>}
             <hr />

@@ -23,3 +23,5 @@ pub use bridge::{BridgeClient, BridgeDescriptor, BridgeError, BridgeRequest, Bri
 pub use command::{CommandError, CommandResult, CommandService, PendingOp, SearchHit};
 pub use db::{AuditEntry, Branch, Origin, Store, VersionRecord};
 pub use workspace::Workspace;
+
+pub mod workbench_bridge;

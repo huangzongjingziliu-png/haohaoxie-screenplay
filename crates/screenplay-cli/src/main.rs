@@ -42,6 +42,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// 工作台操作（JSON action）：overview/episode/edit_episodes/save_planning/preview_replacement/apply_replacement/compare_drafts
+    Workbench { request: String },
     /// 新建空白项目
     New {
         title: Option<String>,
@@ -229,6 +231,7 @@ fn standalone(
     lock: &mut Option<Box<ProjectLock>>,
     req: BridgeRequest,
 ) -> BridgeResponse {
+    if let BridgeRequest::Workbench{request}=&req{return screenplay_store::workbench_bridge::execute(ws,request.clone(),Origin::Cli);}
     let rev = ws.revision();
     let ok = |r: screenplay_store::command::CommandResult| {
         BridgeResponse::ok(serde_json::to_value(&r).unwrap_or_default(), r.revision)
@@ -274,6 +277,7 @@ fn standalone(
     }
 
     match req {
+        BridgeRequest::Workbench{..}=>unreachable!("handled above"),
         BridgeRequest::Ping => BridgeResponse::ok(
             serde_json::json!({"pong": true, "mode": "standalone"}),
             rev,
@@ -286,6 +290,9 @@ fn standalone(
                     "state": if ws.container_path().is_some() { "open" } else { "unsaved" },
                     "path": ws.container_path().map(|p| p.to_string_lossy().to_string()),
                     "title": d.metadata.title,
+                    "projectId": d.id,
+                    "activeEpisodeId": d.series.as_ref().map(|s|&s.active_id),
+                    "episodeCount": d.series.as_ref().map(|s|s.episodes.len()).unwrap_or(1),
                     "revision": d.revision,
                     "dirty": ws.dirty.load(std::sync::atomic::Ordering::SeqCst),
                     "blockCount": d.blocks.len(),
@@ -302,25 +309,10 @@ fn standalone(
             rev,
         ),
         BridgeRequest::SaveProject { path } => {
-            let target: Option<PathBuf> =
-                path.map(PathBuf::from).or_else(|| ws.container_path());
-            match ws.save(target.as_deref()) {
-                Ok(p) => {
-                    if lock.is_none() {
-                        if let Ok(l) = ProjectLock::acquire(&p) {
-                            *lock = Some(Box::new(l));
-                        }
-                    }
-                    BridgeResponse::ok(
-                        serde_json::json!({"path": p.to_string_lossy()}),
-                        ws.revision(),
-                    )
-                }
-                Err(m) => BridgeResponse::fail(
-                    BridgeError::Internal { message: m },
-                    ws.revision(),
-                ),
-            }
+            let target=path.map(PathBuf::from).or_else(||ws.container_path());
+            let Some(target)=target else{return BridgeResponse::fail(BridgeError::InvalidArgument{message:"尚未指定保存路径".into()},rev);};
+            let new_lock=if lock.is_none()||!ws.container_path().is_some_and(|p|screenplay_store::bridge::lock_path_for(&p)==screenplay_store::bridge::lock_path_for(&target)){match screenplay_store::bridge::ProjectLock::acquire(&target){Ok(l)=>Some(Box::new(l)),Err(e)=>return BridgeResponse::fail(e,rev)}}else{None};
+            match ws.save(Some(&target)){Ok(p)=>{if let Some(l)=new_lock{*lock=Some(l);}ws.bind_container(&p);BridgeResponse::ok(serde_json::json!({"path":p.to_string_lossy(),"dirty":false}),ws.revision())},Err(message)=>BridgeResponse::fail(BridgeError::Internal{message},rev)}
         }
         BridgeRequest::GetDocument => {
             let d = ws.document();
@@ -528,7 +520,7 @@ fn standalone(
                 }
             };
             let d = ws.document();
-            match screenplay_export::export(&d, fmt) {
+            match screenplay_export::export(&screenplay_core::series::publication_copy(&d), fmt) {
                 Ok(b) => match std::fs::write(&path, &b) {
                     Ok(()) => BridgeResponse::ok(
                         serde_json::json!({"path": path, "bytes": b.len()}),
@@ -586,12 +578,20 @@ fn main() -> Result<()> {
     let mut be = connect(cli.project.as_ref(), title)?;
 
     // 只读命令不需要项目存在；写命令由各自分支校验
-    let result = run(&mut be, cli.command);
-    result
+    run_and_persist(&mut be, cli.command)
+}
+
+fn run_and_persist(be:&mut Backend,cmd:Cmd)->Result<()>{
+    let writes=match &cmd{Cmd::Replace{..}|Cmd::Insert{..}|Cmd::Delete{..}|Cmd::SetType{..}|Cmd::Undo|Cmd::Redo=>true,Cmd::Version{sub}=>matches!(sub,VersionCmd::Create{..}|VersionCmd::Restore{..}),Cmd::Workbench{request}=>matches!(serde_json::from_str::<screenplay_store::workbench_bridge::WorkbenchRequest>(request),Ok(screenplay_store::workbench_bridge::WorkbenchRequest::EditEpisodes{..}|screenplay_store::workbench_bridge::WorkbenchRequest::SavePlanning{..}|screenplay_store::workbench_bridge::WorkbenchRequest::ApplyReplacement{..})),_=>false};
+    if writes{if let Backend::Standalone{ws,..}=&*be{if ws.container_path().is_none(){anyhow::bail!("GUI 未运行时，写操作需通过 --project 指定已保存的工程");}}}
+    run(be, cmd)?;
+    if writes{if let Backend::Standalone{ws,..}=&*be{ws.save(None).map_err(anyhow::Error::msg)?;}}
+    Ok(())
 }
 
 fn run(be: &mut Backend, cmd: Cmd) -> Result<()> {
     match cmd {
+        Cmd::Workbench { request } => {let request:screenplay_store::workbench_bridge::WorkbenchRequest=serde_json::from_str(&request)?;let result=call(be,BridgeRequest::Workbench{request})?;println!("{}",serde_json::to_string_pretty(&result)?);},
         // ---------------- 状态 ----------------
         Cmd::Status => {
             println!("模式: {}", be.mode());
@@ -854,7 +854,7 @@ fn run(be: &mut Backend, cmd: Cmd) -> Result<()> {
                     for x in arr {
                         println!(
                             "{}  {}  rev={}  {}{}",
-                            x.get("id").and_then(|i| i.as_str()).unwrap_or("").chars().take(8).collect::<String>(),
+                            x.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string(),
                             x.get("name").and_then(|i| i.as_str()).unwrap_or(""),
                             x.get("revision").and_then(|i| i.as_u64()).unwrap_or(0),
                             if x.get("auto").and_then(|b| b.as_bool()).unwrap_or(false) { "[自动] " } else { "" },
@@ -907,4 +907,14 @@ fn run(be: &mut Backend, cmd: Cmd) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]mod persistence_tests{use super::*;
+ #[test]fn standalone_cli_writes_survive_process_workspace_reopen(){let folder=tempfile::tempdir().unwrap();let path=folder.path().join("test.screenplay");let ws=Workspace::blank("测试").unwrap();ws.save(Some(&path)).unwrap();ws.bind_container(&path);let id=ws.document().id;let revision=ws.revision();let mut backend=Backend::Standalone{ws:Arc::new(ws),_lock:None};let request=serde_json::json!({"action":"edit_episodes","project_id":id,"operation":"enable","title":"第一集","expected_revision":revision}).to_string();run_and_persist(&mut backend,Cmd::Workbench{request}).unwrap();drop(backend);let restored=Workspace::open(&path).unwrap();assert_eq!(restored.document().series.unwrap().episodes[0].title,"第一集");assert!(restored.revision()>revision);}
+ #[test]fn standalone_write_without_a_saved_project_is_rejected(){let mut backend=Backend::Standalone{ws:Arc::new(Workspace::blank("测试").unwrap()),_lock:None};assert!(run_and_persist(&mut backend,Cmd::Undo).is_err());}
+}
+
+#[cfg(test)]mod save_lock_tests{use super::*;
+ #[test]fn save_as_checks_the_destination_lock_before_writing(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("locked.screenplay");std::fs::write(&path,b"original").unwrap();let _held=ProjectLock::acquire(&path).unwrap();let ws=Workspace::blank("测试").unwrap();let mut lock=None;let r=standalone(&ws,&mut lock,BridgeRequest::SaveProject{path:Some(path.to_string_lossy().into())});assert!(!r.ok);assert_eq!(std::fs::read(&path).unwrap(),b"original");assert!(ws.container_path().is_none());}
+ #[test]fn save_as_binds_the_path_for_later_save(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("saved.screenplay");let ws=Workspace::blank("测试").unwrap();let mut lock=None;assert!(standalone(&ws,&mut lock,BridgeRequest::SaveProject{path:Some(path.to_string_lossy().into())}).ok);assert_eq!(ws.container_path(),Some(screenplay_store::bridge::canonical_container_path(&path)));assert!(standalone(&ws,&mut lock,BridgeRequest::SaveProject{path:None}).ok);}
 }

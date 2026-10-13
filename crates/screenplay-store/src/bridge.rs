@@ -98,6 +98,7 @@ pub enum BridgeRequest {
     // ---- 状态 ----
     Ping,
     ProjectInfo,
+    Workbench { request: crate::workbench_bridge::WorkbenchRequest },
 
     // ---- 项目生命周期（外部进程驱动 GUI 切换项目）----
     /// 让 GUI 打开指定项目。成功后**后续所有操作都在该项目上进行**。
@@ -327,6 +328,7 @@ impl BridgeRequest {
         match self {
             BridgeRequest::Ping => "Ping",
             BridgeRequest::ProjectInfo => "ProjectInfo",
+            BridgeRequest::Workbench { .. } => "Workbench",
             BridgeRequest::OpenProject { .. } => "OpenProject",
             BridgeRequest::NewProject { .. } => "NewProject",
             BridgeRequest::SaveProject { .. } => "SaveProject",
@@ -375,12 +377,13 @@ pub fn descriptor_path() -> Option<PathBuf> {
 }
 
 /// 锁文件路径（独立进程模式使用）
+pub fn canonical_container_path(container:&Path)->PathBuf{
+    let absolute=if container.is_absolute(){container.to_path_buf()}else{std::env::current_dir().unwrap_or_default().join(container)};
+    let mut cleaned=PathBuf::new();for part in absolute.components(){match part{std::path::Component::CurDir=>{},std::path::Component::ParentDir=>{cleaned.pop();},_=>cleaned.push(part.as_os_str())}}
+    cleaned.canonicalize().unwrap_or_else(|_|cleaned.parent().and_then(|p|p.canonicalize().ok()).and_then(|p|cleaned.file_name().map(|n|p.join(n))).unwrap_or(cleaned))
+}
 pub fn lock_path_for(container: &Path) -> Option<PathBuf> {
-    app_support_dir().map(|d| {
-        // 用容器路径的哈希命名，避免路径穿越与非法字符
-        let h = fnv1a(container.to_string_lossy().as_bytes());
-        d.join(format!("locks/{h:016x}.lock"))
-    })
+    app_support_dir().map(|d|{let normalized=canonical_container_path(container);let h=fnv1a(normalized.to_string_lossy().as_bytes());d.join(format!("locks/{h:016x}.lock"))})
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -996,4 +999,8 @@ mod tests {
             );
         }
     }
+}
+
+#[cfg(test)]mod lock_path_alias_tests{use super::*;
+ #[test]fn existing_and_not_yet_created_paths_use_the_same_lock_identity(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("project.screenplay");let before=lock_path_for(&path);std::fs::write(&path,b"test").unwrap();assert_eq!(before,lock_path_for(&path));let alias=dir.path().join(".").join("project.screenplay");assert_eq!(before,lock_path_for(&alias));let link=dir.path().join("alias.screenplay");std::os::unix::fs::symlink(&path,&link).unwrap();assert_eq!(before,lock_path_for(&link));}
 }

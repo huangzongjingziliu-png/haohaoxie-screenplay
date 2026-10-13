@@ -154,8 +154,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   refreshHistory: async () => {
+    const projectId=get().document?.id,revision=get().document?.revision;
     try {
-      set({ history: await ipc.historyStatus() });
+      const history=await ipc.historyStatus();
+      if(get().document?.id!==projectId||get().document?.revision!==revision)return;
+      set({history});
     } catch {
       /* 未打开项目时忽略 */
     }
@@ -219,14 +222,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   save: async (path) => {
+    const projectId=get().document?.id;
     try {
       await flushPendingEdits();
+      if(get().document?.id!==projectId)throw new Error(tr('项目已切换，取消保存'));
       if (!path && get().project.state === 'unsaved' && !get().project.path) return await get().saveAs();
-      const outcome = path ? await ipc.saveProjectAs(path) : await ipc.saveProject();
+      const outcome = path ? await ipc.saveProjectAs(path,projectId) : await ipc.saveProject(projectId);
       // 关键：保存后**主动拉取**后端权威状态，
       // 而不是信任「保存成功 = 我这份数据是对的」。
+      if(get().document?.id!==projectId)return null;
       const info = await ipc.projectInfo();
-      set({ project: info });
+      if(get().document?.id!==projectId)return null;
+      if(info.revision >= (get().document?.revision??0))set({ project: info });
       get().pushToast('success', fmt('已保存到 {0}', outcome.path));
       return outcome;
     } catch (e) {
@@ -237,10 +244,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   saveAs: async () => {
+    const projectId=get().document?.id;
     try {
       const { save: dialog } = await import('@tauri-apps/plugin-dialog');
       const name = (get().project.title || tr('剧本')).replace(/[/\\]/g, '-');
       const path = await dialog({ defaultPath: `${name}.screenplay`, filters: [{ name: tr('好好写剧本项目'), extensions: ['screenplay'] }] });
+      if(get().document?.id!==projectId)throw new Error(tr('项目已切换，取消保存'));
       return path ? await get().save(path) : null;
     } catch (e) { get().pushToast('error', describe(e), codeOf(e)); return null; }
   },
@@ -259,8 +268,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   revert: async () => {
+    const projectId=get().document?.id;
     try {
       const b = await ipc.revertProject();
+      if(get().document?.id!==projectId)return;
       set({ document: b.document, project: b.project, sourceText: b.sourceText });
       get().pushToast('info', tr('已放弃未保存的修改'));
     } catch (e) {
@@ -363,7 +374,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   applyResult: async (r) => {
     const current = get().document;
-    if (current?.id === r.document.id && r.document.revision < current.revision) return;
+    if (!current || current.id !== r.document.id || r.document.revision < current.revision) return;
     set({
       document: r.document,
       sourceText: r.source_text,

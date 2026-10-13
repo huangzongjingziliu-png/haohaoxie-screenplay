@@ -48,7 +48,7 @@ impl Workspace {
         let conn = open_db(&db_path).map_err(|e| format!("打开项目数据库失败: {e}"))?;
         let store = Arc::new(Store::new(conn, loaded.document));
         Ok(Self {
-            container: Mutex::new(Some(container.to_path_buf())),
+            container: Mutex::new(Some(crate::bridge::canonical_container_path(container))),
             db_path,
             service: CommandService::new(store),
             dirty: std::sync::atomic::AtomicBool::new(repaired),
@@ -98,6 +98,7 @@ impl Workspace {
                 .container_path()
                 .ok_or("尚未指定保存路径，请使用 save-as")?,
         };
+        let target=crate::bridge::canonical_container_path(&target);
         let doc = self.document();
         // 导出 SQLite 为字节（先 checkpoint WAL，否则最新写入在 -wal 文件中）
         {
@@ -261,7 +262,7 @@ impl Workspace {
 
     /// 绑定容器路径（另存为后调用），使后续 save() 无需再传路径
     pub fn bind_container(&self, path: &Path) {
-        *self.container.lock().unwrap() = Some(path.to_path_buf());
+        *self.container.lock().unwrap() = Some(crate::bridge::canonical_container_path(path));
     }
 }
 
@@ -299,4 +300,8 @@ mod source_archive_tests {
 
 #[cfg(test)]mod draft_persistence_tests{use super::*;
  #[test]fn draft_code_and_version_snapshots_survive_save_and_reopen(){let directory=tempfile::tempdir().unwrap();let path=directory.path().join("draft.screenplay");let workspace=Workspace::blank("剧集").unwrap();workspace.service.replace_source_text(crate::db::Origin::GuiRight,"INT. ROOM - DAY\n\n保留正文",None).unwrap();let version=workspace.service.create_version(crate::db::Origin::GuiLeft,"V2.1","交稿").unwrap();let id=version.version_id.unwrap();workspace.save(Some(&path)).unwrap();let reopened=Workspace::open(&path).unwrap();assert_eq!(reopened.document().draft_label.as_deref(),Some("V2.1"));assert_eq!(reopened.service.store.version_document(&id).unwrap().draft_label.as_deref(),Some("V2.1"));assert!(reopened.service.store.list_versions().iter().any(|v|v.name=="V2.1"));}
+}
+
+#[cfg(test)]mod symlink_save_tests{use super::*;
+ #[test]fn saving_an_opened_symlink_updates_the_target_and_keeps_the_link(){let dir=tempfile::tempdir().unwrap();let actual=dir.path().join("actual.screenplay");let link=dir.path().join("link.screenplay");let first=Workspace::blank("原稿").unwrap();first.save(Some(&actual)).unwrap();std::os::unix::fs::symlink(&actual,&link).unwrap();let opened=Workspace::open(&link).unwrap();opened.service.insert_block(crate::db::Origin::GuiLeft,None,screenplay_core::ast::BlockType::Action,"新内容",None).unwrap();opened.save(None).unwrap();assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());assert!(Workspace::open(&actual).unwrap().document().blocks.iter().any(|b|b.text=="新内容"));}
 }

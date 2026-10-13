@@ -185,7 +185,9 @@ pub fn handle(app: &AppHandle, project: &ProjectService, req: BridgeRequest) -> 
         Err(m) => return BridgeResponse::fail(BridgeError::AppState { message: m }, rev),
     };
 
+    if let BridgeRequest::Workbench{request}=&req{let write=matches!(request,screenplay_store::workbench_bridge::WorkbenchRequest::EditEpisodes{..}|screenplay_store::workbench_bridge::WorkbenchRequest::SavePlanning{..}|screenplay_store::workbench_bridge::WorkbenchRequest::ApplyReplacement{..});let response=screenplay_store::workbench_bridge::execute(&ws,request.clone(),EXTERNAL_ORIGIN);if write&&response.ok{if let Some(data)=response.data.clone(){if let Ok(r)=serde_json::from_value::<screenplay_store::command::CommandResult>(data){crate::broadcast_external(app,&r);}}}return response;}
     match req {
+        BridgeRequest::Workbench{..}=>unreachable!("handled above"),
         BridgeRequest::Ping
         | BridgeRequest::ProjectInfo
         | BridgeRequest::OpenProject { .. }
@@ -428,7 +430,7 @@ pub fn handle(app: &AppHandle, project: &ProjectService, req: BridgeRequest) -> 
                 Err(e) => return BridgeResponse::fail(e, ws.revision()),
             };
             let doc = ws.document();
-            let bytes = match screenplay_export::export(&doc, fmt) {
+            let bytes = match screenplay_export::export(&screenplay_core::series::publication_copy(&doc), fmt) {
                 Ok(b) => b,
                 Err(e) => {
                     return BridgeResponse::fail(
@@ -483,7 +485,8 @@ pub fn handle(app: &AppHandle, project: &ProjectService, req: BridgeRequest) -> 
 
 fn project_info(project: &ProjectService) -> BridgeResponse {
     let st = project.state();
-    let doc_count = project.document().map(|d| d.blocks.len()).unwrap_or(0);
+    let document=project.document().ok();
+    let doc_count = document.as_ref().map(|d| d.blocks.len()).unwrap_or(0);
     BridgeResponse::ok(
         serde_json::json!({
             "state": match st {
@@ -493,6 +496,9 @@ fn project_info(project: &ProjectService) -> BridgeResponse {
             },
             "path": st.path().map(|p| p.to_string_lossy().to_string()),
             "title": st.title(),
+            "projectId": document.as_ref().map(|d|&d.id),
+            "activeEpisodeId": document.as_ref().and_then(|d|d.series.as_ref().map(|s|&s.active_id)),
+            "episodeCount": document.as_ref().map(|d|d.series.as_ref().map(|s|s.episodes.len()).unwrap_or(1)),
             "revision": project.revision(),
             "dirty": project.is_dirty(),
             "blockCount": doc_count,

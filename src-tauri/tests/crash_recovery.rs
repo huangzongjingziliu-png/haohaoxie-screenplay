@@ -258,7 +258,7 @@ fn r08_recovery_of_saved_project_reopens_container() {
             s.replace_source_text(Origin::GuiRight, "内 酒肆 夜\n\n崩溃前的修改。\n", None)
         })
         .unwrap();
-        std::mem::forget(svc);
+        drop(svc); // A terminated process releases ownership; forgetting a live service would keep its lock.
     }
 
     let svc = ProjectService::new();
@@ -270,7 +270,7 @@ fn r08_recovery_of_saved_project_reopens_container() {
     );
     assert_eq!(
         svc.state().path(),
-        Some(path.as_path()),
+        Some(screenplay_store::bridge::canonical_container_path(&path).as_path()),
         "恢复后应绑定回原容器路径"
     );
 

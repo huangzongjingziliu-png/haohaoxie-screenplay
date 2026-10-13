@@ -6,9 +6,9 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新测试版 0.1.50 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.53 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.50-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
@@ -89,6 +89,12 @@ https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 - 导入文本、Markdown、PDF 和图片，导出 PDF、Word、Markdown、Fountain、FDX、文本和 HTML。
 
 PDF／图片转写需要配置模型并允许对应服务处理内容。识别和 AI 整理可能误判或遗漏，请对照原稿校对。自动保存也不能代替备份。
+
+## 有新版，让软件提醒你
+
+每天后台检查 GitHub，有新版时显示蓝色向上箭头。点击查看更新说明，下载后由你确认保存、重启安装。不会趁你写戏时突然重启。
+
+“更多 → 检查更新”可以手动检查，“设置 → 软件更新”可以关闭自动检查。第一次仍需安装支持自动更新的版本，后续更新包会验证签名。详情见[更新说明](docs/UPDATES.md)。
 
 ## 三步开始
 

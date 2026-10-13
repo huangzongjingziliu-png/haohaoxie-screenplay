@@ -1,3 +1,4 @@
+import {useUpdateScheduler} from '@/components/AppUpdates';
 import HelpPanel from '@/components/HelpPanel';
 import ModelRequiredDialog from '@/components/ModelRequiredDialog';
 import {useProjectMemory} from '@/hooks/useProjectMemory';
@@ -32,6 +33,7 @@ import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ip
 
 export default function App() {
   useUiLanguage();
+  useUpdateScheduler();
   useSplitSync();
   useProjectMemory();
   const project = useEditorStore((s) => s.project);

@@ -1,6 +1,6 @@
 # 第三方依赖许可证声明
 
-幕本 (Screenplay Studio) 使用以下第三方开源库。本项目自身采用 MIT 许可证
+好好写剧本 (Screenplay Studio) 使用以下第三方开源库。本项目自身采用 MIT 许可证
 （见 [LICENSE](LICENSE)）。
 
 ## 许可证分类汇总
@@ -28,7 +28,7 @@
 | printpdf | MIT | PDF 生成 |
 | quick-xml | MIT | XML 解析（DOCX） |
 | regex | MIT OR Apache-2.0 | 正则表达式 |
-| reqwest | MIT OR Apache-2.0 | HTTP 客户端（模型调用） |
+| reqwest | MIT OR Apache-2.0 | HTTP 客户端（模型调用和 GitHub 更新检查） |
 | rmcp | MIT | MCP 协议 |
 | rusqlite | MIT | SQLite 数据库 |
 | serde | MIT OR Apache-2.0 | 序列化框架 |
@@ -48,6 +48,8 @@
 | tauri-plugin-dialog | MIT OR Apache-2.0 | 对话框 |
 | tauri-plugin-fs | MIT OR Apache-2.0 | 文件系统 |
 | tauri-plugin-shell | MIT OR Apache-2.0 | Shell 执行 |
+| tauri-plugin-updater | MIT OR Apache-2.0 | 签名更新包下载与安装 |
+| semver | MIT OR Apache-2.0 | 发布版本比较 |
 | libc | MIT OR Apache-2.0 | libc 绑定 |
 | ring | ISC | 本机模型密钥 AES-256-GCM 加密 |
 
@@ -57,6 +59,7 @@
 
 | 依赖 | 许可证 |
 |---|---|
+| minisign-verify | MIT |
 | hyper | MIT |
 | rustls | Apache-2.0 OR ISC OR MIT |
 | webpki-roots | ISC |

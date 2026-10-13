@@ -6,9 +6,9 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Latest beta 0.1.50 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.53 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.50-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.53-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 
@@ -89,6 +89,12 @@ Named draft snapshots and per-episode comparisons show earlier and later scripts
 - Import text, Markdown, PDFs and images. Export PDF, Word, Markdown, Fountain, FDX, plain text and HTML.
 
 PDF/image transcription requires a configured model and permission to use its service. OCR and AI conversion can omit or misclassify content. Check the original, and keep backups alongside autosave.
+
+## New releases, without the extra trip
+
+The app checks GitHub daily and shows a blue up arrow when a newer release is available. Read the notes, download the signed update, then confirm saving and restarting. It will never restart itself while you write.
+
+Use More → Check for updates or Settings → App updates. Install this updater-capable version manually once; future signed releases can update inside the app. See [app updates](docs/UPDATES.md).
 
 ## Get started
 

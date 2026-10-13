@@ -1,0 +1,17 @@
+import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
+import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
+import UpdateDialog,{useUpdates,checkUpdates,UpdateButton} from '@/components/AppUpdates';
+import {useEditorStore} from '@/stores/editor';
+import {mockBackend} from './setup';
+vi.mock('@tauri-apps/plugin-shell',()=>({open:vi.fn()}));
+const available={version:'0.1.54',notes:'修复导出',url:'https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.54-beta.1',automatic:true};
+beforeEach(()=>{mockBackend.reset();Object.defineProperty(window,'__TAURI_INTERNALS__',{configurable:true,value:{}});useUpdates.setState({auto:true,last:0,available:null,phase:'idle',opened:false,error:'',message:'',received:0,total:null});});
+afterEach(cleanup);
+describe('app updates',()=>{
+ it('background failures stay quiet; manual check exposes errors',async()=>{mockBackend.on('check_update',()=>{throw new Error('offline');});await checkUpdates();expect(useUpdates.getState().opened).toBe(false);expect(useUpdates.getState().error).toBe('');await checkUpdates(true);expect(useUpdates.getState().opened).toBe(true);expect(useUpdates.getState().error).toContain('offline');});
+ it('shows an arrow only for a newer release',async()=>{mockBackend.on('check_update',()=>available);render(<UpdateButton/>);expect(screen.queryByLabelText('查看更新')).toBeNull();await checkUpdates();expect(screen.getByLabelText('查看更新')).toBeTruthy();fireEvent.click(screen.getByLabelText('查看更新'));expect(useUpdates.getState().opened).toBe(true);});
+ it('a cancelled/failed save prevents installation',async()=>{const save=vi.fn().mockResolvedValue(null);useEditorStore.setState({project:{state:'unsaved',dirty:true,path:null,title:'测试',revision:1,blockCount:0},document:null,save});useUpdates.setState({available,phase:'ready',opened:true});render(<UpdateDialog/>);fireEvent.click(screen.getByText('保存并重启更新'));await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('未完成保存'));expect(save).toHaveBeenCalled();expect(mockBackend.callsTo('install_update')).toHaveLength(0);});
+ it('new unsaved edits reported by the backend prevent installation',async()=>{useEditorStore.setState({project:{state:'empty',dirty:false,path:null,title:'',revision:0,blockCount:0},document:null});mockBackend.on('project_info_cmd',()=>({state:'open',dirty:true,path:'/tmp/test.screenplay',title:'test',revision:2,blockCount:0}));useUpdates.setState({available,phase:'ready',opened:true});render(<UpdateDialog/>);fireEvent.click(screen.getByText('保存并重启更新'));await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('新修改'));expect(mockBackend.callsTo('install_update')).toHaveLength(0);});
+ it('verified download waits for a separate install click',async()=>{mockBackend.on('download_update',()=>null);useUpdates.setState({available,opened:true});render(<UpdateDialog/>);fireEvent.click(screen.getByText('下载更新'));await waitFor(()=>expect(screen.getByText('保存并重启更新')).toBeTruthy());expect(mockBackend.callsTo('install_update')).toHaveLength(0);});
+ it('download errors never offer install',async()=>{mockBackend.on('download_update',()=>{throw new Error('bad signature');});useUpdates.setState({available,opened:true});render(<UpdateDialog/>);fireEvent.click(screen.getByText('下载更新'));await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('bad signature'));expect(screen.queryByText('保存并重启更新')).toBeNull();});
+});

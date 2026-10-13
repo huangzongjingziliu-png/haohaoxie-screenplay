@@ -9,6 +9,7 @@ export function publishSaveStatus(state: 'idle' | 'saving' | 'error', message = 
 
 export function useAutoSave() {
   const project = useEditorStore((s) => s.project);
+  const projectId=useEditorStore(s=>s.document?.id);
   useEffect(() => {
     if (project.state === 'empty') return;
     let busy = false, disposed = false, composing = false;
@@ -26,7 +27,7 @@ export function useAutoSave() {
           await flushPendingEdits();
           if (disposed) return;
           if (useEditorStore.getState().project.dirty) publishSaveStatus('saving');
-          const action = await ipc.autosaveTick();
+          const action = await ipc.autosaveTick(projectId);
           if (disposed) return;
           if (action) {
             await useEditorStore.getState().refreshProjectInfo();
@@ -44,7 +45,7 @@ export function useAutoSave() {
       window.removeEventListener('compositionstart', start, true);
       window.removeEventListener('compositionend', end, true);
     };
-  }, [project.state, project.path]);
+  }, [project.state, project.path,projectId]);
 }
 
 export async function configureAutoSave(opts: { enabled: boolean; saveIntervalSecs: number; versionIntervalSecs: number }) {

@@ -107,6 +107,7 @@ pub enum AutosaveAction {
 /// 项目服务：持有唯一 Workspace
 pub struct ProjectService {
     workspace: Mutex<Option<Arc<Workspace>>>,
+    project_lock: Mutex<Option<screenplay_store::bridge::ProjectLock>>,
     /// 最近一次成功保存时的 revision
     saved_revision: AtomicU64,
     /// 是否有未保存修改
@@ -121,6 +122,7 @@ pub struct ProjectService {
 
 /// 自动保存配置与计时
 struct AutosaveState {
+    tick_gate:Mutex<()>,
     /// 是否启用自动保存
     enabled: AtomicBool,
     /// 自动保存间隔（秒）
@@ -158,11 +160,13 @@ impl ProjectService {
         recovery.prune(30);
         Self {
             workspace: Mutex::new(None),
+            project_lock: Mutex::new(None),
             saved_revision: AtomicU64::new(0),
             dirty: AtomicBool::new(false),
             saving: Mutex::new(0),
             recovery: Mutex::new(recovery),
             autosave: AutosaveState {
+                tick_gate:Mutex::new(()),
                 enabled: AtomicBool::new(true),
                 // 默认 30 秒自动保存
                 interval_secs: AtomicU64::new(30),
@@ -211,34 +215,26 @@ impl ProjectService {
     /// 自动保存 tick。由前端定时调用（或 Rust 定时器）。
     ///
     /// 返回实际执行的动作，供 UI 显示「已自动保存」提示。
-    pub fn autosave_tick(&self) -> Result<Option<AutosaveAction>, String> {
-        self.autosave_tick_at(Instant::now())
-    }
-
-    fn autosave_tick_at(&self, now: Instant) -> Result<Option<AutosaveAction>, String> {
-        if !self.is_open() || !self.autosave.enabled.load(Ordering::SeqCst) { return Ok(None); }
-        let a = &self.autosave;
-        let mut clocks = a.clocks.lock().unwrap();
-        let rev = self.revision();
-        let mut action = None;
-        let version_interval = a.version_interval_secs.load(Ordering::SeqCst);
-        if version_interval > 0 && rev > a.last_version_rev.load(Ordering::SeqCst)
-            && now.saturating_duration_since(clocks.1) >= Duration::from_secs(version_interval) {
-            let ws = self.require().map_err(|e| e.to_string())?;
-            ws.service.auto_checkpoint("autosave").ok_or_else(|| "自动版本创建失败".to_string())?;
-            a.last_version_rev.store(rev, Ordering::SeqCst);
-            clocks.1 = now;
-            action = Some(AutosaveAction::VersionCreated);
+    pub fn autosave_tick(&self) -> Result<Option<AutosaveAction>, String> {self.autosave_tick_at(Instant::now())}
+    pub fn autosave_tick_checked(&self,project_id:Option<&str>)->Result<Option<AutosaveAction>,String>{self.autosave_tick_at_checked(Instant::now(),project_id)}
+    fn autosave_tick_at(&self, now: Instant) -> Result<Option<AutosaveAction>, String> {self.autosave_tick_at_checked(now,None)}
+    fn autosave_tick_at_checked(&self,now:Instant,project_id:Option<&str>)->Result<Option<AutosaveAction>,String>{
+        let a=&self.autosave;let Ok(_tick)=a.tick_gate.try_lock() else{return Ok(None);};
+        if !self.is_open()||!a.enabled.load(Ordering::SeqCst){return Ok(None);}
+        let ws=self.require()?;let id=ws.document().id;if project_id.is_some_and(|p|p!=id){return Ok(None);}
+        // Never hold clocks while saving: lifecycle changes take saving before clocks.
+        let clocks=*a.clocks.lock().unwrap();let rev=ws.revision();let mut action=None;
+        let version_interval=a.version_interval_secs.load(Ordering::SeqCst);
+        if version_interval>0&&rev>a.last_version_rev.load(Ordering::SeqCst)&&now.saturating_duration_since(clocks.1)>=Duration::from_secs(version_interval){
+            let active=self.workspace.lock().unwrap();if !active.as_ref().is_some_and(|w|Arc::ptr_eq(w,&ws)){return Ok(None);}
+            ws.service.auto_checkpoint("autosave").ok_or("自动版本创建失败")?;
+            a.last_version_rev.store(rev,Ordering::SeqCst);a.clocks.lock().unwrap().1=now;action=Some(AutosaveAction::VersionCreated);
         }
-        let interval = a.interval_secs.load(Ordering::SeqCst);
-        if interval > 0 && self.is_dirty()
-            && now.saturating_duration_since(clocks.0) >= Duration::from_secs(interval) {
-            if self.require().map_err(|e| e.to_string())?.container_path().is_some() {
-                self.save(None).map_err(|e| e.to_string())?;
-                a.last_saved_rev.store(self.saved_revision.load(Ordering::SeqCst), Ordering::SeqCst);
-                clocks.0 = now;
-                action = Some(AutosaveAction::Saved);
-            }
+        let interval=a.interval_secs.load(Ordering::SeqCst);
+        if interval>0&&self.is_dirty()&&now.saturating_duration_since(clocks.0)>=Duration::from_secs(interval)&&ws.container_path().is_some(){
+            self.save_checked(None,Some(&id))?;
+            let active=self.workspace.lock().unwrap();if !active.as_ref().is_some_and(|w|Arc::ptr_eq(w,&ws)){return Ok(None);}
+            a.last_saved_rev.store(self.saved_revision.load(Ordering::SeqCst),Ordering::SeqCst);a.clocks.lock().unwrap().0=now;action=Some(AutosaveAction::Saved);
         }
         Ok(action)
     }
@@ -254,11 +250,19 @@ impl ProjectService {
     // 生命周期
     // -----------------------------------------------------------------
 
+    /// Called while holding `saving`; retain a lock for the bound engineering file.
+    fn acquire_target(&self,path:&Path)->Result<Option<screenplay_store::bridge::ProjectLock>,String>{
+        let same=self.workspace.lock().unwrap().as_ref().and_then(|w|w.container_path()).is_some_and(|p|screenplay_store::bridge::lock_path_for(&p)==screenplay_store::bridge::lock_path_for(path));
+        if same&&self.project_lock.lock().unwrap().is_some(){return Ok(None);}
+        screenplay_store::bridge::ProjectLock::acquire(path).map(Some).map_err(|e|e.message())
+    }
     /// 新建空白项目。若已有项目，**无条件替换**（不得继续写入旧项目）。
     pub fn create_new(&self, title: &str) -> Result<(), String> {
+        let _saving=self.saving.lock().map_err(|e|e.to_string())?;
         let ws = Workspace::blank(title)?;
         self.sync_recovery_source_from(&ws);
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
+        *self.project_lock.lock().unwrap()=None;
         self.saved_revision.store(0, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
         self.reset_autosave_for_project();
@@ -267,9 +271,12 @@ impl ProjectService {
 
     /// 打开已有项目
     pub fn open(&self, path: &Path) -> Result<(), String> {
+        let _saving=self.saving.lock().map_err(|e|e.to_string())?;
+        let target_lock=self.acquire_target(path)?;
         let ws = Workspace::open(path)?;
         self.sync_recovery_source_from(&ws);
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
+        if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);}
         // 刚打开的项目是已保存状态
         let rev = self.revision();
         self.saved_revision.store(rev, Ordering::SeqCst);
@@ -280,9 +287,11 @@ impl ProjectService {
 
     /// 关闭当前项目（回到欢迎页）
     pub fn close(&self) -> Result<(), String> {
+        let _saving=self.saving.lock().map_err(|e|e.to_string())?;
         // 关闭前先写恢复点（用户可能刚编辑完就关闭）
         self.write_recovery();
         *self.workspace.lock().unwrap() = None;
+        *self.project_lock.lock().unwrap()=None;
         self.saved_revision.store(0, Ordering::SeqCst);
         self.dirty.store(false, Ordering::SeqCst);
         Ok(())
@@ -292,6 +301,7 @@ impl ProjectService {
     pub fn close_without_saving(&self) -> Result<(), String> {
         let _saving = self.saving.lock().map_err(|e| e.to_string())?;
         *self.workspace.lock().map_err(|e| e.to_string())? = None;
+        *self.project_lock.lock().map_err(|e|e.to_string())?=None;
         self.saved_revision.store(0, Ordering::SeqCst);
         self.dirty.store(false, Ordering::SeqCst);
         self.recovery.lock().map_err(|e| e.to_string())?.clear_current();
@@ -382,7 +392,8 @@ impl ProjectService {
     ///
     /// 关键：**保存的是后端权威状态**，不接受前端传入的文档 JSON。
     /// 这样前端无法用过期快照覆盖后端的新内容。
-    pub fn save(&self, target: Option<&Path>) -> Result<SaveOutcome, String> {
+    pub fn save(&self, target: Option<&Path>) -> Result<SaveOutcome, String> {self.save_checked(target,None)}
+    pub fn save_checked(&self,target:Option<&Path>,project_id:Option<&str>)->Result<SaveOutcome,String>{
         let ws = self.require()?;
         let path: PathBuf = match target {
             Some(p) => p.to_path_buf(),
@@ -396,7 +407,10 @@ impl ProjectService {
         if !self.workspace.lock().unwrap().as_ref().is_some_and(|active| Arc::ptr_eq(active, &ws)) {
             return Err("项目已关闭，取消保存".into());
         }
+        if project_id.is_some_and(|id|ws.document().id!=id){return Err("项目已切换，取消保存".into());}
+        let target_lock=self.acquire_target(&path)?;
         let (saved_path, rev) = ws.save_with_revision(Some(&path))?;
+        if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);}
         ws.bind_container(&saved_path);
         let current = self.workspace.lock().unwrap();
         if current.as_ref().is_some_and(|active| Arc::ptr_eq(active, &ws)) {
@@ -413,6 +427,7 @@ impl ProjectService {
     /// 放弃未保存修改（回到 saved_revision 对应状态）
     /// 需要重新从磁盘读取
     pub fn revert(&self) -> Result<(), String> {
+        let _saving=self.saving.lock().map_err(|e|e.to_string())?;
         let guard = self.workspace.lock().unwrap();
         let ws = guard.as_ref().ok_or("尚未打开项目")?;
         let path = ws
@@ -529,6 +544,7 @@ impl ProjectService {
 
     /// 采纳恢复内容（替换当前文档）
     pub fn adopt_recovery(&self) -> Result<ScreenplayDocument, String> {
+        let _saving=self.saving.lock().map_err(|e|e.to_string())?;
         let rec = {
             let r = self.recovery.lock().map_err(|_| "恢复管理器已损坏")?;
             r.pending().cloned()
@@ -542,6 +558,8 @@ impl ProjectService {
             .and_then(|j| screenplay_store::history::HistoryStack::from_json(j).ok());
 
         // 若原项目容器仍存在，直接打开它并载入恢复的文档
+        let recovery_path=rec.container.as_deref().map(Path::new).filter(|p|p.exists());
+        let target_lock=match recovery_path{Some(p)=>self.acquire_target(p)?,None=>None};
         let ws = match rec.container.as_deref() {
             Some(p) if std::path::Path::new(p).exists() => {
                 let w = Workspace::open(std::path::Path::new(p))?;
@@ -572,6 +590,7 @@ impl ProjectService {
             .map_err(|e| e.to_string())?;
 
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
+        if recovery_path.is_none(){*self.project_lock.lock().unwrap()=None;}else if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);}
         self.reset_autosave_for_project();
         self.dirty.store(true, Ordering::SeqCst);
         if self.write_recovery() {
@@ -791,4 +810,11 @@ mod tests {
         assert!(RecoveryManager::in_directory(root.clone()).pending().is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[cfg(test)]mod lock_and_save_contract_tests{
+ use super::*;
+ #[test]fn gui_open_and_save_as_respect_existing_process_locks(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("occupied.screenplay");let ws=Workspace::blank("原稿").unwrap();ws.save(Some(&file)).unwrap();let original=std::fs::read(&file).unwrap();let _held=screenplay_store::bridge::ProjectLock::acquire(&file).unwrap();let svc=ProjectService::new();svc.create_new("新稿").unwrap();assert!(svc.open(&file).is_err());assert_eq!(svc.document().unwrap().metadata.title,"新稿");assert!(svc.save(Some(&file)).is_err());assert_eq!(std::fs::read(&file).unwrap(),original);}
+ #[test]fn gui_keeps_lock_until_close_and_can_reopen_own_project(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("owned.screenplay");let svc=ProjectService::new();svc.create_new("测试").unwrap();svc.save(Some(&file)).unwrap();assert!(screenplay_store::bridge::ProjectLock::acquire(&file).is_err());svc.open(&file).unwrap();svc.revert().unwrap();svc.close().unwrap();assert!(screenplay_store::bridge::ProjectLock::acquire(&file).is_ok());}
+ #[test]fn save_and_autosave_reject_the_wrong_project_identity(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("wrong.screenplay");let svc=ProjectService::new();svc.create_new("当前工程").unwrap();assert!(svc.save_checked(Some(&file),Some("old-project")).is_err());assert!(!file.exists());assert!(svc.autosave_tick_checked(Some("old-project")).unwrap().is_none());}
 }

@@ -172,8 +172,8 @@ export const ipc = {
   takeFileOpenRequests: () => call<string[]>('take_file_open_requests'),
   openProject: (path: string) => call<Bootstrap>('open_project', { path }),
   closeProject: (discardChanges = false) => call<ProjectInfo>('close_project', { discardChanges }),
-  saveProject: () => call<SaveOutcome>('save_project'),
-  saveProjectAs: (path: string) => call<SaveOutcome>('save_project_as', { path }),
+  saveProject: (projectId?:string) => call<SaveOutcome>('save_project',projectId?{projectId}:{}),
+  saveProjectAs: (path: string,projectId?:string) => call<SaveOutcome>('save_project_as', { path,...(projectId?{projectId}:{}) }),
   revertProject: () => call<Bootstrap>('revert_project'),
   projectInfo: () => call<ProjectInfo>('project_info_cmd'),
 
@@ -281,7 +281,7 @@ export const ipc = {
     saveIntervalSecs: number;
     versionIntervalSecs: number;
   }) => call<AutosaveConfig>('configure_autosave', { options }),
-  autosaveTick: () => call<AutosaveAction | null>('autosave_tick'),
+  autosaveTick: (projectId?:string) => call<AutosaveAction | null>('autosave_tick',projectId?{projectId}:{}),
   hasUnsavedChanges: () => call<boolean>('has_unsaved_changes'),
   confirmClose: (discardChanges = false) => call<void>('confirm_close', { discardChanges }),
 

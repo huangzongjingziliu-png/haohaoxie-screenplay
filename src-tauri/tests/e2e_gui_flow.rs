@@ -129,7 +129,7 @@ fn e2e_新建_写中文_左侧修改_保存_关闭_重开() {
 
     // ---- 5. 保存 ----
     let outcome = svc.save(Some(&path)).unwrap();
-    assert_eq!(outcome.path, path.to_string_lossy());
+    assert_eq!(outcome.path, screenplay_store::bridge::canonical_container_path(&path).to_string_lossy());
     assert_eq!(outcome.saved_revision, r3.revision, "保存的 revision 必须是最新的");
     assert!(!svc.is_dirty(), "保存后应为 clean");
 
@@ -200,7 +200,7 @@ fn e2e_新建_写中文_左侧修改_保存_关闭_重开() {
     );
 
     // 项目身份正确
-    assert_eq!(svc.state().path(), Some(path.as_path()));
+    assert_eq!(svc.state().path(), Some(screenplay_store::bridge::canonical_container_path(&path).as_path()));
     assert!(!svc.is_dirty(), "刚打开应为 clean");
 
     let _ = std::fs::remove_file(&path);

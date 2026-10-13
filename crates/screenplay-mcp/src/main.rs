@@ -38,10 +38,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use screenplay_store::workbench_bridge::WorkbenchRequest;
 // ---------------------------------------------------------------------------
 // 参数类型
 // ---------------------------------------------------------------------------
 
+
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct EpisodeReadRequest{pub project_id:String,pub episode_id:String}
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct EpisodeEditRequest{pub project_id:String,pub operation:String,#[serde(default)]pub episode_id:String,#[serde(default)]pub title:String,#[serde(default)]pub order:Vec<String>,pub expected_revision:u64}
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct PlanningEditRequest{pub project_id:String,/// JSON array of {episode_id,field,value,expected_value}; empty episode_id + season_outline edits the season.
+pub patches_json:String,pub expected_revision:u64}
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct ReplacementPreviewRequest{pub project_id:String,pub query:String,pub replacement:String,/// current or all
+pub scope:String}
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct ReplacementApplyRequest{pub project_id:String,pub query:String,pub replacement:String,pub scope:String,/// Exact keys returned by preview_replacement; review suspicious hits explicitly.
+pub selected:Vec<String>,pub expected_revision:u64}
+#[derive(Debug,serde::Deserialize,schemars::JsonSchema)]pub struct DraftCompareRequest{pub project_id:String,pub version_a:String,#[serde(default)]pub version_b:Option<String>}
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct EmptyRequest {}
 
@@ -325,7 +336,8 @@ impl ScreenplayMcpServer {
         lock: &mut Option<Box<screenplay_store::bridge::ProjectLock>>,
         req: BridgeRequest,
     ) -> BridgeResponse {
-        let rev = ws.revision();
+        if let BridgeRequest::Workbench{request}=&req{return screenplay_store::workbench_bridge::execute(ws,request.clone(),Origin::Mcp);}
+    let rev = ws.revision();
         let ok = |r: screenplay_store::command::CommandResult| {
             BridgeResponse::ok(serde_json::to_value(&r).unwrap_or(serde_json::Value::Null), r.revision)
         };
@@ -346,6 +358,7 @@ impl ScreenplayMcpServer {
         }
 
         match req {
+        BridgeRequest::Workbench{..}=>unreachable!("handled above"),
             // open/new/close 在独立模式下**无意义**：它们描述的是
             // 「让 GUI 切换当前项目」，独立进程没有 GUI 可驱动。
             // 直接改参数路径属于「假装成功」，必须明确报错。
@@ -362,42 +375,12 @@ impl ScreenplayMcpServer {
             // 独立模式可以保存**自己**的项目：这是它的持久化出口，
             // 否则独立模式写入的内容永远无法落盘。
             BridgeRequest::SaveProject { path } => {
-                let target: Option<std::path::PathBuf> =
-                    path.map(std::path::PathBuf::from).or_else(|| ws.container_path());
-                match ws.save(target.as_deref()) {
-                    Ok(p) => {
-                        // 关键：若此前是「项目文件不存在」的 blank 模式，
-                        // 我们并没有持锁。落盘后必须补上锁，
-                        // 否则第二个独立进程会同时写同一文件。
-                        if lock.is_none() {
-                            match screenplay_store::bridge::ProjectLock::acquire(&p) {
-                                Ok(l) => *lock = Some(Box::new(l)),
-                                Err(e) => {
-                                    return BridgeResponse::fail(
-                                        BridgeError::ProjectInUse {
-                                            path: p.to_string_lossy().to_string(),
-                                            holder: e.message(),
-                                        },
-                                        ws.revision(),
-                                    )
-                                }
-                            }
-                        }
-                        BridgeResponse::ok(
-                            serde_json::json!({
-                                "path": p.to_string_lossy(),
-                                "dirty": ws.dirty.load(Ordering::SeqCst),
-                                "mode": "standalone",
-                            }),
-                            ws.revision(),
-                        )
-                    }
-                    Err(m) => {
-                        BridgeResponse::fail(BridgeError::Internal { message: m }, rev)
-                    }
-                }
-            }
-            BridgeRequest::Ping => BridgeResponse::ok(
+            let target=path.map(PathBuf::from).or_else(||ws.container_path());
+            let Some(target)=target else{return BridgeResponse::fail(BridgeError::InvalidArgument{message:"尚未指定保存路径".into()},rev);};
+            let new_lock=if lock.is_none()||!ws.container_path().is_some_and(|p|screenplay_store::bridge::lock_path_for(&p)==screenplay_store::bridge::lock_path_for(&target)){match screenplay_store::bridge::ProjectLock::acquire(&target){Ok(l)=>Some(Box::new(l)),Err(e)=>return BridgeResponse::fail(e,rev)}}else{None};
+            match ws.save(Some(&target)){Ok(p)=>{if let Some(l)=new_lock{*lock=Some(l);}ws.bind_container(&p);BridgeResponse::ok(serde_json::json!({"path":p.to_string_lossy(),"dirty":false}),ws.revision())},Err(message)=>BridgeResponse::fail(BridgeError::Internal{message},rev)}
+        }
+        BridgeRequest::Ping => BridgeResponse::ok(
                 serde_json::json!({"pong": true, "mode": "standalone"}),
                 rev,
             ),
@@ -409,6 +392,9 @@ impl ScreenplayMcpServer {
                         "state": if ws.container_path().is_some() { "open" } else { "unsaved" },
                         "path": ws.container_path().map(|p| p.to_string_lossy().to_string()),
                         "title": doc.metadata.title,
+                    "projectId": doc.id,
+                    "activeEpisodeId": doc.series.as_ref().map(|s|&s.active_id),
+                    "episodeCount": doc.series.as_ref().map(|s|s.episodes.len()).unwrap_or(1),
                         "revision": doc.revision,
                         "dirty": ws.dirty.load(Ordering::SeqCst),
                         "blockCount": doc.blocks.len(),
@@ -612,7 +598,7 @@ impl ScreenplayMcpServer {
                     }
                 };
                 let doc = ws.document();
-                let bytes = match screenplay_export::export(&doc, fmt) {
+                let bytes = match screenplay_export::export(&screenplay_core::series::publication_copy(&doc), fmt) {
                     Ok(b) => b,
                     Err(e) => {
                         return BridgeResponse::fail(
@@ -718,6 +704,21 @@ pub fn read_import(path: &Path) -> Result<(screenplay_core::ast::ScreenplayDocum
 
 #[tool_router]
 impl ScreenplayMcpServer {
+
+    #[tool(description="Read episode directory, active episode, planning, draft label, project_id and revision. Start here before workbench writes. Existing block tools target only the active episode.")]
+    async fn workbench_overview(&self,_:Parameters<EmptyRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::Overview}).into_result()}
+    #[tool(description="Read an episode script and board without switching the GUI. Supply project_id from overview and episode_id from the episode directory.")]
+    async fn read_episode(&self,Parameters(r):Parameters<EpisodeReadRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::Episode{project_id:r.project_id,episode_id:r.episode_id}}).into_result()}
+    #[tool(description="Manage episodes. operation is enable/add/switch/rename/reorder/delete/disable. project_id and expected_revision required. disable requires one remaining episode. Undo shares the GUI history.")]
+    async fn edit_episodes(&self,Parameters(r):Parameters<EpisodeEditRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::EditEpisodes{project_id:r.project_id,operation:r.operation,episode_id:r.episode_id,title:r.title,order:r.order,expected_revision:r.expected_revision}}).into_result()}
+    #[tool(description="Save season/episode planning through field-level compare-and-set. patches_json is an array of episode_id, field, value, expected_value. Episode fields are synopsis/conflict/turning_point/cliffhanger/status. Does not rewrite script text.")]
+    async fn save_planning(&self,Parameters(r):Parameters<PlanningEditRequest>)->Result<CallToolResult,McpError>{let patches=serde_json::from_str(&r.patches_json).map_err(|e|McpError::invalid_params(format!("Invalid planning JSON: {e}"),None))?;self.call(BridgeRequest::Workbench{request:WorkbenchRequest::SavePlanning{project_id:r.project_id,patches,expected_revision:r.expected_revision}}).into_result()}
+    #[tool(description="Preview offline literal replacements across current/all episodes, including script and card text. Returns occurrence keys, before/after excerpts, suspicious flags and revision. Review before applying; memory and story bible are excluded.")]
+    async fn preview_replacement(&self,Parameters(r):Parameters<ReplacementPreviewRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::PreviewReplacement{project_id:r.project_id,query:r.query,replacement:r.replacement,scope:r.scope}}).into_result()}
+    #[tool(description="Apply only reviewed occurrence keys from preview_replacement using its project_id and revision. Exact same query/replacement/scope required. Conflicts are rejected; re-preview rather than guessing revision. One shared undo step.")]
+    async fn apply_replacement(&self,Parameters(r):Parameters<ReplacementApplyRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::ApplyReplacement{project_id:r.project_id,query:r.query,replacement:r.replacement,scope:r.scope,selected:r.selected,expected_revision:r.expected_revision}}).into_result()}
+    #[tool(description="Compare named draft versions by episode identity, including script and planning changes. version_b omitted compares to current draft. Read-only, no model required.")]
+    async fn compare_drafts(&self,Parameters(r):Parameters<DraftCompareRequest>)->Result<CallToolResult,McpError>{self.call(BridgeRequest::Workbench{request:WorkbenchRequest::CompareDrafts{project_id:r.project_id,version_a:r.version_a,version_b:r.version_b}}).into_result()}
     #[tool(description = "健康检查：返回当前是桥接模式（操作 GUI 正在打开的项目）还是独立模式")]
     async fn ping(&self, _: Parameters<EmptyRequest>) -> Result<CallToolResult, McpError> {
         Ok(CallToolResult::success(vec![Content::text(
@@ -1041,6 +1042,7 @@ fn resource_uris() -> Vec<(&'static str, &'static str, &'static str)> {
         ("screenplay://versions", "版本列表", "全部命名版本"),
         ("screenplay://audit", "审计日志", "带来源标记的操作历史"),
         ("screenplay://project", "项目信息", "标题、路径、revision、dirty"),
+        ("screenplay://workbench", "剧集工作台", "分集、规划、当前集和可用接口"),
     ]
 }
 
@@ -1105,6 +1107,7 @@ impl ScreenplayMcpServer {
             "screenplay://versions" => BridgeRequest::ListVersions,
             "screenplay://audit" => BridgeRequest::AuditLog { limit: Some(100) },
             "screenplay://project" => BridgeRequest::ProjectInfo,
+            "screenplay://workbench" => BridgeRequest::Workbench{request:WorkbenchRequest::Overview},
             "screenplay://outline" | "screenplay://characters" => {
                 // 这两个由文档派生
                 return match self.call(BridgeRequest::GetDocument) {
@@ -1163,7 +1166,10 @@ impl ServerHandler for ScreenplayMcpServer {
                                  修改实时出现在界面、共享撤销栈、GUI 保存时一并落盘。\n\
                  4. 也可只读 Resources：screenplay://document、//source、//outline、\
                                  //characters、//stats、//versions、//audit、//project。\n\
-                 5. screenplay://block/{block_id} 可读单个块。"
+                 5. screenplay://block/{block_id} 可读单个块。\n\
+                 6. 分集工程先调 workbench_overview，确认 project_id、active_episode_id 和 revision。read_episode 不切换 GUI；旧块工具只操作当前集。\n\
+                 7. 批量替换先调 preview_replacement，核对 suspicious 与原文，再将 selected keys 和预览 revision 交给 apply_replacement。冲突后重新预览，不得只更新 revision。\n\
+                 8. edit_episodes、save_planning、compare_drafts 与 GUI 共用数据及撤销机制。独立 MCP 会话修改后请调用 save_project 保存。"
                     .into(),
             ),
             capabilities: ServerCapabilities::builder()
@@ -1350,4 +1356,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   assert_eq!(startup_project(&["project.screenplay".into()]).unwrap(),Some(PathBuf::from("project.screenplay")));
   assert_eq!(startup_project(&[]).unwrap(),None);
  }
+}
+
+#[cfg(test)]mod workbench_schema_tests{use super::*;
+ #[test]fn feature_tools_are_discoverable_and_writes_require_identity_and_revision(){let tools=ScreenplayMcpServer::tool_router().list_all();let data=serde_json::to_value(tools).unwrap();let tools=data.as_array().unwrap();for name in ["workbench_overview","read_episode","edit_episodes","save_planning","preview_replacement","apply_replacement","compare_drafts"]{assert!(tools.iter().any(|t|t["name"]==name),"missing {name}");}for name in ["edit_episodes","save_planning","apply_replacement"]{let tool=tools.iter().find(|t|t["name"]==name).unwrap();let required=tool["inputSchema"]["required"].as_array().unwrap();assert!(required.iter().any(|v|v=="project_id"));assert!(required.iter().any(|v|v=="expected_revision"));}}
 }

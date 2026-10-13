@@ -8,6 +8,7 @@
 pub mod bridge_host;
 pub mod diag;
 mod connection;
+mod updates;
 mod help;
 mod series;
 mod continuity;
@@ -631,8 +632,8 @@ fn close_project(app: AppHandle, state: State<'_, AppState>, discard_changes: Op
 /// 保存到当前绑定路径。
 /// **不接受文档 JSON** —— 保存的是后端权威状态。
 #[tauri::command]
-fn save_project(app: AppHandle, state: State<'_, AppState>) -> IpcResult<SaveOutcome> {
-    let outcome = state.project.save(None)?;
+fn save_project(app: AppHandle, state: State<'_, AppState>, project_id:Option<String>) -> IpcResult<SaveOutcome> {
+    let outcome = state.project.save_checked(None,project_id.as_deref())?;
     diag::log("save_project");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
@@ -647,8 +648,9 @@ fn save_project_as(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    project_id:Option<String>,
 ) -> IpcResult<SaveOutcome> {
-    let outcome = state.project.save(Some(&PathBuf::from(&path)))?;
+    let outcome = state.project.save_checked(Some(&PathBuf::from(&path)),project_id.as_deref())?;
     diag::log("save_project_as path={path}");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
@@ -1280,9 +1282,9 @@ fn configure_autosave(app: AppHandle, state: State<'_, AppState>, options: Autos
 
 /// 自动保存 tick（前端定时调用）
 #[tauri::command]
-async fn autosave_tick(state: State<'_, AppState>) -> IpcResult<Option<AutosaveAction>> {
+async fn autosave_tick(state: State<'_, AppState>,project_id:Option<String>) -> IpcResult<Option<AutosaveAction>> {
     let project = state.project.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || project.autosave_tick()).await
+    let action = tauri::async_runtime::spawn_blocking(move || project.autosave_tick_checked(project_id.as_deref())).await
         .map_err(|_| IpcError::Internal { message: "自动保存任务失败".into() })?
         .map_err(|message| IpcError::Internal { message })?;
     if let Some(a) = action {
@@ -1734,8 +1736,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::UpdateState::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            updates::check_update,
+            updates::download_update,
+            updates::install_update,
             help::open_help_link,
             series::edit_series,
             series::preview_text_replacement,
