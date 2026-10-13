@@ -213,3 +213,29 @@ Found a bug or a useful idea? Email the creator. Include the app version, steps,
 Do not send API keys, passwords or verification codes. Hide the key before sending a model-settings screenshot.
 
 Email huangzongjing.ziliu@gmail.com
+
+## Series and episodes
+
+One .screenplay project can contain a whole series. Open Episodes in the toolbar and enable episodes. Existing content becomes Episode 1. Each episode has its own script and board, with shared project settings and memory.
+
+Use the episode selector to switch. Manage episodes to rename, move up or down, or delete. Undo restores deletion. Pending edits are committed before switching; remember to save the project.
+
+The toolbar exports the current episode as PDF, Word, Markdown, FDX and more. Export all episodes creates one numbered file per episode. Choose an empty folder to avoid overwriting drafts. Share the .screenplay project to send the complete series.
+
+Use an episode-capable version to edit series projects. Older versions may recognize only the current episode.
+
+The assistant and external CLI/MCP work on the current episode by default. Switch to the intended episode before requesting revisions.
+
+## Planning, continuity and draft revisions
+
+Open Episodes → Season and episode overview. Write the season outline, then select an episode to enter its synopsis, conflict, turning point, cliffhanger and progress. Save planning to keep it in the project. Planning does not automatically become script text.
+
+Continuity checking needs a configured model. Select 2–8 episodes per batch. The app reads scripts and planning in chunks before comparing characters, timeline and setups. Relevant content is sent to your provider, which may charge. Progress is visible and checking can be cancelled.
+
+Findings are questions for the author, not verdicts. Quotes are checked against sources. Click a quote to open its script passage or planning field. Mark findings as to review, resolved or dismissed. Changed source material flags a report as potentially stale. Checks never rewrite scripts and do not guarantee finding every issue.
+
+In More → Version history, enter a draft label such as V2.1 and create a snapshot. Later edits do not change that snapshot. The toolbar displays the current label; exports include it in file names and title pages. Timestamps distinguish snapshots with the same label.
+
+Compare two snapshots, or a snapshot with current content. Red shows earlier text and green shows later text. Episodes are matched by identity; switching the active episode does not count as rewriting it. Restoring first backs up current work.
+
+Edit this data with version 0.1.49 or newer. Older versions may lose planning, reports or draft labels when saving.

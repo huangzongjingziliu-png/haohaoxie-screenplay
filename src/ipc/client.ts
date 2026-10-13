@@ -153,7 +153,18 @@ export interface SearchHit {
 // 项目生命周期
 // ---------------------------------------------------------------------------
 
+export interface PlanningPatch {episode_id:string;field:string;value:string;expected_value:string}
+export interface SeriesCheckProgress {jobId:string;completed:number;total:number;message:string}
 export const ipc = {
+  saveSeriesPlanning: (projectId:string,patches:PlanningPatch[],expectedRevision:number) => call<CommandResult>('save_series_planning',{projectId,patches,expectedRevision}),
+  checkSeriesContinuity: (episodeIds:string[],jobId:string) => call<CommandResult>('check_series_continuity',{episodeIds,jobId,uiLanguage:effectiveLanguage()}),
+  cancelSeriesCheck: (jobId:string) => call<void>('cancel_series_check',{jobId}),
+  onSeriesCheckProgress: (handler:(progress:SeriesCheckProgress)=>void) => listen<SeriesCheckProgress>('series-check-progress',event=>handler(event.payload)),
+  reviewContinuity: (reportId:string,findingId:string,status:string,expectedRevision:number) => call<CommandResult>('review_continuity',{reportId,findingId,status,expectedRevision}),
+  seriesReportStatus: () => call<[string,boolean][]>('series_report_status'),
+  compareProjectVersions: (versionA:string,versionB?:string) => call<import('./types/RevisionComparison').RevisionComparison>('compare_project_versions',{versionA,versionB}),
+  editSeries: (action:string,id:string,title:string,order:string[],expectedRevision:number) => call<CommandResult>('edit_series',{action,id,title,order,expectedRevision}),
+  exportSeriesFiles: (directory:string,format:string) => call<string[]>('export_series_files',{directory,format}),
   openHelpLink: (url:string) => call<void>('open_help_link', {url}),
   // 生命周期
   bootstrap: () => call<Bootstrap>('bootstrap'),
@@ -169,6 +180,8 @@ export const ipc = {
   // 读取
   getDocument: () => call<ScreenplayDocument>('get_document'),
   getSourceText: () => call<string>('get_source_text'),
+  previewTextReplacement: (query:string,replacement:string,scope:string) => call<{projectId:string;revision:number;hits:{key:string;episode:string;field:string;before:string;after:string;suspicious:boolean}[]}>('preview_text_replacement',{query,replacement,scope}),
+  applyTextReplacement: (projectId:string,query:string,replacement:string,scope:string,selected:string[],expectedRevision:number) => call<CommandResult>('apply_text_replacement',{projectId,query,replacement,scope,selected,expectedRevision}),
   search: (query: string, caseSensitive = false) =>
     call<SearchHit[]>('search', { query, caseSensitive }),
 

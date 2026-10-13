@@ -8,3 +8,7 @@
 - Some backend error details, progress messages and skill descriptions remain Chinese. Core interface text supports Chinese and English. / 部分后端诊断、进度和技能说明仍为中文。
 - Signing/notarization is reported in each release; do not assume source builds are signed. / 签名和公证状态以版本说明为准。
 - Style availability depends on installed fonts. Fountain/FDX/plain-text exports do not preserve all custom visual styling. / 外观取决于已安装字体，结构格式导出不保留所有自定义外观。
+
+- Series planning, reports and draft labels require 0.1.49 or newer. Use the latest version to edit episodic projects; older versions may discard newer fields. / 分集规划、检查报告与稿号需 0.1.49 或更新版本。分集工程请用最新版编辑，旧版可能丢失新增字段。
+- Cross-episode checks require a configured model, process 2–8 episodes per batch (up to 80 source chunks), and provide advisory findings. Relevant scripts, planning and project canon go to the configured provider. / 跨集检查需模型，每批 2 至 8 集且最多 80 个原文分段，报告仅供审阅。相关正文、规划与项目设定会发给所配置的服务商。
+- Rename/replacement is case-sensitive literal matching, not semantic entity recognition. Review selected occurrences. Project memory, season planning and character biographies are not automatically rewritten. / 重命名和替换按字面匹配并区分大小写，需检查所选位置，不会自动改写项目记忆、季纲和人物小传。

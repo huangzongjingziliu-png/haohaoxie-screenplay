@@ -57,6 +57,7 @@ export default function App() {
   const [exiting, setExiting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showImportReview, setShowImportReview] = useState(false);
+  const episodeId=useEditorStore(s=>s.document?.series?.active_id);
   const [helpSection,setHelpSection]=useState<string|null>(null);
   useEffect(()=>{const open=(e:Event)=>setHelpSection((e as CustomEvent<string>).detail||'start');window.addEventListener('open-help',open);return()=>window.removeEventListener('open-help',open);},[]);
   const [showSettings, setShowSettings] = useState(false);
@@ -266,7 +267,7 @@ export default function App() {
           {showLeft && (
             <div className="editor-pane" style={{ flex: showRight ? leftSplitRatio : 1, order: sourceFirst ? 2 : 0 }}>
               {viewMode !== "focus" && <div className="pane-heading"><strong>{tr("标准剧本 · 纸面排版")}</strong><button onClick={() => void flushPendingEdits().then(() => setViewMode("right")).catch((error) => pushToast("error", String(error)))} title={tr("隐藏纸面，保留自由文本")}>{tr("关闭纸面 ×")}</button></div>}
-              <ScreenplayEditor />
+              <ScreenplayEditor key={episodeId||'single'} />
             </div>
           )}
           {showLeft && showRight && (
@@ -275,7 +276,7 @@ export default function App() {
           {showRight && (
             <div className="editor-pane" style={{ flex: showLeft ? 1 - leftSplitRatio : 1, order: sourceFirst ? 0 : 2 }}>
               <div className="pane-heading"><strong>{tr("自由文本 · 写作")}</strong><button onClick={() => void flushPendingEdits().then(() => setViewMode("left")).catch((error) => pushToast("error", String(error)))} title={tr("隐藏自由文本，保留纸面")}>{tr("关闭文本 ×")}</button></div>
-              <SourceEditor />
+              <SourceEditor key={episodeId||'single'} />
             </div>
           )}
         </div>

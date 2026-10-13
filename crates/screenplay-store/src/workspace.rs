@@ -296,3 +296,7 @@ mod source_archive_tests {
         let _ = std::fs::remove_file(path);
     }
 }
+
+#[cfg(test)]mod draft_persistence_tests{use super::*;
+ #[test]fn draft_code_and_version_snapshots_survive_save_and_reopen(){let directory=tempfile::tempdir().unwrap();let path=directory.path().join("draft.screenplay");let workspace=Workspace::blank("剧集").unwrap();workspace.service.replace_source_text(crate::db::Origin::GuiRight,"INT. ROOM - DAY\n\n保留正文",None).unwrap();let version=workspace.service.create_version(crate::db::Origin::GuiLeft,"V2.1","交稿").unwrap();let id=version.version_id.unwrap();workspace.save(Some(&path)).unwrap();let reopened=Workspace::open(&path).unwrap();assert_eq!(reopened.document().draft_label.as_deref(),Some("V2.1"));assert_eq!(reopened.service.store.version_document(&id).unwrap().draft_label.as_deref(),Some("V2.1"));assert!(reopened.service.store.list_versions().iter().any(|v|v.name=="V2.1"));}
+}

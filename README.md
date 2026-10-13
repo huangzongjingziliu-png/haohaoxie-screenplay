@@ -6,9 +6,9 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Latest beta 0.1.47 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.50 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.47-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.50-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 
@@ -16,7 +16,7 @@ Searchable Chinese and English tutorials are built into the app. Open More → H
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-A 49-second introduction. [Download the original-quality video](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.47-beta.1/haohaoxie-promo-20261012.mp4).
+A 49-second introduction. [Download the original-quality video](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.50-beta.1/haohaoxie-promo-20261012.mp4).
 
 ## Get the scene down. See the formatted page.
 
@@ -66,13 +66,27 @@ With a usable model configured, project memory can automatically organize story 
 
 Personalization holds preferences you write yourself. It stays on your Mac and applies across projects. Automatic memory can be disabled, and its results need your review.
 
+## Write episodes in one project
+
+Each episode has its own script and board while sharing project settings and memory. Add, rename, reorder and switch episodes, or export a numbered file per episode as PDF, Word, Markdown, FDX and more. A project with one episode can return to a standalone screenplay.
+
+The season overview collects episode synopses, conflicts, turning points, cliffhangers and progress. Plan the arc before writing the next scene.
+
+With a configured model, check 2–8 episodes at a time for possible character, timeline and setup inconsistencies. Reports cite original passages, offer source navigation and review statuses, and can be cancelled. They need your judgment and never edit the scripts automatically.
+
+## Rename a character. Remember what changed.
+
+Rename characters or locations from the navigator, or use Find and replace in Search. Preview individual occurrences, choose the current episode or all episodes, and confirm your selection. No model required; changes can be undone together. Matching is literal, so review similar names and context.
+
+Named draft snapshots and per-episode comparisons show earlier and later scripts and planning. Exports carry the draft label, making versions easier to tell apart.
+
 ## The everyday tools are here too
 
 - Consistent scene heading presentation, with Chinese reference, US and custom project templates.
 - Screenplay and Chinese reading layouts, with fonts, size, weight, color and italics by paragraph type, plus named style presets.
 - Autosave, recovery, version history, recent projects and a choice of save location. Try writing without saving first.
 - Search and scene, character, location and outline navigation. Highlights follow the caret; characters and locations can list all occurrences.
-- Import text, Markdown, PDFs and images. Export PDF, Word, Fountain, FDX, plain text and HTML.
+- Import text, Markdown, PDFs and images. Export PDF, Word, Markdown, Fountain, FDX, plain text and HTML.
 
 PDF/image transcription requires a configured model and permission to use its service. OCR and AI conversion can omit or misclassify content. Check the original, and keep backups alongside autosave.
 

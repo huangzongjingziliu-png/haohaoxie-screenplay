@@ -20,3 +20,9 @@ mod markdown;
 pub mod heading_format;
 
 pub mod layout_import;
+
+pub mod series;
+pub mod series_planning;
+pub mod revision_compare;
+
+pub mod text_replace;

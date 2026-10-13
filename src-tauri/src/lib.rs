@@ -9,6 +9,8 @@ pub mod bridge_host;
 pub mod diag;
 mod connection;
 mod help;
+mod series;
+mod continuity;
 mod agent_config;
 mod model_profiles;
 mod agent_text;
@@ -527,6 +529,7 @@ pub fn project_info(svc: &ProjectService) -> ProjectInfo {
 #[serde(rename_all = "camelCase")]
 pub struct Bootstrap {
     pub project: ProjectInfo,
+    #[serde(serialize_with = "serialize_bootstrap_document")]
     pub document: Option<ScreenplayDocument>,
     pub source_text: String,
     pub recent: Vec<RecentEntry>,
@@ -539,6 +542,8 @@ pub struct RecentEntry {
     pub title: String,
     pub opened_at: String,
 }
+
+fn serialize_bootstrap_document<S:serde::Serializer>(document:&Option<ScreenplayDocument>,serializer:S)->Result<S::Ok,S::Error>{document.as_ref().map(screenplay_core::series::ui_snapshot).serialize(serializer)}
 
 fn recent_file_path() -> PathBuf {
     let mut p = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -693,7 +698,7 @@ fn project_info_cmd(state: State<'_, AppState>) -> IpcResult<ProjectInfo> {
 
 #[tauri::command]
 fn get_document(state: State<'_, AppState>) -> IpcResult<ScreenplayDocument> {
-    Ok(state.project.document()?)
+    Ok(screenplay_core::series::ui_snapshot(&state.project.document()?))
 }
 
 #[tauri::command]
@@ -1222,6 +1227,7 @@ fn export_file(
         }
     })?;
     let doc = state.project.document()?;
+    let doc = if let Some(series)=&doc.series { screenplay_core::series::export_drafts(&doc).map_err(|message|IpcError::InvalidArgument{message})?.into_iter().nth(series.episodes.iter().position(|e|e.id==series.active_id).unwrap_or(0)).ok_or_else(||IpcError::InvalidArgument{message:"分集不存在".into()})?.1 } else {screenplay_core::series::publication_copy(&doc)};
     let bytes = screenplay_export::export(&doc, fmt)
         .map_err(|e| IpcError::Internal {
             message: format!("导出失败: {e}"),
@@ -1731,6 +1737,16 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             help::open_help_link,
+            series::edit_series,
+            series::preview_text_replacement,
+            series::apply_text_replacement,
+            series::save_series_planning,
+            series::review_continuity,
+            series::series_report_status,
+            series::compare_project_versions,
+            continuity::check_series_continuity,
+            continuity::cancel_series_check,
+            series::export_series_files,
             // 生命周期
             bootstrap,
             new_project,

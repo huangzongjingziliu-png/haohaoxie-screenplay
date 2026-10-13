@@ -6,9 +6,9 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新测试版 0.1.47 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.50 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.47-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.50-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
@@ -16,7 +16,7 @@
 
 https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
-约 49 秒，页面内为轻量预览。[下载原画质宣传片](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.47-beta.1/haohaoxie-promo-20261012.mp4)。
+约 49 秒，页面内为轻量预览。[下载原画质宣传片](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.50-beta.1/haohaoxie-promo-20261012.mp4)。
 
 ## 先把戏写出来，格式可以一起看
 
@@ -66,13 +66,27 @@ https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 
 “个性化”记录你填写的写作偏好，保存在本机，对不同项目生效。自动整理可关闭，整理结果也需要你审阅。
 
+## 写剧集，分集放在同一个工程里
+
+一部剧不用拆成一堆文件。每集有自己的正文和白板，共用项目设定与记忆；可以新增、重命名、排序和切换，也能按集导出 PDF、Word、Markdown、FDX 等格式。只有一集时，可以取消分集，回到单篇剧本。
+
+季纲总览把每集梗概、冲突、转折、结尾悬念和进度放在一起。先把故事走向理顺，再去写那些让人舍不得关掉的下一集。
+
+配置模型后，可一次选择 2 至 8 集检查人物、时间线和伏笔疑点。报告带原文引用，点击回到对应内容，支持取消和标记处理状态。AI 只能帮你找疑点，结论仍需你核对，也不会直接改稿。
+
+## 改名字不用求人，改稿不用凭记忆
+
+张三要改成李四，在左侧人物列表点“重命名”。地点也一样。先看逐处预览，选择当前集或全部分集，再确认修改；搜索栏还有通用查找替换。这些功能不需要模型，确认后能整批撤销。匹配按字面进行，相近名称和上下文请自己把关。
+
+版本历史支持命名稿号，按集对比修改前后的正文和规划，导出时携带稿号。第二稿改了什么，终于不用靠回忆。
+
 ## 日常写作需要的，也备着
 
 - 场景标题在标准剧本中按项目设置统一格式，默认按“内外景、地点、时间”统一显示；支持美式和自定义模板。
 - 标准剧本与中文阅读排版，按段落类型调整字体、字号、粗细、颜色和倾斜，保存命名样式。
 - 自动保存、恢复、版本历史、最近项目，以及新工程保存位置选择。也能暂不保存试写。
 - 搜索与场景、人物、地点、大纲导航。光标位置对应高亮，人物与地点可展开全部出现位置。
-- 导入文本、Markdown、PDF 和图片，导出 PDF、Word、Fountain、FDX、文本和 HTML。
+- 导入文本、Markdown、PDF 和图片，导出 PDF、Word、Markdown、Fountain、FDX、文本和 HTML。
 
 PDF／图片转写需要配置模型并允许对应服务处理内容。识别和 AI 整理可能误判或遗漏，请对照原稿校对。自动保存也不能代替备份。
 

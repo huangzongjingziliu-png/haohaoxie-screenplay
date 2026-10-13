@@ -15,6 +15,7 @@ use ts_rs::TS;
 pub struct CommandResult {
     #[ts(type = "number")]
     pub revision: u64,
+    #[serde(serialize_with = "screenplay_core::series::serialize_ui_document")]
     pub document: ScreenplayDocument,
     /// 本次命令产生的版本（如果创建了）
     pub version_id: Option<String>,
@@ -729,6 +730,8 @@ impl CommandService {
         }
         if origin==Origin::Agent {for old in &old_doc.blocks {if old.metadata.locked && !doc.blocks.iter().any(|b|b.id==old.id&&b.text==old.text&&b.block_type==old.block_type){return Err(CommandError::BlockLocked{id:old.id.clone()});}}}
         if doc.metadata.author.is_empty() { doc.metadata.author = old_doc.metadata.author.clone(); }
+        doc.draft_label=old_doc.draft_label.clone();
+        doc.series = old_doc.series.clone();
         doc.settings = old_doc.settings.clone();
         if doc.title_page.title.is_empty() { doc.title_page = old_doc.title_page.clone(); }
         let parsed_bible = doc.story_bible.clone();
@@ -789,18 +792,54 @@ impl CommandService {
         Ok(self.result(affected, None))
     }
 
+    pub fn update_series_planning(&self,patches:&[screenplay_core::series_planning::PlanningPatch],expected:u64)->Result<CommandResult,CommandError>{
+        self.check_revision(Some(expected))?;let before=self.store.snapshot();let mut doc=before.clone();screenplay_core::series_planning::apply_patches(&mut doc,patches).map_err(|message|CommandError::InvalidArgument{message})?;
+        self.commit_with_history(before,doc,Origin::GuiLeft,"series_planning",None,false,false);Ok(self.result(Vec::new(),None))
+    }
+    pub fn save_continuity_report(&self,report:ContinuityReport,expected:u64)->Result<CommandResult,CommandError>{
+        self.check_revision(Some(expected))?;let before=self.store.snapshot();let mut doc=before.clone();
+        let fingerprint=screenplay_core::series_planning::fingerprint(&doc,&report.episode_ids).map_err(|message|CommandError::InvalidArgument{message})?;
+        if fingerprint!=report.source_fingerprint||report.findings.len()>50||report.findings.iter().any(|f|f.evidence.len()<2||f.evidence.iter().any(|e|!screenplay_core::series_planning::validate_evidence(&doc,e))){return Err(CommandError::InvalidArgument{message:"检查依据无效或原稿已经变化，未写入报告".into()});}
+        let series=doc.series.as_mut().unwrap();series.checks.push(report);if series.checks.len()>10{series.checks.remove(0);}
+        self.commit_with_history(before,doc,Origin::Agent,"continuity_check",None,false,false);Ok(self.result(Vec::new(),None))
+    }
+    pub fn review_continuity_finding(&self,report_id:&str,finding_id:&str,status:&str,expected:u64)->Result<CommandResult,CommandError>{
+        self.check_revision(Some(expected))?;if !["open","resolved","dismissed"].contains(&status){return Err(CommandError::InvalidArgument{message:"未知检查状态".into()});}
+        let before=self.store.snapshot();let mut doc=before.clone();let finding=doc.series.as_mut().and_then(|s|s.checks.iter_mut().find(|r|r.id==report_id)).and_then(|r|r.findings.iter_mut().find(|f|f.id==finding_id)).ok_or_else(||CommandError::NotFound{what:"finding".into(),id:finding_id.into()})?;finding.status=status.into();
+        self.commit_with_history(before,doc,Origin::GuiLeft,"review_continuity",None,false,false);Ok(self.result(Vec::new(),None))
+    }
+    pub fn replace_text_reviewed(&self,project_id:&str,query:&str,replacement:&str,scope:&str,selected:&[String],expected:u64)->Result<CommandResult,CommandError>{
+        self.check_revision(Some(expected))?;let before=self.store.snapshot();if before.id!=project_id{return Err(CommandError::InvalidArgument{message:"项目已切换，请重新预览".into()});}let mut doc=before.clone();screenplay_core::text_replace::apply(&mut doc,query,replacement,scope,selected).map_err(|message|CommandError::InvalidArgument{message})?;
+        self.commit_with_history(before,doc,Origin::GuiLeft,"replace_text",None,false,true);Ok(self.result(Vec::new(),None))
+    }
+    pub fn edit_series(&self, action:&str, id:&str, title:&str, order:&[String], expected:u64)->Result<CommandResult,CommandError>{
+        self.check_revision(Some(expected))?;
+        let before=self.store.snapshot();let mut doc=before.clone();
+        screenplay_core::series::edit(&mut doc,action,id,title,order).map_err(|message|CommandError::InvalidArgument{message})?;
+        self.store.log_operation(Origin::GuiLeft,"edit_series",id,action,title,None);
+        self.commit_with_history(before,doc,Origin::GuiLeft,"edit_series",Some(id),false,true);
+        Ok(self.result(Vec::new(),None))
+    }
+
     pub fn load_document(
         &self,
         origin: Origin,
         mut doc: ScreenplayDocument,
     ) -> Result<CommandResult, CommandError> {
         self.check_revision(None)?;
+        let before=self.store.snapshot();
+        let importing_episode=origin==Origin::Import && before.series.is_some();
+        if importing_episode {
+            doc.draft_label=before.draft_label.clone();doc.series=before.series.clone();doc.id=before.id.clone();doc.metadata=before.metadata.clone();
+            doc.story_bible=before.story_bible.clone();doc.project_rules=before.project_rules.clone();
+            doc.settings.project_memory=before.settings.project_memory.clone();
+        }
         doc.revision = self.store.revision();
         self.store
             .log_operation(origin, "load_document", "document", "", &doc.metadata.title, None);
         // 同上：affected 先算，再 commit
         let affected: Vec<String> = doc.blocks.iter().map(|b| b.id.clone()).collect();
-        self.commit(doc, true);
+        if importing_episode {self.commit_with_history(before,doc,origin,"import_episode",Some("document"),false,true);} else {self.commit(doc, true);}
         Ok(self.result(affected, None))
     }
 
@@ -854,25 +893,14 @@ impl CommandService {
     }
 
     /// 创建命名版本
-    pub fn create_version(
-        &self,
-        origin: Origin,
-        name: &str,
-        note: &str,
-    ) -> Result<CommandResult, CommandError> {
-        let v = self
-            .store
-            .create_version(name, note, origin, "create_version", false)
-            .map_err(|e| CommandError::Internal { message: e })?;
-        self.store.log_operation(
-            origin,
-            "create_version",
-            &v.id,
-            "",
-            name,
-            Some(&v.id),
-        );
-        Ok(self.result(Vec::new(), Some(v.id)))
+    pub fn create_version(&self,origin:Origin,name:&str,note:&str)->Result<CommandResult,CommandError>{
+        let name=name.trim();if name.is_empty()||name.chars().count()>80||note.len()>20000{return Err(CommandError::InvalidArgument{message:"请填写 80 字以内的稿号，说明不能超过 20000 字节".into()});}
+        let before=self.store.snapshot();let mut doc=before.clone();doc.draft_label=Some(name.into());
+        let mut snapshot=doc.clone();snapshot.revision+=1;snapshot.updated_at=now_iso();
+        let v=self.store.create_version_for_document(name,note,origin,"create_version",false,&snapshot).map_err(|message|CommandError::Internal{message})?;
+        self.store.log_operation(origin,"create_version",&v.id,"",name,Some(&v.id));
+        self.commit_with_history(before,doc,origin,"create_version",None,false,false);
+        Ok(self.result(Vec::new(),Some(v.id)))
     }
 
     /// 自动检查点
@@ -896,13 +924,7 @@ impl CommandService {
                 what: "version".into(),
                 id: a.to_string(),
             })?;
-        let db = self
-            .store
-            .version_document(b)
-            .ok_or_else(|| CommandError::NotFound {
-                what: "version".into(),
-                id: b.to_string(),
-            })?;
+        let db=if b.is_empty(){self.store.snapshot()}else{self.store.version_document(b).ok_or_else(||CommandError::NotFound{what:"version".into(),id:b.to_string()})?};
         Ok(diff::diff_documents(&da, &db, Some(a.into()), Some(b.into())))
     }
 
@@ -2085,4 +2107,27 @@ mod custom_scene_source_health {
   svc.mutate_document(Origin::GuiLeft,|d|d.blocks[0].metadata.locked=true).unwrap();
   assert!(svc.replace_source_text(Origin::Agent,"内景。房间——日",None).is_err());
  }
+}
+
+#[cfg(test)]mod series_regressions{
+ use super::*;
+ #[test]fn source_edits_imports_and_undo_preserve_other_episodes(){
+ let store=std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("剧集")));let svc=CommandService::new(store);
+ let r=svc.replace_source_text(Origin::GuiRight,"内景。办公室——日\n\n第一集正文",None).unwrap();
+ let r=svc.edit_series("add","","第二集",&[],r.revision).unwrap();let first=r.document.series.as_ref().unwrap().episodes[0].id.clone();
+ let r=svc.replace_source_text(Origin::GuiRight,"外景。公园——夜\n\n第二集正文",Some(r.revision)).unwrap();assert_eq!(r.document.series.as_ref().unwrap().episodes.len(),2);
+ let imported=screenplay_core::serializer::from_fountain("INT. ROOM - DAY\n\n导入第二集",None);let r=svc.load_document(Origin::Import,imported).unwrap();assert_eq!(r.document.series.as_ref().unwrap().episodes.len(),2);
+ let r=svc.edit_series("switch",&first,"",&[],r.revision).unwrap();assert!(r.source_text.contains("第一集正文"));assert!(!r.source_text.contains("导入第二集"));
+ assert!(svc.edit_series("delete",&first,"",&[],r.revision-1).is_err());
+ let r=svc.edit_series("delete",&first,"",&[],r.revision).unwrap();assert_eq!(r.document.series.as_ref().unwrap().episodes.len(),1);let r=svc.undo(Origin::GuiLeft).unwrap();assert_eq!(r.document.series.as_ref().unwrap().episodes.len(),2);
+ }
+}
+
+#[cfg(test)]mod workbench_tests{
+ use super::*;use screenplay_core::series_planning::{PlanningPatch,fingerprint};
+ fn svc()->CommandService{CommandService::new(std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("剧集"))))}
+ #[test]fn reviewed_replacement_is_atomic_revision_checked_and_undoable(){let s=svc();let r=s.replace_source_text(Origin::GuiRight,"INT. CAFE - DAY\n\n张三看着张三",None).unwrap();let d=s.store.snapshot();let h=screenplay_core::text_replace::preview(&d,"张三","李四","current").unwrap();let keys=h.into_iter().map(|h|h.key).collect::<Vec<_>>();assert!(s.replace_text_reviewed(&d.id,"张三","李四","current",&keys,r.revision-1).is_err());assert!(s.replace_text_reviewed("other","张三","李四","current",&keys,r.revision).is_err());let changed=s.replace_text_reviewed(&d.id,"张三","李四","current",&keys,r.revision).unwrap();assert!(changed.source_text.contains("李四看着李四"));let restored=s.undo(Origin::GuiLeft).unwrap();assert!(restored.source_text.contains("张三看着张三"));}
+ #[test]fn failed_planning_patch_does_not_partially_save(){let s=svc();let r=s.edit_series("enable","","",&[],0).unwrap();let id=r.document.series.as_ref().unwrap().active_id.clone();let result=s.update_series_planning(&[PlanningPatch{episode_id:"".into(),field:"season_outline".into(),value:"不应保存".into(),expected_value:"".into()},PlanningPatch{episode_id:id,field:"synopsis".into(),value:"冲突".into(),expected_value:"错误旧值".into()}],r.revision);assert!(result.is_err());assert!(s.store.snapshot().series.unwrap().season_outline.is_empty());}
+ #[test]fn report_review_never_rewrites_script_and_stale_evidence_is_rejected(){let s=svc();let r=s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n第一集内容",None).unwrap();let r=s.edit_series("add","","第二集",&[],r.revision).unwrap();let r=s.replace_source_text(Origin::GuiRight,"EXT. ROAD - NIGHT\n\n第二集内容",Some(r.revision)).unwrap();let doc=s.store.snapshot();let ids=doc.series.as_ref().unwrap().episodes.iter().map(|e|e.id.clone()).collect::<Vec<_>>();let evidence=ids.iter().map(|id|{let d=screenplay_core::series_planning::episode_document(&doc,id).unwrap();let b=d.blocks.iter().find(|b|b.block_type==BlockType::Action).unwrap();ContinuityEvidence{episode_id:id.clone(),block_id:b.id.clone(),quote:b.text.clone()}}).collect();let report=ContinuityReport{id:"report".into(),created_at:now_iso(),episode_ids:ids.clone(),source_fingerprint:fingerprint(&doc,&ids).unwrap(),findings:vec![ContinuityFinding{id:"finding".into(),kind:"character".into(),title:"待确认".into(),reason:"需要作者判断".into(),evidence,status:"open".into()}],note:"".into()};let mut bad=report.clone();bad.findings[0].evidence[0].quote="编造的原文".into();assert!(s.save_continuity_report(bad,r.revision).is_err());let r=s.save_continuity_report(report,r.revision).unwrap();let text=r.source_text.clone();let r=s.review_continuity_finding("report","finding","dismissed",r.revision).unwrap();assert_eq!(text,r.source_text);assert_eq!(r.document.series.unwrap().checks[0].findings[0].status,"dismissed");}
+ #[test]fn named_draft_is_an_immutable_snapshot_and_current_comparison_works(){let s=svc();s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n第一稿内容",None).unwrap();let version=s.create_version(Origin::GuiLeft,"V1","交稿记录").unwrap();let id=version.version_id.unwrap();assert_eq!(s.store.version_document(&id).unwrap().draft_label.as_deref(),Some("V1"));let r=s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n后续修改",Some(version.revision)).unwrap();assert_eq!(r.document.draft_label.as_deref(),Some("V1"));assert!(!s.compare_versions(&id,"").unwrap().is_empty());assert!(s.store.version_document(&id).unwrap().blocks.iter().any(|b|b.text.contains("第一稿内容")));let restored=s.restore_version(Origin::GuiLeft,&id).unwrap();assert_eq!(restored.document.draft_label.as_deref(),Some("V1"));}
 }

@@ -1,3 +1,4 @@
+import EpisodeControls from './EpisodeControls';
 import {tr,fmt} from '@/i18n';
 import { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/stores/editor';
@@ -10,6 +11,7 @@ const EXPORT_FORMATS = [
   { ext: 'fdx', label: 'Final Draft (.fdx)' },
   { ext: 'fountain', label: 'Fountain' },
   { ext: 'txt', label: '纯文本' },
+  { ext: 'md', label: 'Markdown (.md)' },
   { ext: 'html', label: 'HTML' },
 ];
 
@@ -36,6 +38,7 @@ export default function Toolbar({
   onConnections?: () => void;
   onBoard?: () => void;
 }) {
+  const draftLabel=useEditorStore(s=>s.document?.draft_label);
   const project = useEditorStore((s) => s.project);
   const viewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
@@ -76,7 +79,9 @@ export default function Toolbar({
   const doExport = async (ext: string) => {
     try {
       const { save: dialog } = await import('@tauri-apps/plugin-dialog');
-      const name = (project.title || tr("剧本")).replace(/[/\\]/g, '-');
+      const current=useEditorStore.getState().document;
+      const episode=current?.series?.episodes.find(e=>e.id===current.series?.active_id);
+      const name = ((project.title || tr("剧本"))+(episode?"-"+episode.title:"")+(current?.draft_label?"-"+current.draft_label:"")).replace(/[/\\]/g, '-');
       const path = await dialog({
         defaultPath: `${name}.${ext}`,
         filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
@@ -127,9 +132,11 @@ export default function Toolbar({
 
       <div className="toolbar-title" title={project.path ?? tr("未保存")}>
         {project.title || tr("未命名剧本")}
+        {draftLabel&&<small className="draft-badge" title={tr("当前稿号")}>{draftLabel}</small>}
         {project.dirty && <span className="dirty-dot" title={tr("有未保存的修改")} />}
       </div>
 
+      <EpisodeControls/>
       <div className="toolbar-group">
         <select
           value={viewMode}

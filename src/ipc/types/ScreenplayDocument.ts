@@ -7,10 +7,11 @@ import type { ProjectRules } from "./ProjectRules";
 import type { Scene } from "./Scene";
 import type { ScreenplayBlock } from "./ScreenplayBlock";
 import type { ScreenplaySettings } from "./ScreenplaySettings";
+import type { Series } from "./Series";
 import type { StoryBible } from "./StoryBible";
 import type { TitlePage } from "./TitlePage";
 
-export type ScreenplayDocument = { id: string, format_version: number, 
+export type ScreenplayDocument = { draft_label?: string, series?: Series, id: string, format_version: number,
 /**
  * 单调递增修订号，用于 Revision Conflict 检测
  */

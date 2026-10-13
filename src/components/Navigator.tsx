@@ -1,3 +1,4 @@
+import ReplaceDialog from './ReplaceDialog';
 import {tr,fmt} from '@/i18n';
 import {sourceSegments} from '@/utils/sourcePositions';
 import { useSceneDrag } from '@/utils/useSceneDrag';
@@ -16,6 +17,7 @@ export default function Navigator() {
   const setActiveBlock = useEditorStore((s) => s.setActiveBlock);
   const activeBlockId = useEditorStore((s) => s.activeBlockId);
 
+  const [rename,setRename]=useState<string|null>(null);
   const [expanded,setExpanded]=useState<string|null>(null);
   const body=useRef<HTMLDivElement>(null);
   const blocks=doc?.blocks??[];
@@ -77,14 +79,15 @@ export default function Navigator() {
     const hits=occurrenceMaps[kind].get(kind==='characters'?id:name)??[],key=kind+id;
     const highlighted=kind==='locations'?currentLocation===name:blocks[activeIndex]?.character_id===id;
     const nearest=[...hits].sort((a,b)=>Math.abs(a.index-Math.max(activeIndex,0))-Math.abs(b.index-Math.max(activeIndex,0)))[0];
-    return <li key={id} className={`navigator-entity ${highlighted?'active':''}`} data-current={highlighted?'true':undefined}>
-      <div className="navigator-entity-heading"><button className="navigator-entity-name" disabled={!nearest} onClick={()=>{if(nearest)jump(nearest.id);}} title={tr('跳转到最近出现的位置')}><span>{name}</span><small>{fmt('{0} 处',hits.length)}</small></button>{hits.length>1&&<button className="navigator-occurrence-toggle" aria-label={fmt('查看{0}的出现位置',name)} aria-expanded={expanded===key} onClick={()=>setExpanded(expanded===key?null:key)}>{expanded===key?'⌃':'⌄'}</button>}</div>
+    return <li key={id} className={`navigator-entity ${highlighted?'active':''}`} data-current={highlighted?'true':undefined} onContextMenu={e=>{e.preventDefault();setRename(name);}}>
+      <div className="navigator-entity-heading"><button className="navigator-entity-name" disabled={!nearest} onClick={()=>{if(nearest)jump(nearest.id);}} title={tr('跳转到最近出现的位置')}><span>{name}</span><small>{fmt('{0} 处',hits.length)}</small></button><button aria-label={fmt('重命名{0}',name)} onClick={()=>setRename(name)}>{tr('重命名')}</button>{hits.length>1&&<button className="navigator-occurrence-toggle" aria-label={fmt('查看{0}的出现位置',name)} aria-expanded={expanded===key} onClick={()=>setExpanded(expanded===key?null:key)}>{expanded===key?'⌃':'⌄'}</button>}</div>
       {expanded===key&&<div className="navigator-occurrences">{hits.map((hit,i)=><button key={hit.id} className={activeBlockId===hit.id?'active':''} onClick={()=>jump(hit.id)} title={hit.dialogue||hit.label}><strong>{hit.no?fmt('第{0}场',hit.no):tr('正文开始')} · {i+1}/{hits.length}</strong><span>{hit.label}</span>{hit.dialogue&&<small>{hit.dialogue.slice(0,60)}</small>}</button>)}</div>}
     </li>;
   };
 
   return (
     <div className="navigator">
+      {rename!==null&&<ReplaceDialog rename initial={rename} onClose={()=>setRename(null)}/>}
       <div className="navigator-tabs">
         {(['scenes', 'characters', 'locations', 'outline'] as const).map((t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>

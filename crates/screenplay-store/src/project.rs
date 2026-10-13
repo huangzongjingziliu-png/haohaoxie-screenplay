@@ -33,6 +33,7 @@ pub fn save_project(
     project_rules: Option<&str>,
     original_source: Option<&[u8]>,
 ) -> Result<(), String> {
+    screenplay_core::series::validate(doc)?;
     if original_source.is_some_and(|bytes| bytes.len() as u64 > MAX_ORIGINAL_SOURCE_BYTES) {
         return Err("原始导入文件超过 512 MiB，无法写入项目文件".into());
     }
@@ -192,6 +193,7 @@ pub fn load_project(container: &Path) -> Result<LoadedProject, String> {
     let json = document_json.ok_or("项目文件缺少 document.json")?;
     let mut document: ScreenplayDocument =
         serde_json::from_str(&json).map_err(|e| format!("document.json 解析失败: {e}"))?;
+    screenplay_core::series::validate(&document)?;
     document.rebuild_derived();
 
     if let Some(pr) = &project_rules {
@@ -390,4 +392,9 @@ mod security_tests {
   save_project(&path,&ScreenplayDocument::blank("second"),None,None,None,None).unwrap();
   assert_eq!(load_project(&path).unwrap().document.metadata.title,"second");
  }
+}
+
+#[cfg(test)]mod series_container_tests{
+ use super::*;
+ #[test]fn series_round_trip_keeps_every_episode(){let dir=tempfile::tempdir().unwrap();let path=dir.path().join("series.screenplay");let mut doc=ScreenplayDocument::blank("剧集");doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"第一集"));screenplay_core::series::edit(&mut doc,"add","","第二集",&[]).unwrap();doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"第二集"));save_project(&path,&doc,None,None,None,None).unwrap();let loaded=load_project(&path).unwrap();let drafts=screenplay_core::series::export_drafts(&loaded.document).unwrap();assert_eq!(drafts[0].1.blocks[0].text,"第一集");assert_eq!(drafts[1].1.blocks[0].text,"第二集");}
 }

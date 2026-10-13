@@ -1,3 +1,6 @@
+import RevisionDiffView from './RevisionDiffView';
+import {flushPendingEdits} from '@/utils/pendingEdits';
+import type {RevisionComparison} from '@/ipc/types/RevisionComparison';
 import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import { useCallback, useEffect, useState } from 'react';
@@ -33,6 +36,8 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   const [compareA, setCompareA] = useState<string>('');
   const [compareB, setCompareB] = useState<string>('');
   const [diffText, setDiffText] = useState<string>('');
+  const [comparison,setComparison]=useState<RevisionComparison|null>(null);
+  const draftLabel=useEditorStore(s=>s.document?.draft_label);
 
   const reload = useCallback(async () => {
     try {
@@ -62,6 +67,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
+      await flushPendingEdits();
       const r = await ipc.createVersion(name, newNote.trim());
       await applyResult(r);
       setNewName('');
@@ -87,6 +93,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
+      await flushPendingEdits();
       const r = await ipc.restoreVersion(v.id);
       await applyResult(r);
       await reload();
@@ -105,8 +112,9 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     }
     setBusy(true);
     try {
-      const d = await ipc.compareVersions(compareA, compareB || undefined);
-      setDiffText(d.rendered ?? tr("（无差异文本）"));
+      await flushPendingEdits();
+      const d = await ipc.compareProjectVersions(compareA, compareB || undefined);
+      setComparison(d);setDiffText('');
     } catch (e) {
       pushToast('error', e instanceof ScreenplayError ? e.message : String(e));
     } finally {
@@ -132,7 +140,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     <ModalBackdrop onDismiss={onClose} message={tr("放弃尚未提交的版本操作并关闭？")}>
       <div className="modal version-modal" onClick={(e) => e.stopPropagation()}>
         <div className="version-header">
-          <h2>{tr("版本与历史")}</h2>
+          <h2>{tr("版本与历史")}</h2><p>{tr("当前稿号")} · {draftLabel||tr("尚未命名")}</p>
           <div className="version-branch-badge" title={tr("当前分支")}>{tr(" 分支：")}{currentBranch}
           </div>
         </div>
@@ -159,7 +167,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
           <>
             <div className="version-create">
               <input
-                placeholder={tr("版本名称（如：第三稿）")}
+                placeholder={tr("稿号（如 V2.1 或 第三稿）")}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
               />
@@ -185,13 +193,14 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
                 <option value="">{tr("当前内容")}</option>
                 {versions.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name}
+                    {v.name} · {new Date(v.created_at).toLocaleString()}
                   </option>
                 ))}
               </select>
               <button disabled={busy || !compareA} onClick={() => void compare()}>{tr(" 比较 ")}</button>
             </div>
 
+            {comparison&&<RevisionDiffView comparison={comparison}/>}
             {diffText && (
               <pre className="version-diff">{diffText}</pre>
             )}
@@ -204,7 +213,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
                 <div key={v.id} className="version-item">
                   <div className="version-item-main">
                     <span className="version-name">
-                      {v.name}
+                      {v.name} · {new Date(v.created_at).toLocaleString()}
                       {v.auto && <span className="version-auto">{tr("自动")}</span>}
                     </span>
                     <span className="version-meta">

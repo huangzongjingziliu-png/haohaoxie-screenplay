@@ -305,7 +305,11 @@ impl Store {
         trigger: &str,
         auto: bool,
     ) -> Result<VersionRecord, String> {
-        let doc = self.doc.lock().unwrap();
+        let doc=self.snapshot();
+        self.create_version_for_document(name,note,origin,trigger,auto,&doc)
+    }
+
+    pub fn create_version_for_document(&self,name:&str,note:&str,origin:Origin,trigger:&str,auto:bool,doc:&ScreenplayDocument)->Result<VersionRecord,String>{
         let id = new_id("v");
         let rec = VersionRecord {
             id: id.clone(),
@@ -319,11 +323,11 @@ impl Store {
             trigger: trigger.to_string(),
             auto,
         };
-        let payload = serde_json::to_string(&*doc).map_err(|e| e.to_string())?;
-        drop(doc);
+        let payload = serde_json::to_string(doc).map_err(|e| e.to_string())?;
 
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn=self.conn.lock().unwrap();
+        let tx=conn.transaction().map_err(|e|e.to_string())?;
+        tx.execute(
             "INSERT INTO versions (id, name, note, branch, parent_version, created_at, revision, origin, trigger_cmd, auto)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             params![
@@ -332,16 +336,17 @@ impl Store {
             ],
         )
         .map_err(|e| e.to_string())?;
-        conn.execute(
+        tx.execute(
             "INSERT INTO snapshots (id, version_id, created_at, payload) VALUES (?1,?2,?3,?4)",
             params![new_id("snap"), rec.id, rec.created_at, payload],
         )
         .map_err(|e| e.to_string())?;
-        conn.execute(
+        tx.execute(
             "UPDATE branches SET head_version = ?1 WHERE name = ?2",
             params![rec.id, rec.branch],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
         drop(conn);
 
         *self.current_version.lock().unwrap() = Some(id.clone());

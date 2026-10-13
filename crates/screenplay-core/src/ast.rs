@@ -519,9 +519,55 @@ pub struct ProjectRules {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct EpisodePlanning {
+    pub synopsis: String,
+    pub conflict: String,
+    pub turning_point: String,
+    pub cliffhanger: String,
+    pub status: String,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct ContinuityEvidence { pub episode_id:String, pub block_id:String, pub quote:String }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct ContinuityFinding { pub id:String, pub kind:String, pub title:String, pub reason:String, pub evidence:Vec<ContinuityEvidence>, pub status:String }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct ContinuityReport {pub id:String, pub created_at:String, pub episode_ids:Vec<String>, pub source_fingerprint:String, pub findings:Vec<ContinuityFinding>, pub note:String}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct Episode {
+    #[serde(default)]
+    pub planning: EpisodePlanning,
+    pub id: String,
+    pub title: String,
+    /// The active episode lives in the parent document; inactive drafts have no nested series.
+    pub draft: Option<std::sync::Arc<ScreenplayDocument>>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct Series {
+    #[serde(default)]
+    pub season_outline: String,
+    #[serde(default)]
+    pub checks: Vec<ContinuityReport>,
+    pub active_id: String,
+    pub episodes: Vec<Episode>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]
 pub struct ScreenplayDocument {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub draft_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub series: Option<Series>,
     pub id: String,
     pub format_version: u32,
     /// 单调递增修订号，用于 Revision Conflict 检测
@@ -565,6 +611,8 @@ impl ScreenplayDocument {
     pub fn blank(title: &str) -> Self {
         let now = now_iso();
         Self {
+            draft_label: None,
+            series: None,
             id: new_id("doc"),
             format_version: 1,
             revision: 0,
