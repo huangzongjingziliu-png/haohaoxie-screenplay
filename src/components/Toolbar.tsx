@@ -67,8 +67,8 @@ export default function Toolbar({
 
   const doSave = async () => {
     setBusy(true);
-    await save();
-    setBusy(false);
+    try { await save(); }
+    finally { setBusy(false); }
   };
 
   const doSaveAs = async () => {
@@ -112,12 +112,15 @@ export default function Toolbar({
           onClick={() => void undo()}
           disabled={!history?.can_undo}
           title={history?.undo_label ? fmt("撤销：{0} (⌘Z)",history.undo_label) : tr("撤销 (⌘Z)")}
-        >{tr(" ↶ 撤销 ")}</button>
+          aria-label={tr("撤销")}
+        >↶</button>
         <button
           onClick={() => void redo()}
           disabled={!history?.can_redo}
           title={history?.redo_label ? fmt("重做：{0} (⇧⌘Z)",history.redo_label) : tr("重做 (⇧⌘Z)")}
-        >{tr(" ↷ 重做 ")}</button>
+          aria-label={tr("重做")}
+        >↷</button>
+        {onVersions&&<button onClick={onVersions} disabled={project.state==='empty'} title={tr('查看旧稿、比较修改并恢复 · ⌘Y')}>{tr('◷ 历史记录')}</button>}
       </div>
 
       <div className="toolbar-group">
@@ -138,7 +141,7 @@ export default function Toolbar({
       </div>
 
       <EpisodeControls/>
-      <div className="toolbar-group">
+      <div className="toolbar-group toolbar-view-tools" aria-label={tr("视图模式")}>
         <select
           value={viewMode}
           onChange={(e) => { const mode = e.target.value as typeof viewMode; void flushPendingEdits().then(() => setViewMode(mode)).catch((error) => pushToast("error", String(error))); }}
@@ -149,7 +152,9 @@ export default function Toolbar({
           <option value="right">{tr("自由模式")}</option>
           <option value="focus">{tr("专注模式")}</option>
         </select>
-        {viewMode === 'split' && <button onClick={swapEditors} title={tr("交换自由文本与纸面的位置")}>{tr("左右互换 ⇄")}</button>}
+        {viewMode === 'split' && <button onClick={swapEditors} aria-label={tr("左右互换 ⇄")} title={tr("交换自由文本与纸面的位置")}>⇄</button>}
+      </div>
+      <div className="toolbar-group toolbar-zoom-tools" aria-label={tr("页面缩放")}>
         <button onClick={() => setZoom(0)} title={tr("适应纸宽")}>{tr("适应")}</button>
         <button onClick={() => setZoom(Math.max(0.5, (zoom || 1) - 0.1))} title={tr("缩小")}>
           −
@@ -184,8 +189,10 @@ export default function Toolbar({
         <UpdateButton/><UpdateDialog/><div className="toolbar-more" ref={moreRef}>
           <button aria-expanded={moreOpen} aria-haspopup="true" onClick={() => setMoreOpen(!moreOpen)}>{tr("更多 ▾")}</button>
           {moreOpen && <div className="toolbar-more-menu" aria-label={tr("更多操作")} onClick={() => setMoreOpen(false)}>
+            <p className="menu-section-label">{tr("项目")}</p>
             <button onClick={() => void doSaveAs()} disabled={busy || project.state === 'empty'}>{tr("另存为… ")}<small>⇧⌘S</small></button>
             <button onClick={() => onVersions?.()} disabled={project.state === 'empty'}>{tr("版本历史 ")}<small>⌘Y</small></button>
+            <p className="menu-section-label">{tr("工具与设置")}</p>
             {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent…")}</button>}
             <button onClick={()=>void checkUpdates(true)}>{tr("检查更新")}</button>
             {onHelp && <button onClick={onHelp}>{tr("帮助与教程")}</button>}

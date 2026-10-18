@@ -3,7 +3,7 @@ import {flushPendingEdits} from '@/utils/pendingEdits';
 import type {RevisionComparison} from '@/ipc/types/RevisionComparison';
 import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipc, ScreenplayError } from '@/ipc/client';
 import { useEditorStore } from '@/stores/editor';
 import type { VersionRecord, AuditEntry, Branch } from '@/ipc/types';
@@ -29,6 +29,21 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   const [currentBranch, setCurrentBranch] = useState('main');
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [selected,setSelected]=useState<VersionRecord|null>(null);
+  const [preview,setPreview]=useState('');
+  const [previewBusy,setPreviewBusy]=useState(false);
+  const [filter,setFilter]=useState('all');
+  const previewRequest=useRef(0);
+  const projectId=useEditorStore(state=>state.document?.id);
+  const boundProject=useRef(projectId);
+  useEffect(()=>{if(projectId!==boundProject.current)onClose();},[projectId,onClose]);
+  useEffect(()=>()=>{previewRequest.current++;},[]);
+  const inspect=async(version:VersionRecord)=>{
+    const request=++previewRequest.current;setSelected(version);setPreview('');setPreviewBusy(true);
+    try{const text=await ipc.previewVersion(version.id);if(request===previewRequest.current&&useEditorStore.getState().document?.id===boundProject.current)setPreview(text);}
+    catch(error){if(request===previewRequest.current)pushToast('error',String(error));}
+    finally{if(request===previewRequest.current)setPreviewBusy(false);}
+  };
 
   const [newName, setNewName] = useState('');
   const [newNote, setNewNote] = useState('');
@@ -68,7 +83,9 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       await flushPendingEdits();
-      const r = await ipc.createVersion(name, newNote.trim());
+      if(useEditorStore.getState().document?.id!==boundProject.current)throw new Error(tr('项目已切换，请重新打开历史记录'));
+      const r = await ipc.createVersion(name, newNote.trim(),boundProject.current);
+      if(useEditorStore.getState().document?.id!==boundProject.current)return;
       await applyResult(r);
       setNewName('');
       setNewNote('');
@@ -84,9 +101,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   const restore = async (v: VersionRecord) => {
     if (
       !window.confirm(
-        `恢复到版本「${v.name}」？\n\n` +
-          `当前内容会先自动保存为检查点，不会丢失。\n` +
-          `恢复后还可以撤销。`
+        fmt('恢复到「{0}」？当前稿会先保留一个恢复前检查点，恢复后也可以撤销。',v.name)
       )
     ) {
       return;
@@ -94,7 +109,9 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       await flushPendingEdits();
-      const r = await ipc.restoreVersion(v.id);
+      if(useEditorStore.getState().document?.id!==boundProject.current)throw new Error(tr('项目已切换，请重新打开历史记录'));
+      const r = await ipc.restoreVersion(v.id,boundProject.current);
+      if(useEditorStore.getState().document?.id!==boundProject.current)return;
       await applyResult(r);
       await reload();
       pushToast('success', fmt("已恢复到「{0}」，可按 ⌘Z 撤销",v.name));
@@ -139,9 +156,10 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <ModalBackdrop disabled={busy} onDismiss={onClose} message={tr("放弃尚未提交的版本操作并关闭？")}>
-      <div className="modal version-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal version-modal" role="dialog" aria-modal="true" aria-label={tr('历史记录')} onClick={(e) => e.stopPropagation()}>
         <div className="version-header">
-          <h2>{tr("版本与历史")}</h2><p>{tr("当前稿号")} · {draftLabel||tr("尚未命名")}</p>
+          <h2>{tr("历史记录")}</h2><p>{tr('每次改稿都有来处。先预览旧稿，再决定是否恢复。')}</p><p>{tr("当前稿号")} · {draftLabel||tr("尚未命名")}</p>
+          <p className="modal-hint">{tr('自动记录默认每 5 分钟保留一个有修改的版本；重要改稿前可手动留存。恢复会影响整个工程，包括分集与白板。')}</p>
           <div className="version-branch-badge" title={tr("当前分支")}>{tr(" 分支：")}{currentBranch}
           </div>
         </div>
@@ -151,7 +169,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
             [
               ['versions', fmt("版本 ({0})",versions.length)],
               ['branches', fmt("分支 ({0})",branches.length)],
-              ['audit', tr("审计日志")],
+              ['audit', tr("操作记录")],
             ] as const
           ).map(([t, label]) => (
             <button
@@ -206,23 +224,23 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
               <pre className="version-diff">{diffText}</pre>
             )}
 
-            <div className="version-list">
+            <div className="model-filter-row">{[['all',tr('全部')],['manual',tr('手动留存')],['auto',tr('自动记录')]].map(([value,label])=><button key={value} aria-pressed={filter===value} disabled={busy} onClick={()=>setFilter(value)}>{label}</button>)}</div>
+            {selected&&<section className="history-preview" aria-label={tr('旧稿预览')}><header><strong>{selected.name}</strong><span>{new Date(selected.created_at).toLocaleString()}</span><button disabled={busy||previewBusy} onClick={()=>void restore(selected)}>{tr('恢复到这一稿')}</button></header><p>{tr('这是只读预览，当前剧本还没有改变。')}</p><pre>{previewBusy?tr('正在读取旧稿…'):preview}</pre></section>}
+            <div className="version-list history-timeline">
               {versions.length === 0 && (
                 <p className="empty-hint">{tr("还没有版本。编辑剧本后可以创建第一个版本。")}</p>
               )}
-              {versions.map((v) => (
-                <div key={v.id} className="version-item">
+              {versions.filter(version=>filter==='all'||(filter==='auto'?version.auto:!version.auto)).slice().sort((left,right)=>right.created_at.localeCompare(left.created_at)).map((v) => (
+                <div key={v.id} className={'version-item '+(selected?.id===v.id?'history-selected':'')}>
                   <div className="version-item-main">
                     <span className="version-name">
                       {v.name} · {new Date(v.created_at).toLocaleString()}
                       {v.auto && <span className="version-auto">{tr("自动")}</span>}
                     </span>
-                    <span className="version-meta">
-                      rev {v.revision} · {v.origin} · {new Date(v.created_at).toLocaleString('zh-CN')}
-                    </span>
+                    <span className="version-meta">{v.auto?tr('自动记录'):tr('手动留存')} · rev {v.revision}</span>
                     {v.note && <span className="version-note">{v.note}</span>}
                   </div>
-                  <button disabled={busy} onClick={() => void restore(v)}>{tr(" 恢复 ")}</button>
+                  <button disabled={busy} onClick={() => void inspect(v)}>{tr('预览旧稿')}</button><button disabled={busy} onClick={()=>{setCompareA(v.id);setCompareB('');void flushPendingEdits().then(()=>ipc.compareProjectVersions(v.id)).then(result=>{if(useEditorStore.getState().document?.id===boundProject.current)setComparison(result);}).catch(error=>pushToast('error',String(error)));}}>{tr('与当前稿比较')}</button>
                 </div>
               ))}
             </div>

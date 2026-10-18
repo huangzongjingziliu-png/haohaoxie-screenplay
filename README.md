@@ -6,14 +6,14 @@ Writing a scene means juggling dialogue, paragraph types and indentation. Revisi
 
 Write Your Script keeps the work in one project. Write freely while watching the formatted page, arrange scenes as cards, and ask the assistant to revise a passage. Review the changes before applying them.
 
-**Latest beta 0.1.55 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
+**Latest beta 0.1.56 · Apple Silicon Mac · Chinese / English UI · MIT open source.**
 
-[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.55-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
+[Download the app](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.56-beta.1) · [中文](README.zh-CN.md) · [Full tutorial](docs/HELP.en.md) · [Getting started](docs/public/GETTING_STARTED.md) · [Privacy](docs/public/PRIVACY.md) · [Known limitations](docs/public/KNOWN_LIMITATIONS.md)
 
 Searchable Chinese and English tutorials are built into the app. Open More → Help & tutorials, or use the guide link in model settings.
 
 
-**Installing the app? Download only the DMG.** [Download the Apple Silicon Mac installer](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.55-beta.1/haohaoxie-screenplay_0.1.55_aarch64.dmg)
+**Installing the app? Download only the DMG.** [Download the Apple Silicon Mac installer](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.56-beta.1/haohaoxie-screenplay_0.1.56_aarch64.dmg)
 
 This beta is not Apple-notarized and may still be blocked on first launch. See the installation notes.
 
@@ -53,6 +53,8 @@ Use built-in writing skills, add your own, or have a model draft a skill for you
 
 Save multiple custom model profiles and switch between them. Configure OpenAI, compatible endpoints or a local Ollama service. Keys stay in an encrypted local vault and are excluded from project files.
 
+The setup wizard includes thirteen cloud providers with logos, mainland China and international filters, free-resource labels, model discovery and connection testing. Ollama and a custom API option are also available. Page zoom and fit-width controls stay visible in the main toolbar.
+
 Core editing needs no model. AI features use your configured provider, with its fees and limits. No shared key is supplied. Cloud requests send relevant screenplay text, memory and skill content to that provider. Ollama requires a separately installed and running local service.
 
 ![Saved custom model profiles and the active model selection](docs/public/images/custom-models.png)
@@ -84,6 +86,8 @@ With a configured model, check 2–8 episodes at a time for possible character, 
 Rename characters or locations from the navigator, or use Find and replace in Search. Preview individual occurrences, choose the current episode or all episodes, and confirm your selection. No model required; changes can be undone together. Matching is literal, so review similar names and context.
 
 Named draft snapshots and per-episode comparisons show earlier and later scripts and planning. Exports carry the draft label, making versions easier to tell apart.
+
+Open History from the toolbar to preview, compare or restore saved drafts. Automatic snapshots preserve earlier editing states; restoring a draft requires confirmation.
 
 ## The everyday tools are here too
 

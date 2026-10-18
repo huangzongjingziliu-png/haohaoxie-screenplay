@@ -1,6 +1,9 @@
 use crate::{IpcError,IpcResult};
 use tauri_plugin_shell::ShellExt;
 const LINKS:&[&str]=&[
+ "https://platform.claude.com","https://platform.kimi.com","https://modelscope.cn","https://z.ai/manage-apikey/apikey-list",
+ "https://bailian.console.aliyun.com","https://open.bigmodel.cn",
+ "https://aistudio.google.com","https://console.mistral.ai",
  "https://openrouter.ai/settings/keys","https://openrouter.ai/docs/quickstart",
  "https://console.groq.com/keys","https://console.groq.com/docs/quickstart",
  "https://platform.deepseek.com","https://api-docs.deepseek.com/",

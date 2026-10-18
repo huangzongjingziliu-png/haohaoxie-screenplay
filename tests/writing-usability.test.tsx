@@ -12,6 +12,14 @@ beforeEach(() => {
   useEditorStore.setState({ viewMode: 'split', previousViewMode: 'split', sourceFirst: true, zoom: 1, composing: false, activeBlockId: null });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it('keeps page zoom visible outside disclosures and immediately changes magnification',()=>{
+ const view=render(<Toolbar onImport={()=>undefined}/>);
+ const zoomIn=view.getByTitle('放大'),zoomOut=view.getByTitle('缩小');
+ expect(zoomIn.closest('details')).toBeNull();expect(zoomOut.closest('details')).toBeNull();
+ fireEvent.click(zoomIn);expect(useEditorStore.getState().zoom).toBeCloseTo(1.1);
+ fireEvent.click(zoomOut);expect(useEditorStore.getState().zoom).toBeCloseTo(1);
+ fireEvent.click(view.getByTitle('适应纸宽'));expect(useEditorStore.getState().zoom).toBe(0);
+});
 it('专注退出恢复原视图，互换不改变两种编辑器的语义', () => {
   const s = useEditorStore.getState();
   s.setViewMode('right'); s.setViewMode('focus'); s.exitFocus();

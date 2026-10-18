@@ -161,6 +161,65 @@ pub async fn agent_test_model(mut profile:Profile)->IpcResult<serde_json::Value>
     if response.trim().is_empty(){return Err(error("服务已响应，但没有返回模型内容"));}
     Ok(serde_json::json!({"success":true,"model":profile.model,"latencyMs":start.elapsed().as_millis()}))
 }
+
+#[derive(Serialize)]
+pub struct AvailableModel { id: String, free: Option<bool> }
+
+fn catalogue_models(value: &serde_json::Value, local: bool) -> Vec<AvailableModel> {
+    let entries=value.get(if local {"models"} else {"data"}).and_then(|value|value.as_array());
+    let mut models:Vec<AvailableModel>=entries.into_iter().flatten().filter_map(|entry| {
+        let id=entry.get(if local {"name"} else {"id"})?.as_str()?.trim();
+        if id.is_empty() || id.len()>512 {return None;}
+        let lower=id.to_ascii_lowercase();
+        if ["embedding","embed-","-embed","rerank","whisper","text-to-speech","tts"].iter().any(|name|lower.contains(name)) {return None;}
+        if entry.get("architecture").and_then(|value|value.get("output_modalities")).and_then(|value|value.as_array()).is_some_and(|modalities|!modalities.iter().any(|value|value.as_str()==Some("text"))) {return None;}
+        if local && (entry.get("remote_host").is_some() || entry.get("remote_model").is_some() || id.ends_with(":cloud") || id.ends_with("-cloud")) {return None;}
+        let pricing=entry.get("pricing");
+        let zero=|field:&str|pricing.and_then(|value|value.get(field)).and_then(|value|value.as_str().and_then(|value|value.parse::<f64>().ok()).or_else(||value.as_f64()));
+        let free=if local || id.ends_with(":free") || id=="openrouter/free" {Some(true)} else {match (zero("prompt"),zero("completion")) {(Some(prompt),Some(completion))=>Some(prompt==0.0 && completion==0.0),_=>None}};
+        Some(AvailableModel{id:id.to_string(),free})
+    }).take(2000).collect();
+    models.sort_by(|left,right|left.id.cmp(&right.id));models.dedup_by(|left,right|left.id==right.id);models
+}
+
+#[tauri::command]
+pub async fn agent_available_models(mut profile:Profile)->IpcResult<Vec<AvailableModel>> {
+    let local=profile.provider_kind=="ollama";
+    let address=if local {"http://127.0.0.1:11434"} else if profile.provider_kind=="openai" {"https://api.openai.com/v1"} else if profile.provider_kind=="compatible" {profile.base_url.trim_end_matches('/')} else {return Err(error("模型类型无效"));};
+    let url=tauri::Url::parse(address).map_err(|_|error("服务地址无效"))?;
+    if !(url.scheme()=="https" || url.scheme()=="http"&&matches!(url.host_str(),Some("localhost"|"127.0.0.1"))) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {return Err(error("服务地址需要 HTTPS，且不能包含账号、查询参数或片段"));}
+    if !local && profile.api_key.is_empty() && !profile.id.is_empty() {
+        let _lock=LOCK.lock().unwrap();let all=load_at(&folder()).map_err(error)?;
+        let saved=all.profiles.iter().find(|saved|saved.id==profile.id && saved.provider_kind==profile.provider_kind && saved.base_url==profile.base_url).ok_or_else(||error("服务地址已改变，请重新填写 API Key"))?;
+        profile.api_key=saved.api_key.clone();
+    }
+    if !local && profile.api_key.trim().is_empty() {return Err(error("请输入 API Key"));}
+    let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).redirect(reqwest::redirect::Policy::none()).build().map_err(|err|error(err.to_string()))?;
+    let mut request=client.get(format!("{address}{}",if local {"/api/tags"} else {"/models"}));
+    if url.host_str()==Some("api.siliconflow.cn") {request=request.query(&[("sub_type","chat")]);}
+    if !local {request=request.bearer_auth(profile.api_key.trim());}
+    if url.host_str()==Some("api.anthropic.com") {request=request.header("anthropic-version","2023-06-01").header("x-api-key",profile.api_key.trim());}
+    let mut response=request.send().await.map_err(|_|error(if local {"未连接到 Ollama，请先安装、打开并下载一个本地模型"} else {"获取模型列表失败，请检查网络和服务地址"}))?;
+    if !response.status().is_success() {return Err(error(format!("获取模型列表失败：HTTP {}",response.status().as_u16())));}
+    let mut bytes=Vec::new();while let Some(chunk)=response.chunk().await.map_err(|_|error("读取模型列表失败"))? {if bytes.len()+chunk.len()>2_000_000 {return Err(error("模型列表过大"));}bytes.extend_from_slice(&chunk);}
+    let value=serde_json::from_slice(&bytes).map_err(|_|error("服务没有返回有效的模型列表"))?;
+    Ok(catalogue_models(&value,local))
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    #[test] fn free_prices_are_not_guessed_and_local_cloud_models_are_excluded() {
+        let models=catalogue_models(&serde_json::json!({"data":[{"id":"unknown"},{"id":"paid","pricing":{"prompt":"0.1","completion":"0"}},{"id":"free","pricing":{"prompt":"0","completion":"0"}}]}),false);
+        assert_eq!(models.iter().find(|model|model.id=="unknown").unwrap().free,None);
+        assert_eq!(models.iter().find(|model|model.id=="paid").unwrap().free,Some(false));
+        assert_eq!(models.iter().find(|model|model.id=="free").unwrap().free,Some(true));
+        let models=catalogue_models(&serde_json::json!({"models":[{"name":"local:8b"},{"name":"remote:cloud"},{"name":"remote","remote_host":"example.com"}]}),true);
+        assert_eq!(models.len(),1);assert_eq!(models[0].id,"local:8b");
+        let models=catalogue_models(&serde_json::json!({"data":[{"id":"whisper-large-v3"},{"id":"nomic-embed-text"},{"id":"image-gen","architecture":{"output_modalities":["image"]}},{"id":"chat-model","architecture":{"output_modalities":["text"]}}]}),false);
+        assert_eq!(models.len(),1);assert_eq!(models[0].id,"chat-model");
+    }
+}
 #[cfg(test)] mod connection_tests {
  use super::*;
  fn profile(url:String)->Profile {Profile{id:String::new(),name:"probe".into(),provider_kind:"compatible".into(),model:"probe-model".into(),base_url:url,api_key:"fake-test-key".into()}}

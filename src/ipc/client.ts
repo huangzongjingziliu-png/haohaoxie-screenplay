@@ -227,10 +227,10 @@ export const ipc = {
 
   // 版本
   listVersions: () => call<VersionRecord[]>('list_versions'),
-  createVersion: (name: string, note: string) =>
-    call<CommandResult>('create_version', { name, note }),
-  restoreVersion: (versionId: string) =>
-    call<CommandResult>('restore_version', { versionId }),
+  createVersion: (name: string, note: string, projectId?:string) =>
+    call<CommandResult>('create_version', { name, note, projectId }),
+  restoreVersion: (versionId: string, projectId?:string) =>
+    call<CommandResult>('restore_version', { versionId, projectId }),
   auditLog: (limit?: number) => call<AuditEntry[]>('audit_log', { limit }),
   compareVersions: (versionA: string, versionB?: string) =>
     call<{ rendered?: string; changed_blocks?: number; added_blocks?: number; removed_blocks?: number }>(
@@ -311,6 +311,8 @@ export const ipc = {
   agentSelectModel: (id: string) => call<ModelProfiles>('agent_select_model', { id }),
   agentDeleteModel: (id: string) => call<ModelProfiles>('agent_delete_model', { id }),
   agentTestModel: (profile: ModelProfile & {apiKey?:string}) => call<{success:boolean;model:string;latencyMs:number}>('agent_test_model',{profile}),
+  agentAvailableModels: (profile: ModelProfile & {apiKey?:string}) => call<{id:string;free:boolean|null}[]>('agent_available_models',{profile}),
+  previewVersion: (versionId:string) => call<string>('preview_version',{versionId}),
   agentGetConfig: () =>
     call<{ cloudAiEnabled: boolean; providerKind: string; model: string; apiKeySet: boolean; baseUrl: string }>(
       'agent_get_config'

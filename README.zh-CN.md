@@ -6,14 +6,14 @@
 
 好好写剧本把这些事放在同一个工程里。你可以先自由写，随时看标准排版；把场景铺成便签，拖动就能调整正文顺序；需要改稿时，让助理在项目里帮忙，检查结果后再应用。
 
-**最新测试版 0.1.55 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
+**最新测试版 0.1.56 · Apple 芯片 Mac · 中英文界面 · MIT 开源。**
 
-[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.55-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
+[下载安装包](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/tag/v0.1.56-beta.1) · [English](README.md) · [详细教程](docs/HELP.zh.md) · [入门说明](docs/public/GETTING_STARTED.md) · [隐私](docs/public/PRIVACY.md) · [已知限制](docs/public/KNOWN_LIMITATIONS.md)
 
 软件内置可搜索的中英文教程。从“更多 → 帮助与教程”打开，模型配置窗口也有直接入口。
 
 
-**普通用户只下载 DMG 安装包，其余文件不用下载。** [下载安装包（Apple 芯片 Mac）](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.55-beta.1/haohaoxie-screenplay_0.1.55_aarch64.dmg)
+**普通用户只下载 DMG 安装包，其余文件不用下载。** [下载安装包（Apple 芯片 Mac）](https://github.com/huangzongjingziliu-png/haohaoxie-screenplay/releases/download/v0.1.56-beta.1/haohaoxie-screenplay_0.1.56_aarch64.dmg)
 
 此测试版未经过 Apple 公证，首次打开可能仍被 macOS 拦截；请阅读安装说明。
 
@@ -52,6 +52,10 @@ https://github.com/user-attachments/assets/b7da7645-5726-4c96-826d-972d6da2d695
 ## 模型自己选，密钥不用反复填
 
 支持配置多个自定义模型，保存后随时切换。可接入 OpenAI、兼容接口或本机 Ollama 服务；密钥保存在本机加密存储中，工程文件不携带密钥。
+
+配置向导提供 13 家云服务商的图标卡片，可按中国大陆、国际服务和免费资源筛选，支持获取模型列表和测试连接。也保留本机 Ollama 与自定义 API 入口。页面缩放和适应纸宽按钮常驻主工具栏。
+
+工具栏的“历史”可以预览、比较和恢复旧稿，自动快照帮助保留之前的修改状态。恢复前会再次确认，避免误点覆盖当前稿。
 
 核心编辑无需模型。AI 功能使用你配置的服务，费用与额度由服务商决定，本软件不提供共享密钥。云模型会处理相关正文、记忆和技能内容；本机 Ollama 需另行安装并运行。
 

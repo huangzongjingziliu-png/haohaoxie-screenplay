@@ -66,13 +66,19 @@ impl OpenAiProvider {
     pub fn endpoint_url(&self) -> String {
         format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
+
+    fn request_body<'a>(&'a self, messages: &'a [ChatMessage], temperature: f32) -> ChatRequest<'a> {
+        let anthropic = reqwest::Url::parse(&self.base_url).ok().and_then(|address|address.host_str().map(str::to_owned)).as_deref()==Some("api.anthropic.com");
+        ChatRequest { model: &self.model, messages, temperature: if anthropic {None} else {Some(temperature)}, max_tokens:4096 }
+    }
 }
 
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
-    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
     max_tokens: u32,
 }
 
@@ -105,12 +111,7 @@ impl ModelProvider for OpenAiProvider {
     }
     async fn chat(&self, messages: &[ChatMessage], temperature: f32) -> Result<String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let body = ChatRequest {
-            model: &self.model,
-            messages,
-            temperature,
-            max_tokens: 4096,
-        };
+        let body = self.request_body(messages, temperature);
         let resp = self
             .client
             .post(&url)
@@ -181,6 +182,18 @@ impl ModelRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anthropic_compatibility_omits_unsupported_sampling_override() {
+        let messages = vec![ChatMessage {role:"user".into(),content:"Hello".into()}];
+        let provider = OpenAiProvider::compatible("https://api.anthropic.com/v1", "test-key", "claude-model");
+        let body = serde_json::to_value(provider.request_body(&messages,0.2)).unwrap();
+        assert!(body.get("temperature").is_none());
+        assert_eq!(body["model"],"claude-model");
+        assert_eq!(body["messages"][0]["content"],"Hello");
+        let provider = OpenAiProvider::compatible("https://api.deepseek.com", "test-key", "chat-model");
+        assert!(serde_json::to_value(provider.request_body(&messages,0.2)).unwrap().get("temperature").is_some());
+    }
 
     #[test]
     fn t01_ollama_endpoint() {

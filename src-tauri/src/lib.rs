@@ -1006,14 +1006,32 @@ fn list_versions(state: State<'_, AppState>) -> IpcResult<Vec<VersionRecord>> {
 }
 
 #[tauri::command]
+fn preview_version(state: State<'_, AppState>, version_id: String) -> IpcResult<String> {
+    let workspace=state.project.require()?;
+    let document=workspace.service.store.version_document(&version_id).ok_or_else(||IpcError::NotFound{what:"version".into(),id:version_id})?;
+    if let Some(series)=&document.series {
+        let mut output=String::new();
+        for episode in &series.episodes {
+            let draft=if episode.id==series.active_id {&document} else {episode.draft.as_deref().ok_or_else(||IpcError::AppState{message:"分集正文缺失".into()})?};
+            output.push_str(&format!("\n{}\n\n{}\n",episode.title,screenplay_core::serializer::to_compact_source(draft)));
+        }
+        Ok(output)
+    } else {Ok(screenplay_core::serializer::to_compact_source(&document))}
+}
+
+#[tauri::command]
 fn create_version(
     app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     note: String,
+    project_id: Option<String>,
 ) -> IpcResult<CommandResult> {
     let r =
-        state.project.run(|svc| svc.create_version(Origin::GuiLeft, &name, &note))?;
+        state.project.run(|svc| {
+            if project_id.as_ref().is_some_and(|id|id!=&svc.store.snapshot().id) {return Err(screenplay_store::command::CommandError::InvalidArgument{message:"项目已切换，请重新打开历史记录".into()});}
+            svc.create_version(Origin::GuiLeft, &name, &note)
+        })?;
     broadcast(&app, "gui-left", &r);
     Ok(r)
 }
@@ -1023,9 +1041,13 @@ fn restore_version(
     app: AppHandle,
     state: State<'_, AppState>,
     version_id: String,
+    project_id: Option<String>,
 ) -> IpcResult<CommandResult> {
     let r =
-        state.project.run(|svc| svc.restore_version(Origin::GuiLeft, &version_id))?;
+        state.project.run(|svc| {
+            if project_id.as_ref().is_some_and(|id|id!=&svc.store.snapshot().id) {return Err(screenplay_store::command::CommandError::InvalidArgument{message:"项目已切换，请重新打开历史记录".into()});}
+            svc.restore_version(Origin::GuiLeft, &version_id)
+        })?;
     broadcast(&app, "gui-left", &r);
     Ok(r)
 }
@@ -1793,6 +1815,7 @@ pub fn run() {
             history_status,
             // 版本
             list_versions,
+            preview_version,
             create_version,
             restore_version,
             audit_log,
@@ -1843,6 +1866,7 @@ pub fn run() {
             model_profiles::agent_select_model,
             model_profiles::agent_delete_model,
             model_profiles::agent_test_model,
+            model_profiles::agent_available_models,
             agent_install_skill,
             agent_unload_skill,
         ])

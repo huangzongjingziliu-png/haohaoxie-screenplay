@@ -1,4 +1,4 @@
-# Screenplay Studio User Guide
+# Screenplay Studio guide
 
 ## Start with one scene
 
@@ -38,6 +38,32 @@ The Free text slider changes its font size and can reset it. Set screenplay font
 
 Use Search or ⌘F. Enter a name, line or memorable word and jump to a result. Press Esc to leave Focus mode.
 
+## Series and episodes
+
+One .screenplay project can contain a whole series. Open Episodes in the toolbar and enable episodes. Existing content becomes Episode 1. Each episode has its own script and board, with shared project settings and memory.
+
+Use the episode selector to switch. Manage episodes to rename, move up or down, or delete. Undo restores deletion. Pending edits are committed before switching; remember to save the project.
+
+The toolbar exports the current episode as PDF, Word, Markdown, FDX and more. Export all episodes creates one numbered file per episode. Choose an empty folder to avoid overwriting drafts. Share the .screenplay project to send the complete series.
+
+Use an episode-capable version to edit series projects. Older versions may recognize only the current episode.
+
+The assistant and external CLI/MCP work on the current episode by default. Switch to the intended episode before requesting revisions.
+
+## Planning, continuity and draft revisions
+
+Open Episodes → Season and episode overview. Write the season outline, then select an episode to enter its synopsis, conflict, turning point, cliffhanger and progress. Save planning to keep it in the project. Planning does not automatically become script text.
+
+Continuity checking needs a configured model. Select 2–8 episodes per batch. The app reads scripts and planning in chunks before comparing characters, timeline and setups. Relevant content is sent to your provider, which may charge. Progress is visible and checking can be cancelled.
+
+Findings are questions for the author, not verdicts. Quotes are checked against sources. Click a quote to open its script passage or planning field. Mark findings as to review, resolved or dismissed. Changed source material flags a report as potentially stale. Checks never rewrite scripts and do not guarantee finding every issue.
+
+In More → Version history, enter a draft label such as V2.1 and create a snapshot. Later edits do not change that snapshot. The toolbar displays the current label; exports include it in file names and title pages. Timestamps distinguish snapshots with the same label.
+
+Compare two snapshots, or a snapshot with current content. Red shows earlier text and green shows later text. Episodes are matched by identity; switching the active episode does not count as rewriting it. Restoring first backs up current work.
+
+Edit this data with version 0.1.49 or newer. Older versions may lose planning, reports or draft labels when saving.
+
 ## Save, import and export
 
 Keep the .screenplay project for future editing. Export PDF or Word when you need to deliver a script. Your next round of revisions will thank you for keeping the project.
@@ -52,7 +78,7 @@ Prefer FDX or Fountain when available because they carry screenplay structure. P
 
 ### Go back to an earlier draft
 
-Undo and redo handle recent edits. Open Version history in More to inspect older versions.
+Open History in the toolbar to browse the timeline and filter named or automatic snapshots. Preview is read-only; compare shows changes. Restoring first preserves your current draft as a checkpoint and can be undone. Save the project to retain its history.
 
 ### Choose carefully when closing
 
@@ -108,6 +134,18 @@ Cloud-model features send relevant screenplay text to your chosen provider and m
 
 ## Connect a model, step by step
 
+A custom model is the brain you choose for the writing assistant. Pick a provider and model; the app sends your request and brings back the answer. No programming or model training required.
+
+Three details connect a cloud model. API Key is your access pass; Base URL is the service address; Model ID identifies the exact assistant. Give the profile any display name, but copy the three connection details from the same provider.
+
+Choose Try free models for a guided start. Choose service → Connect → Choose model fills the address, fetches model IDs and lets you test the connection. Unknown pricing is never labelled free.
+
+English defaults to international services; Chinese defaults to China-based services. You can switch either way. OpenRouter offers a free router and Groq a limited free plan; China-based SiliconFlow has some free models. You still need your own provider account and API key. Availability, limits and terms can change.
+
+For no cloud API key, choose Local Ollama. Install and open Ollama, download a local chat model through its interface, then click Find local models here. Model weights are not bundled and no large download starts automatically. Local models use your disk, memory and power.
+
+Free models can queue, hit limits, time out or disappear. Try short tasks and keep a reliable alternative for important drafts. The app has no shared cloud API key and never silently switches to a paid model.
+
 Get three things from one provider. The API Key authorizes requests; Base URL is the API endpoint supplied by the provider; Model ID is the exact model identifier. Keep all three from the same service.
 
 Display name can be anything useful, such as “Dialogue helper”. Model ID must match the provider, including case, slashes and suffixes. A chat-site password is not an API Key.
@@ -116,15 +154,15 @@ For English-speaking users, the following international services offer English-l
 
 ### 1. Open model settings
 
-Go to More, Settings, Models & skills, Manage custom models, then Add custom model.
+Open Settings → Models & skills → Manage custom models, then Add custom model or Try free models.
 
-### 2. Fill the fields
+### 2. Choose a service and connect
 
-Pick a display name. Usually choose OpenAI-compatible service. Copy Model ID, Base URL and API Key from the same provider. OpenAI omits the URL field; Local Ollama omits URL and key.
+Choose a regional service card. Its address is filled automatically; name the profile and paste your own API key. Local Ollama needs no key. Custom API lets you enter another endpoint.
 
-### 3. Check the URL
+### 3. Fetch and choose a model
 
-Use the documented Base URL, not the chat website. Do not normally append /chat/completions because the app adds it. Remove quotation marks, extra spaces and line breaks copied from examples.
+Click Fetch models, search and choose an exact model ID, or enter one manually. The free filter includes only explicitly free models; verify unknown pricing with the provider. Use the documented Base URL, not a chat webpage, without appending /chat/completions.
 
 ### 4. Test the connection
 
@@ -132,7 +170,7 @@ Click Test connection. A successful API response confirms that this request work
 
 ### 5. Save and allow cloud processing
 
-Click Save & use. For a cloud model, enable Allow cloud models to process screenplay text. Local Ollama does not need this switch.
+If you want cloud processing, check Allow this cloud model to process relevant screenplay text, then Save & use. You can change cloud permission later in Settings → Models & skills. Local Ollama needs no cloud permission.
 
 ### 6. Try a short request
 
@@ -146,25 +184,25 @@ Add other profiles and switch with the model selector. Keys are remembered on th
 
 OpenAI is the developer platform for GPT models. Create an API key, check API billing, choose OpenAI in the app and enter a supported model ID. No Base URL field is needed. A ChatGPT subscription does not include API credit.
 
-[Official website](https://platform.openai.com) · [Official guide](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform)
+[Official website / 官方入口](https://platform.openai.com) · [Guide / 官方说明](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform)
 
 ### OpenRouter
 
 OpenRouter brings models from multiple providers into one API, useful for comparing models without setting up a separate account for each one. Create an API key in Settings → Keys. Choose OpenAI-compatible service, use https://openrouter.ai/api/v1, and copy the exact model ID from its model page. Check the selected model’s pricing and data policy.
 
-[Official website](https://openrouter.ai/settings/keys) · [Official guide](https://openrouter.ai/docs/quickstart)
+[Official website / 官方入口](https://openrouter.ai/settings/keys) · [Guide / 官方说明](https://openrouter.ai/docs/quickstart)
 
 ### Groq
 
 Groq hosts supported models through its developer API. Create a key in the console and choose a text-chat model listed in the documentation. In the app, choose OpenAI-compatible service and use https://api.groq.com/openai/v1. Copy the exact model ID and check current usage limits and pricing.
 
-[Official website](https://console.groq.com/keys) · [Official guide](https://console.groq.com/docs/quickstart)
+[Official website / 官方入口](https://console.groq.com/keys) · [Guide / 官方说明](https://console.groq.com/docs/quickstart)
 
 ### Local Ollama
 
 Install and run Ollama, then download a local text-chat model using its official instructions. Choose Local Ollama in the app and enter the installed model name including its tag. No API Key is required. Choose a downloaded local model rather than a cloud-backed one. Speed and memory needs depend on your hardware and model.
 
-[Official website](https://ollama.com/download) · [Official guide](https://docs.ollama.com/api/openai-compatibility)
+[Official website / 官方入口](https://ollama.com/download) · [Guide / 官方说明](https://docs.ollama.com/api/openai-compatibility)
 
 [Find and create an OpenAI API key](https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key)
 
@@ -213,29 +251,3 @@ Found a bug or a useful idea? Email the creator. Include the app version, steps,
 Do not send API keys, passwords or verification codes. Hide the key before sending a model-settings screenshot.
 
 Email huangzongjing.ziliu@gmail.com
-
-## Series and episodes
-
-One .screenplay project can contain a whole series. Open Episodes in the toolbar and enable episodes. Existing content becomes Episode 1. Each episode has its own script and board, with shared project settings and memory.
-
-Use the episode selector to switch. Manage episodes to rename, move up or down, or delete. Undo restores deletion. Pending edits are committed before switching; remember to save the project.
-
-The toolbar exports the current episode as PDF, Word, Markdown, FDX and more. Export all episodes creates one numbered file per episode. Choose an empty folder to avoid overwriting drafts. Share the .screenplay project to send the complete series.
-
-Use an episode-capable version to edit series projects. Older versions may recognize only the current episode.
-
-The assistant and external CLI/MCP work on the current episode by default. Switch to the intended episode before requesting revisions.
-
-## Planning, continuity and draft revisions
-
-Open Episodes → Season and episode overview. Write the season outline, then select an episode to enter its synopsis, conflict, turning point, cliffhanger and progress. Save planning to keep it in the project. Planning does not automatically become script text.
-
-Continuity checking needs a configured model. Select 2–8 episodes per batch. The app reads scripts and planning in chunks before comparing characters, timeline and setups. Relevant content is sent to your provider, which may charge. Progress is visible and checking can be cancelled.
-
-Findings are questions for the author, not verdicts. Quotes are checked against sources. Click a quote to open its script passage or planning field. Mark findings as to review, resolved or dismissed. Changed source material flags a report as potentially stale. Checks never rewrite scripts and do not guarantee finding every issue.
-
-In More → Version history, enter a draft label such as V2.1 and create a snapshot. Later edits do not change that snapshot. The toolbar displays the current label; exports include it in file names and title pages. Timestamps distinguish snapshots with the same label.
-
-Compare two snapshots, or a snapshot with current content. Red shows earlier text and green shows later text. Episodes are matched by identity; switching the active episode does not count as rewriting it. Restoring first backs up current work.
-
-Edit this data with version 0.1.49 or newer. Older versions may lose planning, reports or draft labels when saving.
