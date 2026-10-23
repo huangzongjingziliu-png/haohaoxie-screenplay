@@ -9,6 +9,19 @@ import { defaultElementStyle } from '@/utils/appearance';
 import { flushPendingEdits, registerPendingEditor } from '@/utils/pendingEdits';
 import type { BlockType, Page, PageBlock, Pagination } from '@/ipc/types';
 
+// Share document indexes across rendered paragraphs; build once per block array.
+const documentIndexes = new WeakMap<object, { blocks: Map<string, import('@/ipc/types').ScreenplayBlock>; scenes: Map<string, number> }>();
+function indexDocument(blocks: import('@/ipc/types').ScreenplayBlock[]) {
+  let index = documentIndexes.get(blocks);
+  if (!index) {
+    index = { blocks: new Map(), scenes: new Map() };
+    let scene = 0;
+    for (const block of blocks) { index.blocks.set(block.id, block); if (block.block_type === 'scene_heading') index.scenes.set(block.id, ++scene); }
+    documentIndexes.set(blocks, index);
+  }
+  return index;
+}
+
 /**
  * 纸面编辑器（左侧）。
  *
@@ -552,9 +565,9 @@ function BlockView({
 
   const screenplayDoc = useEditorStore((s) => s.document);
   const settings = screenplayDoc?.settings;
-  const sceneIndex = screenplayDoc?.blocks.filter((b) => b.block_type === 'scene_heading').findIndex((b) => b.id === pb.block_id) ?? -1;
-  const sceneBlock = screenplayDoc?.blocks.find((b) => b.id === sourceId);
-  const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(sceneIndex + 1);
+  const index = screenplayDoc ? indexDocument(screenplayDoc.blocks) : undefined;
+  const sceneBlock = index?.blocks.get(sourceId);
+  const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(index?.scenes.get(sourceId) ?? 0);
   const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
   const chinese = settings?.typography === 'chinese-reading';
   const customStyle = settings?.element_styles?.[pb.block_type];

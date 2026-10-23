@@ -271,7 +271,7 @@ export const ipc = {
   exportFile: (path: string, format?: string) =>
     call<string>('export_file', { path, format }),
 
-  agentConnectionInfo: () => call<{ cli: string; mcp: string; available: boolean; installDir: string }>('agent_connection_info'),
+  agentConnectionInfo: () => call<{ cli: string; available: boolean; installDir: string }>('agent_connection_info'),
   checkAgentConnection: () => call<string>('check_agent_connection'),
   installAgentCli: () => call<string>('install_agent_cli'),
   // 自动保存

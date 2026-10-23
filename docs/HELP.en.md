@@ -48,7 +48,7 @@ The toolbar exports the current episode as PDF, Word, Markdown, FDX and more. Ex
 
 Use an episode-capable version to edit series projects. Older versions may recognize only the current episode.
 
-The assistant and external CLI/MCP work on the current episode by default. Switch to the intended episode before requesting revisions.
+The assistant and external CLI work on the current episode by default. Switch to the intended episode before requesting revisions.
 
 ## Planning, continuity and draft revisions
 
@@ -238,9 +238,9 @@ You can. Ordinary writing, manual board summaries, saving and exporting do not r
 
 ## Connect an external agent
 
-CLI and MCP let other agents operate Screenplay Studio. A client needs support for local commands or local MCP.
+CLI let other agents operate Screenplay Studio. A client needs support for local commands or local MCP.
 
-Open Connect external Agent in More, check the bundled tools and follow the configuration instructions. Put MCP configuration in the client settings. Pasting it into a conversation does not activate a server. The bundled connection currently works locally on the same Mac.
+Open Connect external Agent in More, check the bundled tools and follow the configuration instructions. Copy the CLI instructions to an agent with local command access and confirm the project in read-only mode first. The bundled connection currently works locally on the same Mac.
 
 Start with a read-only request to confirm the project name and path, then request edits. The built-in assistant and an external client have separate model configuration; accounts and keys are not automatically shared.
 

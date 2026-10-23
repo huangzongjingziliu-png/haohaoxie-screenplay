@@ -794,5 +794,8 @@
   "预览旧稿": "Preview draft",
   "与当前稿比较": "Compare with current",
   "项目已切换，请重新打开历史记录": "Project changed. Reopen History.",
-  "恢复到「{0}」？当前稿会先保留一个恢复前检查点，恢复后也可以撤销。": "Restore “{0}”? Your current draft will first be kept as a checkpoint. You can also undo the restore."
+  "恢复到「{0}」？当前稿会先保留一个恢复前检查点，恢复后也可以撤销。": "Restore “{0}”? Your current draft will first be kept as a checkpoint. You can also undo the restore.",
+  "把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 已内置，无需安装 Codex CLI。": "Connect your writing agent through the bundled CLI. No Codex CLI installation is required.",
+  "通过 CLI 连接外部 Agent": "Connect an external agent through CLI",
+  "适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。": "For agents that can execute commands on this Mac. The copied instructions require local command access."
 }

@@ -34,8 +34,8 @@ pub async fn check_update(app: tauri::AppHandle, state: State<'_, UpdateState>) 
     pending.update=None;
     if let Some(asset)=release.assets.iter().find(|a|a.name=="latest.json" && trusted_asset(&a.browser_download_url)) {
         let endpoint=asset.browser_download_url.parse().map_err(|e|format!("更新地址无效：{e}"))?;
-        let update=app.updater_builder().endpoints(vec![endpoint]).map_err(|e|e.to_string())?.timeout(Duration::from_secs(25)).build().map_err(|e|e.to_string())?.check().await.map_err(|e|e.to_string())?;
-        if let Some(update)=update {
+        let checked=app.updater_builder().endpoints(vec![endpoint]).map_err(|e|e.to_string())?.timeout(Duration::from_secs(25)).build().map_err(|e|e.to_string())?.check().await;
+        if let Ok(Some(update))=checked {
             if update.version!=version.to_string() || !trusted_asset(update.download_url.as_str()) { return Err("更新包信息与发布版本不一致，已停止更新".into()); }
             automatic=true; pending.update=Some(update);
         }

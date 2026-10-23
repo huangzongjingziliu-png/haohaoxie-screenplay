@@ -63,9 +63,9 @@ The English setup guide introduces OpenAI, OpenRouter and Groq, with brief descr
 
 ## Bring the agent you already use
 
-The installer includes **CLI and MCP** tools. Once connected, local tool-capable clients such as Codex, WorkBuddy and TRAE can read scenes, revise dialogue and work on structure. Stay in your usual agent and apply its work to the screenplay project.
+The installer includes **CLI** tools. Once connected, local tool-capable clients such as Codex, WorkBuddy and TRAE can read scenes, revise dialogue and work on structure. Stay in your usual agent and apply its work to the screenplay project.
 
-The app includes setup guidance. Your client must support local tools or MCP and have the connection configured. Pasting configuration into an ordinary chat does not establish a connection. Using these tools does not require an additional Codex CLI installation.
+The app includes setup guidance. Your client must support local command execution and have the connection configured. Pasting configuration into an ordinary chat does not establish a connection. Using these tools does not require an additional Codex CLI installation.
 
 ## Project memory travels with the script
 
@@ -111,7 +111,7 @@ Use More → Check for updates or Settings → App updates. Install this updater
 2. Create or open a project; choose screenplay, free-writing or split view.
 3. For AI, add your model under **More → Settings → Models & skills**. Language and personalization also live in Settings.
 
-Core editing needs no model, Rust, Node.js or Codex CLI. External agents require a client that supports local tools or MCP and a configured connection.
+Core editing needs no model, Rust, Node.js or Codex CLI. External agents require a client that supports local command execution and a configured connection.
 
 This Apple Silicon beta has **no Developer ID signature or Apple notarization**. macOS may require approval in System Settings; do not disable security protections. Intel, Windows and Linux are not release-tested. This is not a Mac App Store build. Some backend messages and skill descriptions remain Chinese.
 
@@ -138,7 +138,7 @@ cargo test --workspace --locked
 npm run tauri:build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
-The build includes OCR/PDF helpers and CLI/MCP tools. Artifacts appear in `target/release/bundle/`. No API key is needed to build or use core editing.
+The build includes OCR/PDF helpers and CLI tools. Artifacts appear in `target/release/bundle/`. No API key is needed to build or use core editing.
 
 ## Help make it a daily tool
 
