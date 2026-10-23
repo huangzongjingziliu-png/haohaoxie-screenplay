@@ -5,8 +5,7 @@ import { ipc } from '@/ipc/client';
 
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 export default function ConnectionPanel({ onClose }: { onClose: () => void }) {
-  const [info, setInfo] = useState<{ cli: string; mcp: string; available: boolean; installDir: string } | null>(null);
-  const [client, setClient] = useState('codex');
+  const [info, setInfo] = useState<{ cli: string; available: boolean; installDir: string } | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [localCheck, setLocalCheck] = useState(tr("尚未检查"));
@@ -16,7 +15,6 @@ export default function ConnectionPanel({ onClose }: { onClose: () => void }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
-  const config = !info ? '' : client === 'codex' ? `[mcp_servers.muben]\ncommand = ${JSON.stringify(info.mcp)}\nargs = []` : JSON.stringify({ mcpServers: { muben: { command: info.mcp, args: [] } } }, null, 2);
   const conversation = !info ? '' : effectiveLanguage() === 'en' ? `Use the local tools bundled with Write Your Script to inspect the screenplay currently open in the app. Codex CLI and Rust are not required.
 
 First run:
@@ -42,7 +40,7 @@ ${quote(info.cli)} status
   return <ModalBackdrop onDismiss={onClose}>
     <section className="modal connection-panel" role="dialog" aria-modal="true" aria-labelledby="connection-title" onClick={(e) => e.stopPropagation()}>
       <h2 id="connection-title">{tr("连接外部 Agent，让它操作好好写剧本")}</h2>
-      <p>{tr("把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 和 MCP 都已内置，无需安装 Codex CLI。")}</p>
+      <p>{tr("把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 已内置，无需安装 Codex CLI。")}</p>
       <div className="connection-status-card">
         <strong>{tr("本机工具：")}{!info ? tr("正在读取…") : info.available ? tr("已就绪") : tr("不可用")}</strong>
         <span>{tr("外部 Agent：连接状态尚未确认")}</span>
@@ -50,25 +48,10 @@ ${quote(info.cli)} status
         <button disabled={!info?.available || busy} onClick={() => void run(async () => { const result = await ipc.checkAgentConnection(); setLocalCheck(result); return tr("本机检查完成；这不代表外部 Agent 已连接。"); })}>{tr("检查本机工具与当前项目")}</button>
         <pre>{localCheck}</pre>
       </div>
-      <label>{tr("你使用的客户端")}<select value={client} onChange={(e) => { setClient(e.target.value); setMessage(''); }}><option value="codex">Codex App</option><option value="trae">TRAE Work</option><option value="workbuddy">WorkBuddy</option></select></label>
-      <div className="connection-method">
-        <h3>{tr("① 配置 MCP · 推荐长期使用")}</h3>
-        <p>{tr("先在好好写剧本打开目标剧本，再到外部客户端的 MCP 设置添加本地服务。配置一次，之后直接在对话中提出写作要求。")}</p>
-        <p>{client === 'codex' ? tr("在 Codex App 设置的 MCP 服务器中添加本地 STDIO 服务：名称 muben，命令使用下方路径，参数留空。也可将 TOML 合并到 ~/.codex/config.toml。") : client === 'workbuddy' ? tr("在 WorkBuddy 的 MCP 服务器设置中合并下面 JSON 配置。") : tr("在 TRAE Work 的 MCP 设置中添加本地 stdio 服务，合并下面 JSON 配置。")}{tr("保留已有服务，保存后按客户端提示重新加载。")}</p>
-        {info && <div className="connection-command"><code>{info.mcp}</code><button disabled={!info.available || busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(info.mcp); return tr("服务路径已复制，请填写到客户端 MCP 设置的命令栏。"); })}>{tr("复制服务路径")}</button></div>}
-        <textarea aria-label={tr("MCP接入配置")} readOnly value={config} rows={5} onFocus={(e) => e.target.select()} />
-        <button disabled={!info?.available || busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(config); return tr("配置已复制，请添加到客户端 MCP 设置；尚未建立连接。"); })}>{tr("复制 MCP 配置")}</button>
-        <p className="connection-note">{tr("配置文字不能直接粘贴到聊天框来启用 MCP。当前服务只支持同一台 Mac 的本地连接。")}</p>
-      </div>
-      <div className="connection-method">
-        <h3>{tr("② 在外部 Agent 中确认连接")}</h3>
-        <p>{tr("配置完成后，对 Agent 说：“请使用好好写剧本 MCP，只读查看当前项目，告诉我项目名称、路径和场景数量，暂时不要修改。”能正确返回这些信息，才算接通。")}</p>
-        <p className="connection-note">{tr("如果提示“没有那个文件或目录”，先确认 Agent 是否运行在这台 Mac 的本地工作模式。云端或隔离环境访问不到本机路径，换成 CLI 也不能解决。")}</p>
-      </div>
       <p className="connection-note">{tr("分集工程请先让 Agent 读取 workbench_overview，确认当前集。批量改名先预览再确认；遇到冲突重新预览，不要只刷新 revision。")}</p>
-      <details>
-        <summary>{tr("临时接入：通过 CLI 复制操作说明")}</summary>
-        <p>{tr("适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，不会自动配置 MCP，也不会授予电脑访问能力。")}</p>
+      <details open>
+        <summary>{tr("通过 CLI 连接外部 Agent")}</summary>
+        <p>{tr("适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。")}</p>
         <textarea aria-label={tr("给外部 Agent 的接入说明")} readOnly value={conversation} rows={7} onFocus={(e) => e.target.select()} />
         <button disabled={!info?.available || busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(conversation); return tr("操作说明已复制；请粘贴到能执行本机命令的 Agent，等待它确认当前项目。"); })}>{tr("复制给 Agent 对话框")}</button>
       </details>
