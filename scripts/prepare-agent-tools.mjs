@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, copyFileSync, writeFileSync, chmodSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, chmodSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 const destination = 'src-tauri/resources/agent';
+for (const name of ['screenplay-mcp', 'screenplay-mcp-bin']) rmSync(`${destination}/${name}`, { force: true });
 const signaturePath = `${destination}/build-inputs.sha256`;
 const hash = createHash('sha256');
 function visit(dir) {
@@ -15,15 +16,15 @@ visit('crates');
 for (const path of ['Cargo.toml', 'Cargo.lock', 'scripts/prepare-agent-tools.mjs']) hash.update(readFileSync(path));
 const signature = hash.digest('hex');
 if (existsSync(signaturePath) && readFileSync(signaturePath, 'utf8').trim() === signature
-    && ['screenplay', 'screenplay-mcp', 'screenplay-bin', 'screenplay-mcp-bin'].every(name => existsSync(`${destination}/${name}`))) {
-  console.log('Bundled CLI/MCP match current sources; retaining verified binaries.');
+    && ['screenplay', 'screenplay-bin'].every(name => existsSync(`${destination}/${name}`))) {
+  console.log('Bundled CLI match current sources; retaining verified binaries.');
   process.exit(0);
 }
-const args = ['build', '--locked', '--release', '-p', 'screenplay-cli', '-p', 'screenplay-mcp'];
+const args = ['build', '--locked', '--release', '-p', 'screenplay-cli'];
 const build = spawnSync('cargo', args, { stdio: 'inherit' });
 if (build.status !== 0) process.exit(build.status || 1);
 mkdirSync(destination, { recursive: true });
-for (const name of ['screenplay', 'screenplay-mcp']) {
+for (const name of ['screenplay']) {
   copyFileSync(`target/release/${name}`, `${destination}/${name}-bin`);
   writeFileSync(`${destination}/${name}`, `#!/bin/sh
 # Resolve links so installation in ~/.local/bin retains sidecar discovery.
