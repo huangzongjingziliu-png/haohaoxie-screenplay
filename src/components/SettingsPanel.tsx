@@ -175,7 +175,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
           <span>{tr("剧本排版")}</span>
           <select aria-label={tr("剧本排版模板")} value={typography} onChange={(e) => { setTypography(e.target.value); setStyles({}); setPresetName(''); setPresetChoice(''); }}>
             <option value="hollywood">{tr("美式剧本 · Courier")}</option>
-            <option value="chinese-reading">{tr("中文阅读版 · 参考页格式")}</option>
+            <option value="chinese-reading">{tr("中文标准版")}</option>
           </select>
 
         </label>
