@@ -17,7 +17,7 @@ afterEach(() => {
 });
 it('复制对话说明使用好好写剧本工具只读验证，不要求安装 Codex CLI 或偷偷修改客户端配置', async () => {
   const { getByRole, getByLabelText, getByText } = render(<ConnectionPanel onClose={() => undefined} />);
-  fireEvent.click(getByText('临时接入：通过 CLI 复制操作说明'));
+  fireEvent.click(getByText('通过 CLI 连接外部 Agent'));
   const button = getByRole('button', { name: '复制给 Agent 对话框' });
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button);
@@ -27,14 +27,14 @@ it('复制对话说明使用好好写剧本工具只读验证，不要求安装 
   expect(prompt).toContain('此次只读');
   expect(prompt).toContain('不要声称已经连接');
   expect(prompt).not.toContain('codex mcp add');
-  expect((getByLabelText('MCP接入配置') as HTMLTextAreaElement).value).toContain('[mcp_servers.muben]');
+  expect(document.querySelector('[aria-label="MCP接入配置"]')).toBeNull();
   expect(mockBackend.calls.map(c => c.cmd)).toEqual(['agent_connection_info']);
 });
 it('不存在操作工具时禁用对话复制，避免提供失效路径', async () => {
   mockBackend.on('agent_connection_info', () => ({ ...info, available: false }));
   const { getByRole, getByText } = render(<ConnectionPanel onClose={() => undefined} />);
   await waitFor(() => expect(mockBackend.callsTo('agent_connection_info')).toHaveLength(1));
-  fireEvent.click(getByText('临时接入：通过 CLI 复制操作说明'));
+  fireEvent.click(getByText('通过 CLI 连接外部 Agent'));
   expect((getByRole('button', { name: '复制给 Agent 对话框' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -46,8 +46,8 @@ it('本机检查成功不能冒充外部 Agent 已连接，复制配置不触发
   fireEvent.click(check);
   await waitFor(() => expect(getByText('bridge(GUI 当前项目) 项目: 测试')).toBeTruthy());
   expect(getByText('外部 Agent：连接状态尚未确认')).toBeTruthy();
-  fireEvent.click(getByRole('button', { name: '复制 MCP 配置' }));
+  fireEvent.click(getByRole('button', { name: '复制给 Agent 对话框' }));
   await waitFor(() => expect(copy).toHaveBeenCalledOnce());
-  expect(copy.mock.calls[0][0]).toContain('[mcp_servers.muben]');
+  expect(copy.mock.calls[0][0]).toContain(info.cli);
   expect(mockBackend.callsTo('install_agent_cli')).toHaveLength(0);
 });
