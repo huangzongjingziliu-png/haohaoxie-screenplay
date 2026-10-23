@@ -132,7 +132,7 @@
   "剧本排版": "Screenplay layout",
   "剧本排版模板": "Layout template",
   "美式剧本 · Courier": "Hollywood screenplay · Courier",
-  "中文阅读版 · 参考页格式": "Chinese reading layout · Reference style",
+  "中文标准版": "Chinese standard layout",
   "自定义元素样式": "Custom paragraph styles",
   "基于上方默认格式修改。样式随工程保存；命名预设可用于其他剧本。大字号会相应增加行距。": "Customize the selected layout. Styles are saved with the project; named presets can be reused. Larger type increases line spacing.",
   "使用已保存的预设": "Use a saved preset",
@@ -797,5 +797,7 @@
   "恢复到「{0}」？当前稿会先保留一个恢复前检查点，恢复后也可以撤销。": "Restore “{0}”? Your current draft will first be kept as a checkpoint. You can also undo the restore.",
   "把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 已内置，无需安装 Codex CLI。": "Connect your writing agent through the bundled CLI. No Codex CLI installation is required.",
   "通过 CLI 连接外部 Agent": "Connect an external agent through CLI",
-  "适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。": "For agents that can execute commands on this Mac. The copied instructions require local command access."
+  "适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。": "For agents that can execute commands on this Mac. The copied instructions require local command access.",
+  "开始书写剧本": "Start writing your script",
+  "点击这里，开始书写场景标题…": "Click here to write your first scene heading…"
 }
