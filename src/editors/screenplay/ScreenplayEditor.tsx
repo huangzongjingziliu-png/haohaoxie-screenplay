@@ -220,6 +220,21 @@ export default function ScreenplayEditor() {
     focusRequest.current = { blockId, caret };
   }, []);
 
+  const starting = useRef(false);
+  const startWriting = async () => {
+    const doc = useEditorStore.getState().document;
+    if (!doc || doc.blocks.length || starting.current) return;
+    starting.current = true;
+    try {
+      const result = await ipc.insertBlock(null, 'scene_heading', '', doc.revision);
+      if (useEditorStore.getState().document?.id !== doc.id) return;
+      if (result.affected[0]) requestFocus(result.affected[0], 0);
+      await useEditorStore.getState().applyResult(result);
+      if (result.affected[0]) setActiveBlock(result.affected[0]);
+    } catch (error) { pushToast('error', String(error)); }
+    finally { starting.current = false; }
+  };
+
   // ---- 键盘：回车拆分、退格合并/删除 ----
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent, blockId: string) => {
@@ -368,6 +383,7 @@ export default function ScreenplayEditor() {
             padLeft={padLeft}
             padRight={padRight}
             activeBlockId={activeBlockId}
+            onStartWriting={screenplay.blocks.length === 0 ? startWriting : undefined}
             onSelect={setActiveBlock}
             onChangeText={changeBlockText}
             onKeyDown={onKeyDown}
@@ -383,6 +399,7 @@ export default function ScreenplayEditor() {
 }
 
 function PageView({
+  onStartWriting,
   page,
   blocksById,
   pageW,
@@ -399,6 +416,7 @@ function PageView({
   onDelete,
   onError,
 }: {
+  onStartWriting?: () => Promise<void>;
   page: Page;
   blocksById: Map<string, PageBlock>;
   pageW: string;
@@ -431,6 +449,12 @@ function PageView({
     >
       {page.show_page_number && <div className="page-number">{page.number}.</div>}
       <div className="page-content" style={{ position: "relative", height: `${contentHeight}in` }}>
+        {onStartWriting && page.number === 1 && <button
+          type="button"
+          aria-label={tr("开始书写剧本")}
+          style={{ width: '100%', height: '100%', display: 'block', textAlign: 'left', verticalAlign: 'top', background: 'transparent', border: 0, color: 'inherit', cursor: 'text', padding: 0 }}
+          onClick={() => void onStartWriting()}
+        ><span style={{ display: 'block', height: '100%', opacity: 0.5 }}>{tr("点击这里，开始书写场景标题…")}</span></button>}
         {page.blocks.map((pb) => {
           const fresh = blocksById.get(pb.block_id);
           if (!fresh) return null;
