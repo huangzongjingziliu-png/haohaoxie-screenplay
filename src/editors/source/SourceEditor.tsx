@@ -1,6 +1,6 @@
 import {sourceSegments,sourceBlockAt} from '@/utils/sourcePositions';
 import {tr} from '@/i18n';
-import { useCallback, useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useRef, useState, useLayoutEffect, useMemo } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { registerPendingEditor } from '@/utils/pendingEdits';
 
@@ -61,7 +61,7 @@ export default function SourceEditor() {
     const textarea=textareaRef.current,layer=layerRef.current;if(!textarea||!layer)return;
     const update=()=>{layer.style.width=`${textarea.clientWidth}px`;layer.style.transform=`translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;};
     update();const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(update):null;observer?.observe(textarea);return()=>observer?.disconnect();
-  },[draft,fontSize]);
+  },[fontSize]);
   useEffect(() => registerPendingEditor(flush), [flush]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const submit = () => void flush().catch((e) => pushToast('error', String(e)));
@@ -73,7 +73,7 @@ export default function SourceEditor() {
     if (!composing.current) timer.current = window.setTimeout(submit, 400);
   };
 
-  const segments=draft===sourceText?sourceSegments(draft,blocks??[]):[];
+  const segments=useMemo(()=>draft===sourceText?sourceSegments(draft,blocks??[]):[],[draft,sourceText,blocks]);
   const syncSelection=()=>{const el=textareaRef.current;if(el&&el.value===sourceText){const id=sourceBlockAt(segments,el.selectionStart);if(id)useEditorStore.getState().setActiveBlock(id);}};
   useEffect(()=>{if(document.activeElement===textareaRef.current)syncSelection();},[sourceText,blocks]);
   const mirrored:React.ReactNode[]=[];let cursor=0;
