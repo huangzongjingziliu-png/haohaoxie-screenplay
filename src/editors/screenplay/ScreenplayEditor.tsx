@@ -625,6 +625,53 @@ function BlockView({
     schedule();
   };
 
+  /**
+   * 多行粘贴不能交给 contenteditable：浏览器会插入 <div>/<br>，
+   * 提交时 textContent 读不到换行，标题和正文会被拼成同一段。
+   * 按 Enter 的语义把每一行拆成独立块，空行保留为空块。
+   */
+  const pasteMultiline = async (text: string) => {
+    const el = ref.current;
+    if (!el) return;
+    if (inFlight.current) await inFlight.current;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed && el.contains(sel.anchorNode) && el.contains(sel.focusNode)) sel.deleteFromDocument();
+    const lines = text.replace(/\r\n?/g, '\n').split('\n');
+    if (lines.length < 2) return;
+    const local = stripAutoContinuation(el.textContent ?? '', pb.auto_contd);
+    const context = fragmentDraft.current ?? fragmentContext(
+      useEditorStore.getState().document?.blocks.find((b) => b.id === sourceId)?.text ?? pb.text,
+      pb.source_start,
+      pb.source_end,
+    );
+    const caret = context.prefix.length + Math.min(getCaretOffset(el) ?? local.length, local.length);
+    const full = context.prefix + local + context.suffix;
+    const first = full.slice(0, caret) + lines[0] + full.slice(caret);
+    if (!await onChangeText(sourceId, first)) return;
+    userEdited.current = false;
+    setCompletionInput(null);
+    let afterId = sourceId;
+    let prevType: BlockType = pb.block_type;
+    for (const line of lines.slice(1)) {
+      const type = nextTypeFor(prevType);
+      await onInsertAfter(afterId, type, line);
+      const inserted = useEditorStore.getState().activeBlockId;
+      if (!inserted || inserted === afterId) return;
+      afterId = inserted;
+      prevType = type;
+    }
+    const caretAtEnd = lines[lines.length - 1].length;
+    let attempts = 0;
+    const focusLast = () => {
+      const target = document.querySelector<HTMLElement>(`[data-block-id="${cssEscape(afterId)}"] .screenplay-block`);
+      if (!target) { if (++attempts < 60) requestAnimationFrame(focusLast); return; }
+      target.focus();
+      setCaretAt(target, caretAtEnd);
+      target.scrollIntoView?.({ block: 'nearest' });
+    };
+    requestAnimationFrame(focusLast);
+  };
+
   return (
     <div className={`block-row ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
       style={{ position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
@@ -682,6 +729,10 @@ function BlockView({
           // 粘贴一律走纯文本，避免带入外部 HTML/CSS 破坏纸面
           e.preventDefault();
           const txt = e.clipboardData.getData('text/plain');
+          if (/[\r\n]/.test(txt)) {
+            void pasteMultiline(txt).catch((error) => onError(String(error)));
+            return;
+          }
           document.execCommand('insertText', false, txt);
         }}
         onBlur={() => { setCompletionInput(null); void flush().then(()=>{const el=ref.current;if(!el||composing.current||userEdited.current||document.activeElement===el)return;const current=useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId);if(current){const display=(['scene_heading','character','parenthetical'].includes(current.block_type)||pb.source_start!==undefined)&&current.text===sceneBlock?.text?pb.text:pb.source_start!==undefined?backendText.current:current.text;setBlockText(el,display,false);backendText.current=display;externalWhileEditing.current=null;}}).catch((e) => onError(String(e))); }}

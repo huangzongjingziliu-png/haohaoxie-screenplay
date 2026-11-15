@@ -1249,7 +1249,7 @@ async fn import_file(app: AppHandle, state: State<'_, AppState>, path: String, r
         if control.is_cancelled() {
             return Err(IpcError::AppState { message: "导入已取消".into() });
         }
-        let (doc, original_source) = parsed.map_err(|e| IpcError::Internal { message: format!("导入任务失败: {e}") })?
+        let (mut doc, original_source) = parsed.map_err(|e| IpcError::Internal { message: format!("导入任务失败: {e}") })?
             .map_err(|e| match e {
                 BridgeError::NotFound { id, .. } => IpcError::NotFound { what: "文件".into(), id },
                 other => IpcError::Internal { message: other.message() },
@@ -1258,6 +1258,10 @@ async fn import_file(app: AppHandle, state: State<'_, AppState>, path: String, r
             let current = svc.get_document().document;
             if current.id != before.id || current.revision != before.revision {
                 return Err(CommandError::InvalidArgument { message: "导入期间剧本已发生变化，请重新导入".into() });
+            }
+            // 导入替换正文，不改工程名；解析器对无标题来源会填「未命名剧本」。
+            if !current.metadata.title.trim().is_empty() {
+                doc.metadata.title = current.metadata.title;
             }
             svc.load_document(Origin::Import, doc)
         }, original_source)?;
