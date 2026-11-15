@@ -8,6 +8,7 @@
 pub mod bridge_host;
 pub mod diag;
 mod connection;
+mod file_access;
 mod updates;
 mod help;
 mod series;
@@ -607,6 +608,7 @@ fn open_project(
     state: State<'_, AppState>,
     path: String,
 ) -> IpcResult<Bootstrap> {
+    let _access = file_access::acquire(&path)?;
     let p = PathBuf::from(&path);
     state.project.open(&p)?;
     diag::log("open_project path={path}");
@@ -633,10 +635,13 @@ fn close_project(app: AppHandle, state: State<'_, AppState>, discard_changes: Op
 /// **不接受文档 JSON** —— 保存的是后端权威状态。
 #[tauri::command]
 fn save_project(app: AppHandle, state: State<'_, AppState>, project_id:Option<String>) -> IpcResult<SaveOutcome> {
+    let current_path = project_info(&state.project).path;
+    let _access = current_path.as_deref().map(file_access::acquire).transpose()?;
     let outcome = state.project.save_checked(None,project_id.as_deref())?;
     diag::log("save_project");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
+    if let Err(error) = file_access::remember(&outcome.path) { diag::log(&format!("bookmark: {error}")); }
     push_recent(&outcome.path, &title);
     let _ = app.emit("project-saved", &outcome);
     Ok(outcome)
@@ -650,10 +655,12 @@ fn save_project_as(
     path: String,
     project_id:Option<String>,
 ) -> IpcResult<SaveOutcome> {
+    let _access = file_access::acquire(&path)?;
     let outcome = state.project.save_checked(Some(&PathBuf::from(&path)),project_id.as_deref())?;
     diag::log("save_project_as path={path}");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
+    if let Err(error) = file_access::remember(&outcome.path) { diag::log(&format!("bookmark: {error}")); }
     push_recent(&outcome.path, &title);
     let _ = app.emit("project-saved", &outcome);
     Ok(outcome)
@@ -662,6 +669,8 @@ fn save_project_as(
 /// 放弃未保存修改
 #[tauri::command]
 fn revert_project(state: State<'_, AppState>) -> IpcResult<Bootstrap> {
+    let current_path = project_info(&state.project).path;
+    let _access = current_path.as_deref().map(file_access::acquire).transpose()?;
     state.project.revert()?;
     Ok(build_bootstrap(&state.project))
 }
@@ -1244,6 +1253,7 @@ fn export_file(
     path: String,
     format: Option<String>,
 ) -> IpcResult<String> {
+    let _access = file_access::acquire(&path)?;
     // 与 MCP 的 export_file 共用同一套格式解析与 screenplay_export 实现
     let fmt = bridge_host::resolve_export_format(&path, format.as_deref()).map_err(|e| {
         IpcError::InvalidArgument {
@@ -1306,7 +1316,11 @@ fn configure_autosave(app: AppHandle, state: State<'_, AppState>, options: Autos
 #[tauri::command]
 async fn autosave_tick(state: State<'_, AppState>,project_id:Option<String>) -> IpcResult<Option<AutosaveAction>> {
     let project = state.project.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || project.autosave_tick_checked(project_id.as_deref())).await
+    let action = tauri::async_runtime::spawn_blocking(move || {
+        let path = project.state().path().map(|p| p.to_string_lossy().into_owned());
+        let _access = path.as_deref().map(file_access::acquire).transpose()?;
+        project.autosave_tick_checked(project_id.as_deref())
+    }).await
         .map_err(|_| IpcError::Internal { message: "自动保存任务失败".into() })?
         .map_err(|message| IpcError::Internal { message })?;
     if let Some(a) = action {
