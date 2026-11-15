@@ -6,10 +6,12 @@ import { ipc } from '@/ipc/client';
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 export default function ConnectionPanel({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<{ cli: string; available: boolean; installDir: string } | null>(null);
+  const [mcp, setMcp] = useState<{ running: boolean; url: string; token: string; port: number; error: string | null } | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [localCheck, setLocalCheck] = useState(tr("尚未检查"));
   useEffect(() => { void ipc.agentConnectionInfo().then(setInfo).catch((e) => setMessage(String(e))); }, []);
+  useEffect(() => { void ipc.mcpHttpInfo().then(setMcp).catch((e) => setMessage(String(e))); }, []);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', handler);
@@ -49,6 +51,19 @@ ${quote(info.cli)} status
         <pre>{localCheck}</pre>
       </div>
       <p className="connection-note">{tr("分集工程请先让 Agent 读取 workbench_overview，确认当前集。批量改名先预览再确认；遇到冲突重新预览，不要只刷新 revision。")}</p>
+      <details open>
+        <summary>{tr("通过本地 HTTP 连接外部 Agent")}</summary>
+        <p>{tr("把下面的地址和令牌填进支持 Streamable HTTP 的 Agent（如 Claude Code、Codex、Cursor）。服务只在 127.0.0.1 监听，随应用退出自动关闭。")}</p>
+        {mcp?.running ? <>
+          <p>{tr("地址：")}</p>
+          <code>{mcp.url}</code>
+          <button disabled={busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(mcp.url); return tr("地址已复制。"); })}>{tr("复制地址")}</button>
+          <p>{tr("令牌（放在 Authorization: Bearer 请求头）：")}</p>
+          <code>{mcp.token}</code>
+          <button disabled={busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(`Authorization: Bearer ${mcp.token}`); return tr("令牌已复制。"); })}>{tr("复制令牌")}</button>
+          <small>{tr("令牌在首次启动时生成并保存在本机，重启后不变；服务只在应用运行时可用。")}</small>
+        </> : <small>{mcp?.error ?? tr("本地服务未启动，请查看应用日志。")}</small>}
+      </details>
       <details open>
         <summary>{tr("通过 CLI 连接外部 Agent")}</summary>
         <p>{tr("适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。")}</p>

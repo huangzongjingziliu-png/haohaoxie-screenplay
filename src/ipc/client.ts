@@ -272,6 +272,7 @@ export const ipc = {
     call<string>('export_file', { path, format }),
 
   agentConnectionInfo: () => call<{ cli: string; available: boolean; installDir: string }>('agent_connection_info'),
+  mcpHttpInfo: () => call<{ running: boolean; url: string; token: string; port: number; error: string | null }>('mcp_http_info'),
   checkAgentConnection: () => call<string>('check_agent_connection'),
   installAgentCli: () => call<string>('install_agent_cli'),
   // 自动保存
