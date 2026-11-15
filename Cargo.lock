@@ -4444,6 +4444,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "screenplay-mcp-shim"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "screenplay-store"
 version = "0.1.0"
 dependencies = [
