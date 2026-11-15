@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "好好写剧本商店版",
+  "identifier": "com.screenplay.studio.store",
+  "build": {
+    "beforeBuildCommand": "npm run build:store"
+  },
+  "bundle": {
+    "targets": ["app"],
+    "resources": [
+      "resources/ocr_sidecar",
+      "resources/pdf_sidecar"
+    ],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": "../packaging/app-store/app.entitlements.plist",
+      "files": {
+        "Resources/PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy"
+      }
+    }
+  }
+}

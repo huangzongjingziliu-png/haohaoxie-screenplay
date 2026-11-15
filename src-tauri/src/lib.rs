@@ -1768,11 +1768,14 @@ pub fn run() {
     if selftest {
         diag::log("SCREENPLAY_SELFTEST 已启用（启动后 1 秒自动执行闭环自检）");
     }
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_shell::init());
+    // 商店渠道由 App Store 更新，注册更新器会让包内保留自更新行为。
+    #[cfg(not(feature = "app-store"))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .manage(updates::UpdateState::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![

@@ -37,6 +37,8 @@ semver = "1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# 商店渠道：关闭应用内更新器，不携带 agent CLI，配合 src-tauri/tauri.store.conf.json 构建。
+app-store = []
 
 [dev-dependencies]
 tempfile.workspace = true

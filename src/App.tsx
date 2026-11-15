@@ -30,6 +30,7 @@ import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ipc/client';
+import { STORE_BUILD } from '@/buildChannel';
 
 export default function App() {
   useUiLanguage();
@@ -234,7 +235,7 @@ export default function App() {
   const content = project.state === 'empty' ? (
       <div className="app">
         <Toolbar onHelp={()=>setHelpSection('start')} onNew={() => setShowNew(true)} onImport={() => setShowImport(true)} onSettings={()=>{setSettingsTab('text');setShowSettings(true);}} />
-        <Welcome onNew={() => setShowNew(true)} onConnections={() => setShowConnections(true)} recent={recent} onOpened={() => void ipc.listRecent().then(setRecent)} />
+        <Welcome onNew={() => setShowNew(true)} onConnections={STORE_BUILD ? undefined : () => setShowConnections(true)} recent={recent} onOpened={() => void ipc.listRecent().then(setRecent)} />
         <div className="status-bar"><span className="spacer" /><ModelPicker /></div>
       </div>
     ) : renderEditor();
@@ -259,7 +260,7 @@ export default function App() {
           onVersions={() => setShowVersions(true)}
           onBoard={() => setShowBoard(true)}
           onAgent={() => setShowAgent(true)}
-          onConnections={() => setShowConnections(true)}
+          onConnections={STORE_BUILD ? undefined : () => setShowConnections(true)}
         />
       )}
       {showSearch && <SearchBar onClose={()=>setShowSearch(false)}/>}
@@ -304,7 +305,7 @@ function Welcome({
 }: {
   onNew: () => void;
   recent: { path: string; title: string }[];
-  onConnections: () => void;
+  onConnections?: () => void;
   onOpened: () => void;
 }) {
   const openProject = useEditorStore((s) => s.openProject);
@@ -314,7 +315,7 @@ function Welcome({
       <p style={{ color: '#86868b' }}>{tr("让作者用最舒服的方法写，让软件负责把它变成专业剧本")}</p>
       <div className="welcome-actions">
         <button onClick={()=>window.dispatchEvent(new CustomEvent('open-help',{detail:'start'}))}>{tr("帮助与教程")}</button>
-        <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>
+        {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>}
         <button onClick={onNew}>{tr("新建剧本")}</button>
         <button onClick={async () => {
           const { open } = await import('@tauri-apps/plugin-dialog');

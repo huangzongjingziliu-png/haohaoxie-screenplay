@@ -4,6 +4,7 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use std::time::Duration;
 const REPO: &str = "https://github.com/huangzongjingziliu-png/haohaoxie-screenplay";
+const STORE_UPDATE_DISABLED: &str = "商店版由 App Store 更新，应用内不提供更新器";
 #[derive(Default)]
 pub struct UpdateState(tokio::sync::Mutex<Pending>);
 #[derive(Default)]
@@ -23,6 +24,7 @@ fn release_version(tag: &str) -> Option<semver::Version> {
 fn trusted_asset(url: &str) -> bool { url.starts_with(&format!("{REPO}/releases/download/")) && !url.contains('?') && !url.contains('#') }
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle, state: State<'_, UpdateState>) -> Result<Option<Available>, String> {
+    if cfg!(feature = "app-store") { return Err(STORE_UPDATE_DISABLED.into()); }
     let mut pending=state.0.try_lock().map_err(|_|"更新任务正在进行，请稍后再试".to_string())?;
     if pending.bytes.is_some() { return Err("更新已下载，请安装或稍后再检查".into()); }
     let client=reqwest::Client::builder().timeout(Duration::from_secs(25)).user_agent("Haohaoxie-Updater").build().map_err(|e|e.to_string())?;
@@ -44,6 +46,7 @@ pub async fn check_update(app: tauri::AppHandle, state: State<'_, UpdateState>) 
 }
 #[tauri::command]
 pub async fn download_update(app:tauri::AppHandle,state:State<'_,UpdateState>) -> Result<(),String> {
+    if cfg!(feature = "app-store") { return Err(STORE_UPDATE_DISABLED.into()); }
     let mut pending=state.0.try_lock().map_err(|_|"更新任务正在进行".to_string())?;
     let mut update=pending.update.as_ref().ok_or("请先检查更新")?.clone();
     update.timeout=Some(Duration::from_secs(300));
@@ -53,6 +56,7 @@ pub async fn download_update(app:tauri::AppHandle,state:State<'_,UpdateState>) -
 }
 #[tauri::command]
 pub async fn install_update(app:tauri::AppHandle,state:State<'_,UpdateState>,project_id:Option<String>,revision:u64) -> Result<(),String> {
+    if cfg!(feature = "app-store") { return Err(STORE_UPDATE_DISABLED.into()); }
     let mut pending=state.0.try_lock().map_err(|_|"更新任务正在进行".to_string())?;
     let app_state=app.state::<crate::AppState>();
     let info=crate::project_info(&app_state.project);
