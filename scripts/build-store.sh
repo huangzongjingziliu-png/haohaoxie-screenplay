@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 source scripts/env.sh
 export no_proxy='*' NO_PROXY='*'
 
+# StoreKit 走进程内 framework，必须先构建再打包。
+packaging/iap/build-framework.sh
+
 npx tauri build --config src-tauri/tauri.store.conf.json --features app-store
 
 app='target/release/bundle/macos/好好写剧本.app'

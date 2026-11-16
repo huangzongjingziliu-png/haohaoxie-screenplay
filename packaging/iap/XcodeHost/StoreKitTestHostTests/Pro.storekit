@@ -1,0 +1,43 @@
+{
+  "identifier" : "3F6B1C2A-0D4E-4A7B-9C21-7E5D8A9B0C11",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "68",
+      "familyShareable" : false,
+      "internalID" : "6C1F9A30",
+      "localizations" : [
+        {
+          "description" : "解锁无水印导出与专业格式",
+          "displayName" : "专业版",
+          "locale" : "zh_CN"
+        },
+        {
+          "description" : "Unlock watermark-free export and professional formats",
+          "displayName" : "Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.screenplay.studio.pro",
+      "referenceName" : "Professional",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_CN",
+    "_storefront" : "CHN",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -1,0 +1,5 @@
+framework module StoreKitBridge {
+    umbrella header "StoreKitBridge.h"
+    export *
+    module * { export * }
+}

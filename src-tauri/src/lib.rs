@@ -18,6 +18,7 @@ mod model_profiles;
 mod agent_text;
 mod agent_harness;
 mod credentials;
+mod entitlement;
 mod mcp_http;
 pub mod service;
 
@@ -1891,6 +1892,10 @@ pub fn run() {
             agent_freeform_edit,
             agent_get_config,
             agent_set_config,
+            entitlement::entitlement_status,
+            entitlement::store_products,
+            entitlement::store_purchase,
+            entitlement::store_restore,
             model_profiles::agent_list_models,
             model_profiles::agent_save_model,
             model_profiles::agent_select_model,

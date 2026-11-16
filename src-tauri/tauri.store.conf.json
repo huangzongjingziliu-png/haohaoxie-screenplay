@@ -20,6 +20,7 @@
       "signingIdentity": "-",
       "bundleVersion": "1",
       "entitlements": "../packaging/app-store/app.entitlements.plist",
+      "frameworks": ["../packaging/iap/Framework/StoreKitBridge.framework"],
       "files": {
         "Resources/PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy"
       }
