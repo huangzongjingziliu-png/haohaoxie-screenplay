@@ -4,6 +4,11 @@ mod native {
     use std::ffi::c_void;
     use std::ptr::{null, null_mut};
     type Ref = *const c_void;
+    // 商店渠道用独立 service，避免与直售版共用条目触发钥匙串 ACL 授权；
+    // 直售版保持原名，已有用户的凭据仍可读取。
+    #[cfg(feature = "app-store")]
+    const SERVICE: &str = "com.screenplay.studio.store.agent";
+    #[cfg(not(feature = "app-store"))]
     const SERVICE: &str = "com.screenplay.studio.agent";
     const ACCOUNT: &str = "default-provider";
 
