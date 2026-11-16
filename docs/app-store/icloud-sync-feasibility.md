@@ -28,17 +28,17 @@
 - `story-bible/bible.md`、`PROJECT_RULES.md`
 - `imports/original.txt`、`imports/source.bin`、`assets/`、`skills/`
 
-见 [project.rs#L28-L66](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-store/src/project.rs#L28-L66)。保存时**整份 `document.json` 重写**，不是按块增量写；写入是原子的（先写临时文件再替换）。
+见 [project.rs#L28-L66](../../crates/screenplay-store/src/project.rs#L28-L66)。保存时**整份 `document.json` 重写**，不是按块增量写；写入是原子的（先写临时文件再替换）。
 
 ### 1.2 revision 是全局递增的文档版本号
 
-**【已核实】** `doc.revision` 每次提交 `+1`，见 [command.rs#L133-L143](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-store/src/command.rs#L133-L143)。写入前用 `check_revision` 比对期望值，不一致直接返回 `RevisionConflict`（[command.rs#L98-L110](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-store/src/command.rs#L98-L110)），提示「文档已被其他来源修改，拒绝覆盖」。
+**【已核实】** `doc.revision` 每次提交 `+1`，见 [command.rs#L133-L143](../../crates/screenplay-store/src/command.rs#L133-L143)。写入前用 `check_revision` 比对期望值，不一致直接返回 `RevisionConflict`（[command.rs#L98-L110](../../crates/screenplay-store/src/command.rs#L98-L110)），提示「文档已被其他来源修改，拒绝覆盖」。
 
 **【判断】** 这是典型的乐观并发：适合「同一时刻只有一个写者」的场景，但它只负责**拒绝**，不负责**合并**。
 
 ### 1.3 版本与历史存在 SQLite 里
 
-**【已核实】** `project.sqlite` 建了五张表：`meta`、`versions`、`operations`、`branches`、`snapshots`（[db.rs#L101-L157](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-store/src/db.rs#L101-L157)）。
+**【已核实】** `project.sqlite` 建了五张表：`meta`、`versions`、`operations`、`branches`、`snapshots`（[db.rs#L101-L157](../../crates/screenplay-store/src/db.rs#L101-L157)）。
 
 - `versions`：`id / branch / parent_version / revision / origin / trigger / auto`，用于版本历史与分支。
 - `operations`：命令级操作日志（`old_value`、`new_value`、`revision`）。
@@ -48,19 +48,19 @@
 
 ### 1.4 块有稳定 UUID 和块级 revision
 
-**【已核实】** `ScreenplayBlock` 有全局唯一 `id`（注释明确写「非顺序，便于稳定同步」）与块级 `revision`，见 [ast.rs#L199-L217](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-core/src/ast.rs#L199-L217)。
+**【已核实】** `ScreenplayBlock` 有全局唯一 `id`（注释明确写「非顺序，便于稳定同步」）与块级 `revision`，见 [ast.rs#L199-L217](../../crates/screenplay-core/src/ast.rs#L199-L217)。
 
 **【判断】** 这是未来做块级增量同步最重要的基础：可以按 block id 对齐两台设备的差异，而不必整篇比较文本。
 
 ### 1.5 现有 diff 是「给人看的」，不是合并器
 
-**【已核实】** `crates/screenplay-core/src/diff.rs` 产出的是语义化展示结构（`SceneAdded / SceneRemoved / SceneMoved / BlockChanged / BlockRetyped` 等），用于界面展示（[diff.rs#L1-L50](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/crates/screenplay-core/src/diff.rs#L1-L50)）。
+**【已核实】** `crates/screenplay-core/src/diff.rs` 产出的是语义化展示结构（`SceneAdded / SceneRemoved / SceneMoved / BlockChanged / BlockRetyped` 等），用于界面展示（[diff.rs#L1-L50](../../crates/screenplay-core/src/diff.rs#L1-L50)）。
 
 **【判断】** 它**不能**直接当三方合并用：没有 base 版本、没有 patch 应用、没有冲突标记。做合并需要新写一层。
 
 ### 1.6 自动保存与恢复
 
-**【已核实】** `ProjectService` 持有 `RecoveryManager` 与自动保存状态（[service.rs#L108-L120](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/src-tauri/src/service.rs#L108-L120)）；自动保存按间隔触发，并会调用 `auto_checkpoint` 生成自动版本（[service.rs#L218-L235](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/src-tauri/src/service.rs#L218-L235)）。恢复数据写在临时目录（测试路径见 [service.rs#L150](file:///Users/huangzongjing/Downloads/PROJECT/软件开发/20261105_好好写剧本/上架开发/src-tauri/src/service.rs#L150)）。
+**【已核实】** `ProjectService` 持有 `RecoveryManager` 与自动保存状态（[service.rs#L108-L120](../../src-tauri/src/service.rs#L108-L120)）；自动保存按间隔触发，并会调用 `auto_checkpoint` 生成自动版本（[service.rs#L218-L235](../../src-tauri/src/service.rs#L218-L235)）。恢复数据写在临时目录（测试路径见 [service.rs#L150](../../src-tauri/src/service.rs#L150)）。
 
 ### 1.7 目前没有任何云同步代码
 
