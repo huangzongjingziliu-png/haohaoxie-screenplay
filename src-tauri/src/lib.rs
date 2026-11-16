@@ -18,6 +18,7 @@ mod model_profiles;
 mod agent_text;
 mod agent_harness;
 mod credentials;
+mod mcp_http;
 pub mod service;
 
 use crate::service::{
@@ -111,6 +112,8 @@ pub struct AppState {
     /// 本地桥接服务：CLI / MCP 通过它操作本进程持有的权威项目。
     /// `None` 表示桥接启动失败（此时 CLI/MCP 回退独立进程模式 + 文件锁）。
     pub bridge: Mutex<Option<Arc<BridgeServer>>>,
+    /// 应用内嵌的本地 MCP HTTP 服务（agent 直接连本机，不依赖 CLI）。
+    pub mcp_http: Mutex<Option<screenplay_mcp::http::HttpServerHandle>>,
     /// Agent 配置：云 AI 开关 + Provider 配置
     pub agent: Mutex<AgentConfig>,
 }
@@ -150,6 +153,7 @@ impl Default for AppState {
             imports: Mutex::new(std::collections::HashMap::new()),
             project: Arc::new(ProjectService::new()),
             bridge: Mutex::new(None),
+            mcp_http: Mutex::new(None),
             agent: Mutex::new(AgentConfig::load()),
         }
     }
@@ -184,6 +188,13 @@ impl AppState {
             let _ = std::fs::remove_file(p);
         }
         diag::log("桥接产物已清理");
+    }
+
+    /// 停止本地 MCP HTTP 监听（端口随之释放）。
+    pub fn cleanup_mcp_http(&self) {
+        let taken = self.mcp_http.lock().unwrap().take();
+        drop(taken);
+        diag::log("本地 MCP HTTP 已停止");
     }
 }
 
@@ -446,7 +457,7 @@ fn serve_connection(
 }
 
 /// 把请求派发到 Tauri 主线程执行并等待结果
-fn handle_on_main_thread(
+pub(crate) fn handle_on_main_thread(
     app: &AppHandle,
     req: screenplay_store::bridge::BridgeRequest,
 ) -> screenplay_store::bridge::BridgeResponse {
@@ -1849,6 +1860,7 @@ pub fn run() {
             connection::agent_connection_info,
             connection::check_agent_connection,
             connection::install_agent_cli,
+            mcp_http::mcp_http_info,
             autosave_config,
             configure_autosave,
             autosave_tick,
@@ -1896,6 +1908,7 @@ pub fn run() {
                 // 主动清理桥接产物：进程被 SIGTERM 杀掉时不会跑 Drop，
                 // 残留的 bridge.json 会让外部进程误判「GUI 还在运行」。
                 state.cleanup_bridge();
+                state.cleanup_mcp_http();
             }
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 // Even a clean backend can have debounced edits still in the webview.
@@ -1921,6 +1934,16 @@ pub fn run() {
             let handle = app.handle().clone();
             if let Some(server) = start_bridge(&handle) {
                 *handle.state::<AppState>().bridge.lock().unwrap() = Some(server);
+            }
+
+            // 启动应用内嵌的本地 MCP HTTP 服务：agent 以 http 传输直连本机，
+            // 不需要安装 CLI。失败同样不阻断 GUI。
+            match mcp_http::start(&handle) {
+                Ok(server) => {
+                    diag::log(&format!("本地 MCP HTTP 已启动: {}", server.url()));
+                    *handle.state::<AppState>().mcp_http.lock().unwrap() = Some(server);
+                }
+                Err(e) => diag::log(&format!("本地 MCP HTTP 启动失败: {e}")),
             }
             Ok(())
         })
@@ -1955,6 +1978,7 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 state.project.shutdown();
                 state.cleanup_bridge();
+                state.cleanup_mcp_http();
             }
         });
 }
