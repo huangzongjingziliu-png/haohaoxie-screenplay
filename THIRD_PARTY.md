@@ -62,16 +62,18 @@
 | minisign-verify | MIT |
 | hyper | MIT |
 | rustls | Apache-2.0 OR ISC OR MIT |
-| webpki-roots | ISC |
+| webpki-roots / webpki-root-certs | CDLA-Permissive-2.0 |
 | ring | ISC |
 | libsqlite3-sys | MIT |
-| icu_* (ICU4X) | Unicode-DFS-2016 |
+| icu_* (ICU4X) | Unicode-3.0 |
 | unicode-normalization | MIT OR Apache-2.0 |
 | encoding_rs | Apache-2.0 OR MIT |
 | brotli | MIT |
 | flate2 | MIT OR Apache-2.0 |
 | image | MIT OR Apache-2.0 |
-| resvg / usvg / tiny-skia | MPL-2.0 |
+| resvg / usvg | Apache-2.0 OR MIT |
+| tiny-skia / tiny-skia-path | BSD-3-Clause |
+| cssparser / cssparser-macros / selectors / dtoa-short / option-ext | MPL-2.0（文件级弱 Copyleft，许可文本随包附带于 `licenses/MPL-2.0.txt`） |
 | fontdb / skrifa / ttf-parser | MIT |
 | objc2 / objc2-* | MIT |
 | core-foundation / core-graphics | MIT OR Apache-2.0 |

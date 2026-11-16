@@ -33,11 +33,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "resources/ocr_sidecar",
-      "resources/pdf_sidecar",
-      "resources/agent/*"
-    ],
+    "resources": {
+      "resources/ocr_sidecar": "resources/ocr_sidecar",
+      "resources/pdf_sidecar": "resources/pdf_sidecar",
+      "resources/agent/*": "resources/agent/",
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY.md": "THIRD_PARTY.md",
+      "../packaging/licenses/MPL-2.0.txt": "licenses/MPL-2.0.txt"
+    },
     "fileAssociations": [
       {
         "ext": [
