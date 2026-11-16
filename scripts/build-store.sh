@@ -8,7 +8,7 @@ export no_proxy='*' NO_PROXY='*'
 
 npx tauri build --config src-tauri/tauri.store.conf.json --features app-store
 
-app='target/release/bundle/macos/好好写剧本商店版.app'
+app='target/release/bundle/macos/好好写剧本.app'
 [ -d "$app" ] || { echo "未找到构建产物：$app"; exit 1; }
 
 # 沙盒子进程必须继承父进程沙盒；Tauri 只签主程序，Resources 里的 sidecar 需要单独签。
