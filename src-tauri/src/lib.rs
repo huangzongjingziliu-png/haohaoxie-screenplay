@@ -294,13 +294,9 @@ extern "C" fn on_terminating_signal(sig: i32) {
         if let Ok(c) = std::ffi::CString::new(p) {
             unsafe { libc::unlink(c.as_ptr()) };
         }
-        // socket 名含 pid，需拼接；此处只清理常见长度（pid ≤ 10 位）
-        let pid = std::process::id();
-        let mut sp = dir.as_os_str().as_encoded_bytes().to_vec();
-        sp.extend_from_slice(b"/bridge-");
-        sp.extend_from_slice(pid.to_string().as_bytes());
-        sp.extend_from_slice(b".sock");
-        if let Ok(c) = std::ffi::CString::new(sp) {
+        // socket 在临时目录的短路径下（见 screenplay_store::bridge::socket_path_for）
+        let sp = screenplay_store::bridge::socket_path_for(std::process::id());
+        if let Ok(c) = std::ffi::CString::new(sp.as_os_str().as_encoded_bytes().to_vec()) {
             unsafe { libc::unlink(c.as_ptr()) };
         }
     }

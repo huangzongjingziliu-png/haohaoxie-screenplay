@@ -376,6 +376,15 @@ pub fn descriptor_path() -> Option<PathBuf> {
     app_support_dir().map(|d| d.join("bridge.json"))
 }
 
+/// 桥接 socket 的短路径（进程临时目录 + `sp-<pid>.sock`）。
+///
+/// 沙盒容器的 Application Support 路径超过 `sun_path` 上限（104 字节），
+/// 所以 socket 不放数据目录；文件名带 pid，多实例仍可区分。
+/// `bridge.json` 仍在应用数据目录，里面记录这个绝对路径。
+pub fn socket_path_for(pid: u32) -> PathBuf {
+    std::env::temp_dir().join(format!("sp-{pid}.sock"))
+}
+
 /// 锁文件路径（独立进程模式使用）
 pub fn canonical_container_path(container:&Path)->PathBuf{
     let absolute=if container.is_absolute(){container.to_path_buf()}else{std::env::current_dir().unwrap_or_default().join(container)};
@@ -648,8 +657,8 @@ impl BridgeServer {
             message: format!("创建应用数据目录失败: {e}"),
         })?;
 
-        // socket 路径带 pid，避免与残留的旧 socket 冲突
-        let socket_path = dir.join(format!("bridge-{}.sock", std::process::id()));
+        // socket 用临时目录的短路径（沙盒容器路径会超过 SUN_LEN）；带 pid 避免与残留旧 socket 冲突
+        let socket_path = socket_path_for(std::process::id());
         let _ = std::fs::remove_file(&socket_path);
 
         let listener = UnixListener::bind(&socket_path).map_err(|e| BridgeError::Internal {
