@@ -107,7 +107,7 @@ trait EntitlementProvider {
 
 **【判断】** 不要用「限时免费」再改成付费：非消耗型商品一旦免费发放，无法收回权益，且会引发「说好免费」的差评。用户提出的「改价而非限时免费」是正确方向。
 
-**【待核实】** 68 / 38 元对应哪个可用的人民币价格点；改价后商店页展示由 Apple 自动更新，应用内应读取 `Product.displayPrice`，不要硬编码金额。早鸟期结束需人工改回原价，步骤见 [monetization-plan.md](monetization-plan.md) 4.1。
+**【已核实】** 38 元是中国区可用价格点（Apple Creator Studio 中国区订阅价 RMB 38/月，Apple 官方新闻稿 2026-01）。**【待核实】** 68 / 38 元在非消耗型商品价格选择器里的最终档位；改价后商店页展示由 Apple 自动更新，应用内应读取 `Product.displayPrice`，不要硬编码金额。早鸟期结束需人工改回原价，步骤见 [monetization-plan.md](monetization-plan.md) 4.1。
 
 ---
 
