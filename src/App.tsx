@@ -30,7 +30,6 @@ import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ipc/client';
-import { STORE_BUILD } from '@/buildChannel';
 
 export default function App() {
   useUiLanguage();
@@ -235,7 +234,7 @@ export default function App() {
   const content = project.state === 'empty' ? (
       <div className="app">
         <Toolbar onHelp={()=>setHelpSection('start')} onNew={() => setShowNew(true)} onImport={() => setShowImport(true)} onSettings={()=>{setSettingsTab('text');setShowSettings(true);}} />
-        <Welcome onNew={() => setShowNew(true)} onConnections={STORE_BUILD ? undefined : () => setShowConnections(true)} recent={recent} onOpened={() => void ipc.listRecent().then(setRecent)} />
+        <Welcome onNew={() => setShowNew(true)} onConnections={() => setShowConnections(true)} recent={recent} onOpened={() => void ipc.listRecent().then(setRecent)} />
         <div className="status-bar"><span className="spacer" /><ModelPicker /></div>
       </div>
     ) : renderEditor();
@@ -260,7 +259,7 @@ export default function App() {
           onVersions={() => setShowVersions(true)}
           onBoard={() => setShowBoard(true)}
           onAgent={() => setShowAgent(true)}
-          onConnections={STORE_BUILD ? undefined : () => setShowConnections(true)}
+          onConnections={() => setShowConnections(true)}
         />
       )}
       {showSearch && <SearchBar onClose={()=>setShowSearch(false)}/>}
