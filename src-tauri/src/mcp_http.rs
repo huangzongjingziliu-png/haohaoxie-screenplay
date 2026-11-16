@@ -24,7 +24,7 @@ pub struct McpHttpInfo {
     pub running: bool,
     /// 填进 MCP 客户端（Claude Code 等）的地址。
     pub url: String,
-    /// 启动时生成的一次性 token，用 `Authorization: Bearer` 发送。
+    /// 持久化的本地访问令牌，用 `Authorization: Bearer` 发送。
     pub token: String,
     pub port: u16,
     pub error: Option<String>,
