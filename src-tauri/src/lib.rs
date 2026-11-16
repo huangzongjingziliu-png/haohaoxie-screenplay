@@ -171,10 +171,15 @@ impl AppState {
     /// 不会运行析构函数，残留的 `bridge.json` 会让 CLI/MCP 误判
     /// 「GUI 还在运行」并反复尝试连接一个死 socket。
     pub fn cleanup_bridge(&self) {
-        // 先取出（触发 BridgeServer 的 Drop：删 socket 与描述文件）
+        // 先取出（正常情况下触发 BridgeServer 的 Drop：删 socket 与描述文件）
         let taken = self.bridge.lock().unwrap().take();
+        // 接受连接的线程仍持有 Arc，进程内 Drop 通常不会执行，所以 socket 要在这里显式删。
+        if let Some(server) = taken.as_ref() {
+            let _ = std::fs::remove_file(server.socket_path());
+        }
         drop(taken);
         // 双保险：即使 BridgeServer 已被 drop，也确保文件不在
+        let _ = std::fs::remove_file(screenplay_store::bridge::socket_path_for(std::process::id()));
         if let Some(p) = screenplay_store::bridge::descriptor_path() {
             let _ = std::fs::remove_file(p);
         }
