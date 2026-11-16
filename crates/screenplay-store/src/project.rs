@@ -115,12 +115,26 @@ pub fn save_project(
 fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(),String>)->Result<(),String>{
     let parent=container.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e|e.to_string())?;
-    let mut temporary=tempfile::NamedTempFile::new_in(parent).map_err(|e|e.to_string())?;
-    if let Ok(metadata)=std::fs::metadata(container){temporary.as_file().set_permissions(metadata.permissions()).map_err(|e|e.to_string())?;}
-    write(temporary.as_file_mut())?;
-    temporary.as_file().sync_all().map_err(|e|e.to_string())?;
-    temporary.persist(container).map_err(|e|e.error.to_string())?;
-    Ok(())
+    // 沙盒里用户经保存面板选中的文件只授权了该文件本身，同目录建临时文件会被拒（EPERM）。
+    // 这种情况下退回直接写目标文件：牺牲原子性换可用性；容器内与非沙盒路径仍走临时文件 + rename。
+    match tempfile::NamedTempFile::new_in(parent) {
+        Ok(mut temporary)=>{
+            if let Ok(metadata)=std::fs::metadata(container){temporary.as_file().set_permissions(metadata.permissions()).map_err(|e|e.to_string())?;}
+            write(temporary.as_file_mut())?;
+            temporary.as_file().sync_all().map_err(|e|e.to_string())?;
+            temporary.persist(container).map_err(|e|e.error.to_string())?;
+            Ok(())
+        }
+        Err(_)=>direct_write(container,write),
+    }
+}
+
+/// 直接截断写目标文件（仅在无法创建同目录临时文件时使用）。
+fn direct_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(),String>)->Result<(),String>{
+    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(container)
+        .map_err(|e|format!("无法写入 {}: {e}",container.display()))?;
+    write(&mut file)?;
+    file.sync_all().map_err(|e|e.to_string())
 }
 
 #[derive(Debug)]
