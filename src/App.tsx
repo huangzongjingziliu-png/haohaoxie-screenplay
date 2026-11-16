@@ -304,7 +304,7 @@ function Welcome({
 }: {
   onNew: () => void;
   recent: { path: string; title: string }[];
-  onConnections: () => void;
+  onConnections?: () => void;
   onOpened: () => void;
 }) {
   const openProject = useEditorStore((s) => s.openProject);
@@ -314,7 +314,7 @@ function Welcome({
       <p style={{ color: '#86868b' }}>{tr("让作者用最舒服的方法写，让软件负责把它变成专业剧本")}</p>
       <div className="welcome-actions">
         <button onClick={()=>window.dispatchEvent(new CustomEvent('open-help',{detail:'start'}))}>{tr("帮助与教程")}</button>
-        <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>
+        {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>}
         <button onClick={onNew}>{tr("新建剧本")}</button>
         <button onClick={async () => {
           const { open } = await import('@tauri-apps/plugin-dialog');

@@ -34,6 +34,9 @@ pub async fn check_agent_connection(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 pub fn install_agent_cli(app: AppHandle) -> Result<String, String> {
+    if cfg!(feature = "app-store") {
+        return Err("商店版不提供终端命令安装；CLI 由站外渠道单独分发".into());
+    }
     let tools = tools(&app)?;
     let bin = dirs::home_dir().ok_or("找不到用户目录")?.join(".local/bin");
     install_links(&tools, &bin)?;

@@ -8,6 +8,7 @@
 pub mod bridge_host;
 pub mod diag;
 mod connection;
+mod file_access;
 mod updates;
 mod help;
 mod series;
@@ -17,6 +18,7 @@ mod model_profiles;
 mod agent_text;
 mod agent_harness;
 mod credentials;
+mod mcp_http;
 pub mod service;
 
 use crate::service::{
@@ -110,6 +112,8 @@ pub struct AppState {
     /// 本地桥接服务：CLI / MCP 通过它操作本进程持有的权威项目。
     /// `None` 表示桥接启动失败（此时 CLI/MCP 回退独立进程模式 + 文件锁）。
     pub bridge: Mutex<Option<Arc<BridgeServer>>>,
+    /// 应用内嵌的本地 MCP HTTP 服务（agent 直接连本机，不依赖 CLI）。
+    pub mcp_http: Mutex<Option<screenplay_mcp::http::HttpServerHandle>>,
     /// Agent 配置：云 AI 开关 + Provider 配置
     pub agent: Mutex<AgentConfig>,
 }
@@ -149,6 +153,7 @@ impl Default for AppState {
             imports: Mutex::new(std::collections::HashMap::new()),
             project: Arc::new(ProjectService::new()),
             bridge: Mutex::new(None),
+            mcp_http: Mutex::new(None),
             agent: Mutex::new(AgentConfig::load()),
         }
     }
@@ -170,14 +175,26 @@ impl AppState {
     /// 不会运行析构函数，残留的 `bridge.json` 会让 CLI/MCP 误判
     /// 「GUI 还在运行」并反复尝试连接一个死 socket。
     pub fn cleanup_bridge(&self) {
-        // 先取出（触发 BridgeServer 的 Drop：删 socket 与描述文件）
+        // 先取出（正常情况下触发 BridgeServer 的 Drop：删 socket 与描述文件）
         let taken = self.bridge.lock().unwrap().take();
+        // 接受连接的线程仍持有 Arc，进程内 Drop 通常不会执行，所以 socket 要在这里显式删。
+        if let Some(server) = taken.as_ref() {
+            let _ = std::fs::remove_file(server.socket_path());
+        }
         drop(taken);
         // 双保险：即使 BridgeServer 已被 drop，也确保文件不在
+        let _ = std::fs::remove_file(screenplay_store::bridge::socket_path_for(std::process::id()));
         if let Some(p) = screenplay_store::bridge::descriptor_path() {
             let _ = std::fs::remove_file(p);
         }
         diag::log("桥接产物已清理");
+    }
+
+    /// 停止本地 MCP HTTP 监听（端口随之释放）。
+    pub fn cleanup_mcp_http(&self) {
+        let taken = self.mcp_http.lock().unwrap().take();
+        drop(taken);
+        diag::log("本地 MCP HTTP 已停止");
     }
 }
 
@@ -293,13 +310,9 @@ extern "C" fn on_terminating_signal(sig: i32) {
         if let Ok(c) = std::ffi::CString::new(p) {
             unsafe { libc::unlink(c.as_ptr()) };
         }
-        // socket 名含 pid，需拼接；此处只清理常见长度（pid ≤ 10 位）
-        let pid = std::process::id();
-        let mut sp = dir.as_os_str().as_encoded_bytes().to_vec();
-        sp.extend_from_slice(b"/bridge-");
-        sp.extend_from_slice(pid.to_string().as_bytes());
-        sp.extend_from_slice(b".sock");
-        if let Ok(c) = std::ffi::CString::new(sp) {
+        // socket 在临时目录的短路径下（见 screenplay_store::bridge::socket_path_for）
+        let sp = screenplay_store::bridge::socket_path_for(std::process::id());
+        if let Ok(c) = std::ffi::CString::new(sp.as_os_str().as_encoded_bytes().to_vec()) {
             unsafe { libc::unlink(c.as_ptr()) };
         }
     }
@@ -444,7 +457,7 @@ fn serve_connection(
 }
 
 /// 把请求派发到 Tauri 主线程执行并等待结果
-fn handle_on_main_thread(
+pub(crate) fn handle_on_main_thread(
     app: &AppHandle,
     req: screenplay_store::bridge::BridgeRequest,
 ) -> screenplay_store::bridge::BridgeResponse {
@@ -607,6 +620,7 @@ fn open_project(
     state: State<'_, AppState>,
     path: String,
 ) -> IpcResult<Bootstrap> {
+    let _access = file_access::acquire(&path)?;
     let p = PathBuf::from(&path);
     state.project.open(&p)?;
     diag::log("open_project path={path}");
@@ -633,10 +647,13 @@ fn close_project(app: AppHandle, state: State<'_, AppState>, discard_changes: Op
 /// **不接受文档 JSON** —— 保存的是后端权威状态。
 #[tauri::command]
 fn save_project(app: AppHandle, state: State<'_, AppState>, project_id:Option<String>) -> IpcResult<SaveOutcome> {
+    let current_path = project_info(&state.project).path;
+    let _access = current_path.as_deref().map(file_access::acquire).transpose()?;
     let outcome = state.project.save_checked(None,project_id.as_deref())?;
     diag::log("save_project");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
+    if let Err(error) = file_access::remember(&outcome.path) { diag::log(&format!("bookmark: {error}")); }
     push_recent(&outcome.path, &title);
     let _ = app.emit("project-saved", &outcome);
     Ok(outcome)
@@ -650,10 +667,12 @@ fn save_project_as(
     path: String,
     project_id:Option<String>,
 ) -> IpcResult<SaveOutcome> {
+    let _access = file_access::acquire(&path)?;
     let outcome = state.project.save_checked(Some(&PathBuf::from(&path)),project_id.as_deref())?;
     diag::log("save_project_as path={path}");
     state.refresh_bridge_descriptor();
     let title = state.project.state().title().to_string();
+    if let Err(error) = file_access::remember(&outcome.path) { diag::log(&format!("bookmark: {error}")); }
     push_recent(&outcome.path, &title);
     let _ = app.emit("project-saved", &outcome);
     Ok(outcome)
@@ -662,6 +681,8 @@ fn save_project_as(
 /// 放弃未保存修改
 #[tauri::command]
 fn revert_project(state: State<'_, AppState>) -> IpcResult<Bootstrap> {
+    let current_path = project_info(&state.project).path;
+    let _access = current_path.as_deref().map(file_access::acquire).transpose()?;
     state.project.revert()?;
     Ok(build_bootstrap(&state.project))
 }
@@ -1244,6 +1265,7 @@ fn export_file(
     path: String,
     format: Option<String>,
 ) -> IpcResult<String> {
+    let _access = file_access::acquire(&path)?;
     // 与 MCP 的 export_file 共用同一套格式解析与 screenplay_export 实现
     let fmt = bridge_host::resolve_export_format(&path, format.as_deref()).map_err(|e| {
         IpcError::InvalidArgument {
@@ -1306,7 +1328,11 @@ fn configure_autosave(app: AppHandle, state: State<'_, AppState>, options: Autos
 #[tauri::command]
 async fn autosave_tick(state: State<'_, AppState>,project_id:Option<String>) -> IpcResult<Option<AutosaveAction>> {
     let project = state.project.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || project.autosave_tick_checked(project_id.as_deref())).await
+    let action = tauri::async_runtime::spawn_blocking(move || {
+        let path = project.state().path().map(|p| p.to_string_lossy().into_owned());
+        let _access = path.as_deref().map(file_access::acquire).transpose()?;
+        project.autosave_tick_checked(project_id.as_deref())
+    }).await
         .map_err(|_| IpcError::Internal { message: "自动保存任务失败".into() })?
         .map_err(|message| IpcError::Internal { message })?;
     if let Some(a) = action {
@@ -1754,11 +1780,14 @@ pub fn run() {
     if selftest {
         diag::log("SCREENPLAY_SELFTEST 已启用（启动后 1 秒自动执行闭环自检）");
     }
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_shell::init());
+    // 商店渠道由 App Store 更新，注册更新器会让包内保留自更新行为。
+    #[cfg(not(feature = "app-store"))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .manage(updates::UpdateState::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
@@ -1831,6 +1860,7 @@ pub fn run() {
             connection::agent_connection_info,
             connection::check_agent_connection,
             connection::install_agent_cli,
+            mcp_http::mcp_http_info,
             autosave_config,
             configure_autosave,
             autosave_tick,
@@ -1878,6 +1908,7 @@ pub fn run() {
                 // 主动清理桥接产物：进程被 SIGTERM 杀掉时不会跑 Drop，
                 // 残留的 bridge.json 会让外部进程误判「GUI 还在运行」。
                 state.cleanup_bridge();
+                state.cleanup_mcp_http();
             }
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 // Even a clean backend can have debounced edits still in the webview.
@@ -1903,6 +1934,16 @@ pub fn run() {
             let handle = app.handle().clone();
             if let Some(server) = start_bridge(&handle) {
                 *handle.state::<AppState>().bridge.lock().unwrap() = Some(server);
+            }
+
+            // 启动应用内嵌的本地 MCP HTTP 服务：agent 以 http 传输直连本机，
+            // 不需要安装 CLI。失败同样不阻断 GUI。
+            match mcp_http::start(&handle) {
+                Ok(server) => {
+                    diag::log(&format!("本地 MCP HTTP 已启动: {}", server.url()));
+                    *handle.state::<AppState>().mcp_http.lock().unwrap() = Some(server);
+                }
+                Err(e) => diag::log(&format!("本地 MCP HTTP 启动失败: {e}")),
             }
             Ok(())
         })
@@ -1937,6 +1978,7 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 state.project.shutdown();
                 state.cleanup_bridge();
+                state.cleanup_mcp_http();
             }
         });
 }

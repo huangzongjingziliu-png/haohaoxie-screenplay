@@ -21,6 +21,7 @@
   "尚未检查": "Not checked",
   "连接外部 Agent，让它操作好好写剧本": "Connect an external agent",
   "把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 和 MCP 都已内置，无需安装 Codex CLI。": "Connect your writing agent through the bundled CLI or MCP. No Codex CLI installation is required.",
+  "把好好写剧本接入本机 Agent，然后直接让它帮你写作、修改。MCP 服务已内置，无需安装其他组件。": "Connect an agent on this Mac through the built-in MCP service. No extra components are required.",
   "本机工具：": "Local tools:",
   "正在读取…": "Loading…",
   "已就绪": "Ready",

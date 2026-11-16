@@ -24,6 +24,7 @@ screenplay-store = { path = "../crates/screenplay-store" }
 screenplay-import = { path = "../crates/screenplay-import" }
 screenplay-export = { path = "../crates/screenplay-export" }
 screenplay-agent = { path = "../crates/screenplay-agent" }
+screenplay-mcp = { path = "../crates/screenplay-mcp" }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 ts-rs = { version = "11", features = ["serde-compat"] }
@@ -37,6 +38,12 @@ semver = "1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# 商店渠道：关闭应用内更新器，不携带 agent CLI，配合 src-tauri/tauri.store.conf.json 构建。
+app-store = []
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3.2"

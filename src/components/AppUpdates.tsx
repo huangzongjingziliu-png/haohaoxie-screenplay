@@ -7,6 +7,7 @@ import {tr} from '@/i18n';
 import {useEditorStore} from '@/stores/editor';
 import {flushPendingEdits} from '@/utils/pendingEdits';
 import {ipc} from '@/ipc/client';
+import {STORE_BUILD} from '@/buildChannel';
 type Available={version:string;notes:string;url:string;automatic:boolean};
 type Phase='idle'|'checking'|'downloading'|'ready'|'installing';
 const KEY='haohaoxie.updates.v1';
@@ -14,6 +15,7 @@ function preference(){try{return JSON.parse(localStorage.getItem(KEY)||'{}') as 
 export const useUpdates=create<{auto:boolean;last:number;available:Available|null;phase:Phase;error:string;message:string;opened:boolean;received:number;total:number|null}>(()=>({auto:preference().auto!==false,last:preference().last||0,available:null,phase:'idle',error:'',message:'',opened:false,received:0,total:null}));
 function persist(){const {auto,last}=useUpdates.getState();try{localStorage.setItem(KEY,JSON.stringify({auto,last}));}catch{/* Keep session settings. */}}
 export async function checkUpdates(manual=false){
+ if(STORE_BUILD)return;
  if(!('__TAURI_INTERNALS__' in window)||useUpdates.getState().phase!=='idle')return;
  useUpdates.setState({phase:'checking',error:'',message:'',...(manual?{opened:true}:{})});
  try{const available=await invoke<Available|null>('check_update');useUpdates.setState({available,last:Date.now(),message:available?'':'目前没有更新的版本'});persist();}
@@ -21,14 +23,15 @@ export async function checkUpdates(manual=false){
  finally{useUpdates.setState({phase:'idle'});}
 }
 export function useUpdateScheduler(){useEffect(()=>{
+ if(STORE_BUILD)return;
  const tick=()=>{const s=useUpdates.getState();if(s.auto&&Date.now()-s.last>=24*60*60*1000)void checkUpdates();};
  const startup=window.setTimeout(tick,12000),timer=window.setInterval(tick,60*60*1000);
  let stop:(()=>void)|undefined,disposed=false;
  if('__TAURI_INTERNALS__' in window)void listen<{received:number;total:number|null}>('update-progress',e=>useUpdates.setState(e.payload)).then(fn=>{if(disposed)fn();else stop=fn;}).catch(()=>{});
  return()=>{disposed=true;clearTimeout(startup);clearInterval(timer);stop?.();};
  },[]);}
-export function UpdateButton(){const available=useUpdates(s=>s.available);return available?<button className="update-indicator" title={tr('有新版可用，查看更新')} aria-label={tr('查看更新')} onClick={()=>useUpdates.setState({opened:true})}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20V4m-7 7 7-7 7 7"/></svg></button>:null;}
-export function UpdateSettings(){const s=useUpdates();return <><h3>{tr('软件更新')}</h3><label><input type="checkbox" checked={s.auto} onChange={e=>{useUpdates.setState({auto:e.target.checked});persist();if(e.target.checked)void checkUpdates();}}/>{tr('每天自动检查 GitHub 新版本')}</label><p className="modal-hint">{tr('后台检查不会打断写作。下载和重启安装都由你确认，无需配置模型。')}</p><button disabled={s.phase!=='idle'} onClick={()=>void checkUpdates(true)}>{tr('检查更新')}</button>{s.available&&<button onClick={()=>useUpdates.setState({opened:true})}>{tr('查看更新')} · {s.available.version}</button>}</>;}
+export function UpdateButton(){const available=useUpdates(s=>s.available);if(STORE_BUILD)return null;return available?<button className="update-indicator" title={tr('有新版可用，查看更新')} aria-label={tr('查看更新')} onClick={()=>useUpdates.setState({opened:true})}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20V4m-7 7 7-7 7 7"/></svg></button>:null;}
+export function UpdateSettings(){const s=useUpdates();if(STORE_BUILD)return null;return <><h3>{tr('软件更新')}</h3><label><input type="checkbox" checked={s.auto} onChange={e=>{useUpdates.setState({auto:e.target.checked});persist();if(e.target.checked)void checkUpdates();}}/>{tr('每天自动检查 GitHub 新版本')}</label><p className="modal-hint">{tr('后台检查不会打断写作。下载和重启安装都由你确认，无需配置模型。')}</p><button disabled={s.phase!=='idle'} onClick={()=>void checkUpdates(true)}>{tr('检查更新')}</button>{s.available&&<button onClick={()=>useUpdates.setState({opened:true})}>{tr('查看更新')} · {s.available.version}</button>}</>;}
 async function download(){useUpdates.setState({phase:'downloading',error:'',received:0,total:null});try{await invoke('download_update');useUpdates.setState({phase:'ready'});}catch(e){useUpdates.setState({phase:'idle',error:String(e)});}}
 async function install(){
  useUpdates.setState({phase:'installing',error:''});

@@ -2,14 +2,17 @@ import ModalBackdrop from './ModalBackdrop';
 import {tr, effectiveLanguage} from '@/i18n';
 import { useEffect, useState } from 'react';
 import { ipc } from '@/ipc/client';
+import { STORE_BUILD } from '@/buildChannel';
 
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 export default function ConnectionPanel({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<{ cli: string; available: boolean; installDir: string } | null>(null);
+  const [mcp, setMcp] = useState<{ running: boolean; url: string; token: string; port: number; error: string | null } | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [localCheck, setLocalCheck] = useState(tr("尚未检查"));
-  useEffect(() => { void ipc.agentConnectionInfo().then(setInfo).catch((e) => setMessage(String(e))); }, []);
+  useEffect(() => { if (STORE_BUILD) return; void ipc.agentConnectionInfo().then(setInfo).catch((e) => setMessage(String(e))); }, []);
+  useEffect(() => { void ipc.mcpHttpInfo().then(setMcp).catch((e) => setMessage(String(e))); }, []);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', handler);
@@ -40,27 +43,40 @@ ${quote(info.cli)} status
   return <ModalBackdrop onDismiss={onClose}>
     <section className="modal connection-panel" role="dialog" aria-modal="true" aria-labelledby="connection-title" onClick={(e) => e.stopPropagation()}>
       <h2 id="connection-title">{tr("连接外部 Agent，让它操作好好写剧本")}</h2>
-      <p>{tr("把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 已内置，无需安装 Codex CLI。")}</p>
-      <div className="connection-status-card">
+      <p>{tr(STORE_BUILD ? "把好好写剧本接入本机 Agent，然后直接让它帮你写作、修改。MCP 服务已内置，无需安装其他组件。" : "把好好写剧本接入你使用的 Agent，然后直接让它帮你写作、修改。CLI 已内置，无需安装 Codex CLI。")}</p>
+      {!STORE_BUILD && <div className="connection-status-card">
         <strong>{tr("本机工具：")}{!info ? tr("正在读取…") : info.available ? tr("已就绪") : tr("不可用")}</strong>
         <span>{tr("外部 Agent：连接状态尚未确认")}</span>
         <small>{tr("好好写剧本只能检查本机工具；是否接通，需要外部 Agent 成功读取当前剧本后确认。")}</small>
         <button disabled={!info?.available || busy} onClick={() => void run(async () => { const result = await ipc.checkAgentConnection(); setLocalCheck(result); return tr("本机检查完成；这不代表外部 Agent 已连接。"); })}>{tr("检查本机工具与当前项目")}</button>
         <pre>{localCheck}</pre>
-      </div>
+      </div>}
       <p className="connection-note">{tr("分集工程请先让 Agent 读取 workbench_overview，确认当前集。批量改名先预览再确认；遇到冲突重新预览，不要只刷新 revision。")}</p>
       <details open>
+        <summary>{tr("通过本地 HTTP 连接外部 Agent")}</summary>
+        <p>{tr("把下面的地址和令牌填进支持 Streamable HTTP 的 Agent（如 Claude Code、Codex、Cursor）。服务只在 127.0.0.1 监听，随应用退出自动关闭。")}</p>
+        {mcp?.running ? <>
+          <p>{tr("地址：")}</p>
+          <code>{mcp.url}</code>
+          <button disabled={busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(mcp.url); return tr("地址已复制。"); })}>{tr("复制地址")}</button>
+          <p>{tr("令牌（放在 Authorization: Bearer 请求头）：")}</p>
+          <code>{mcp.token}</code>
+          <button disabled={busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(`Authorization: Bearer ${mcp.token}`); return tr("令牌已复制。"); })}>{tr("复制令牌")}</button>
+          <small>{tr("令牌在首次启动时生成并保存在本机，重启后不变；服务只在应用运行时可用。")}</small>
+        </> : <small>{mcp?.error ?? tr("本地服务未启动，请查看应用日志。")}</small>}
+      </details>
+      {!STORE_BUILD && <details open>
         <summary>{tr("通过 CLI 连接外部 Agent")}</summary>
         <p>{tr("适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。")}</p>
         <textarea aria-label={tr("给外部 Agent 的接入说明")} readOnly value={conversation} rows={7} onFocus={(e) => e.target.select()} />
         <button disabled={!info?.available || busy} onClick={() => void run(async () => { await navigator.clipboard.writeText(conversation); return tr("操作说明已复制；请粘贴到能执行本机命令的 Agent，等待它确认当前项目。"); })}>{tr("复制给 Agent 对话框")}</button>
-      </details>
-      <details>
+      </details>}
+      {!STORE_BUILD && <details>
         <summary>{tr("终端工具（可选）")}</summary>
         {info && <><p>{tr("CLI可直接执行：")}</p><code>{quote(info.cli)} status</code><p>{tr("终端命令安装目录：")}{info.installDir}{tr("。将它加入 PATH 后可使用 screenplay --help。")}</p></>}
         <button disabled={!info?.available || busy} onClick={() => void run(ipc.installAgentCli)}>{tr("安装终端命令")}</button>
-      </details>
-      <p>{tr("复制说明只是向 Agent 发出操作请求，不代表已连接。请让 Agent 先确认当前项目。另一台 Mac 安装后重新复制那台机器生成的说明。")}</p>
+      </details>}
+      {!STORE_BUILD && <p>{tr("复制说明只是向 Agent 发出操作请求，不代表已连接。请让 Agent 先确认当前项目。另一台 Mac 安装后重新复制那台机器生成的说明。")}</p>}
       <pre role="status">{message}</pre>
       <div className="modal-actions"><button onClick={onClose}>{tr("关闭")}</button></div>
     </section>
