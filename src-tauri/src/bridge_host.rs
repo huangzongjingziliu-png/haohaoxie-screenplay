@@ -126,6 +126,9 @@ fn handle_lifecycle(
             Some(match project.save(target.as_deref()) {
                 Ok(outcome) => {
                     crate::refresh_bridge_descriptor(app, project);
+                    // 桥接保存也要进最近项目，否则重启后在欢迎页找不到刚存的文件。
+                    let title = project.state().title().to_string();
+                    crate::push_recent(&outcome.path, &title);
                     BridgeResponse::ok(
                         serde_json::json!({
                             "path": outcome.path,
