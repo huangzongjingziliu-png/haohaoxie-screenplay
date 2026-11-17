@@ -77,7 +77,7 @@ mod tests {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("screenplay"), "other app").unwrap();
         assert!(super::install_links(&tools, &bin).is_err());
-        assert!(!bin.join("screenplay").exists());
+        assert!(std::fs::symlink_metadata(bin.join("screenplay")).unwrap().file_type().is_file());
         assert_eq!(std::fs::read_to_string(bin.join("screenplay")).unwrap(), "other app");
         std::fs::remove_file(bin.join("screenplay")).unwrap();
         super::install_links(&tools, &bin).unwrap();
