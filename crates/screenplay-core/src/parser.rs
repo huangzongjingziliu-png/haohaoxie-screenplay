@@ -123,10 +123,30 @@ fn has_action_prefix(s: &str) -> bool {
         .is_some_and(|c| ACTION_PREFIXES.contains(&c))
 }
 
-/// 解析场景标题
+/// 中式剧本场景头：`12-日-办公室-内`（场号-时间-地点-内外）。
+/// 仅当行尾是内/外时才尝试，避免干扰常规中文/英文场景头。
+fn parse_production_heading(line: &str) -> Option<(SceneHeadingData, String)> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(
+        r"^\s*(?:(?P<num>\d{1,4}[A-Za-z]?)\s*[-—–、.．]\s*)?(?P<time>清晨|早晨|上午|中午|下午|傍晚|黄昏|夜晚|深夜|凌晨|白天|次日|当晚|同日|日|夜|晨|暮)\s*[-—–]\s*(?P<location>.+?)\s*[-—–]\s*(?P<ie>内外|内景|外景|内|外)\s*$"
+    ).unwrap());
+    let caps = re.captures(line.trim())?;
+    let location = caps.name("location")?.as_str().trim();
+    if location.is_empty() || location.contains("——") { return None; }
+    let data = SceneHeadingData {
+        scene_number: caps.name("num").map(|m| m.as_str().to_string()),
+        int_ext: int_ext_from_prefix(caps.name("ie")?.as_str())?,
+        location: location.into(),
+        time_of_day: caps.name("time")?.as_str().into(),
+        display_language: "zh".into(),
+    };
+    Some((data.clone(), format_scene_heading(&data)))
+}
+
 pub fn parse_scene_heading(line: &str) -> Option<(SceneHeadingData, String)> {
     let cleaned = strip_markdown(line);
     let cleaned=cleaned.strip_prefix('.').unwrap_or(&cleaned).trim();
+    if let Some(v) = parse_production_heading(cleaned) { return Some(v); }
     let caps = scene_regex().captures(cleaned)?;
     let int_ext_str = caps.name("int_ext")?.as_str().replace(' ', "");
     let mut int_ext = int_ext_from_prefix(&int_ext_str)?;

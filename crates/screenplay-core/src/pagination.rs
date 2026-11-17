@@ -125,7 +125,7 @@ pub fn usable_lines(s: &ScreenplaySettings) -> f64 {
 /// Courier 12pt 为 10 字符/英寸；中文字符按 2 个单位宽。
 pub fn units_per_line(s: &ScreenplaySettings, indent: f64) -> f64 {
     let content_w = s.paper.page_width_inch - s.paper.margin_left_inch - s.paper.margin_right_inch;
-    if crate::typography::chinese(s) {
+    if crate::typography::chinese(s) || crate::typography::production(s) {
         ((content_w - 2.0 * indent) * 72.0 / s.font_size.max(6.0) * 2.0).floor().max(10.0)
     } else { ((content_w - indent) * 10.0 * 12.0 / s.font_size.max(6.0)).floor().max(10.0) }
 }

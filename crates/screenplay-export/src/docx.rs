@@ -10,11 +10,18 @@ use zip::{CompressionMethod, ZipWriter};
 
 /// 将剧本文档导出为 DOCX 字节
 pub fn export_docx(doc: &ScreenplayDocument) -> Result<Vec<u8>, anyhow::Error> {
+    let view = screenplay_core::typography::export_view(doc);
+    let doc = &view;
     let chinese = screenplay_core::typography::chinese(&doc.settings);
+    let production = screenplay_core::typography::production(&doc.settings);
+    let general = screenplay_core::typography::general(&doc.settings);
     let mut body = String::new();
     for block in &doc.blocks {
-        let mut text = screenplay_core::typography::display_text(block.block_type, &block.text);
-        if let Some(label) = screenplay_core::typography::scene_label(doc, &block.id) { text = format!("{label}\n{text}"); }
+        let heading = screenplay_core::typography::scene_heading_display(doc, block);
+        let mut text = heading.clone().unwrap_or_else(|| screenplay_core::typography::display_text_with(&doc.settings, block.block_type, &block.text));
+        if heading.is_none() {
+            if let Some(label) = screenplay_core::typography::scene_label(doc, &block.id) { text = format!("{label}\n{text}"); }
+        }
         if text.is_empty() { continue; }
         let custom = doc.settings.element_styles.get(block.block_type.as_str());
         let properties = custom.map(|s| format!("<w:rFonts w:ascii=\"{0}\" w:hAnsi=\"{0}\" w:eastAsia=\"{0}\"/><w:sz w:val=\"{1}\"/><w:b w:val=\"{2}\"/><w:i w:val=\"{3}\"/><w:color w:val=\"{4}\"/>", escape_xml(&s.font_family), (s.font_size * 2.0).round(), if block.block_type != BlockType::Parenthetical && s.bold {1} else {0}, if s.italic {1} else {0}, escape_xml(s.color.trim_start_matches('#')))).unwrap_or_default();
@@ -52,17 +59,20 @@ pub fn export_docx(doc: &ScreenplayDocument) -> Result<Vec<u8>, anyhow::Error> {
     let size = (doc.settings.font_size * 2.0).round() as i64;
     let small = (doc.settings.font_size * 0.85 * 2.0).round() as i64;
     let leading = (doc.settings.font_size * doc.settings.line_height * 20.0).round() as i64;
-    let latin = if chinese { "Times New Roman" } else { "Courier New" };
-    let east = if chinese { "宋体" } else { "等线" };
-    let transition_align = if chinese { "left" } else { "right" };
+    let latin = if production { "Courier New" } else if chinese || general { "Times New Roman" } else { "Courier New" };
+    let east = if chinese || production || general { "宋体" } else { "等线" };
+    let transition_align = if chinese || production || general { "left" } else { "right" };
     let parent_align = if chinese { "<w:jc w:val=\"center\"/>" } else { "" };
+    let character_align = if production || general { "<w:jc w:val=\"left\"/>" } else { "<w:jc w:val=\"center\"/>" };
+    let dialogue_ind = if production || general { "" } else { "<w:ind w:left=\"1440\" w:right=\"1440\"/>" };
+    let parent_ind = if production || general { "" } else { "<w:ind w:left=\"1440\" w:right=\"1440\"/>" };
     let styles_xml = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
 <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:line="{leading}" w:lineRule="exact" w:after="{leading}"/></w:pPr><w:rPr><w:rFonts w:ascii="{latin}" w:hAnsi="{latin}" w:eastAsia="{east}"/><w:sz w:val="{size}"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="SceneHeading"><w:name w:val="Scene Heading"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:b/></w:rPr></w:style>
-<w:style w:type="paragraph" w:styleId="Character"><w:name w:val="Character"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/><w:keepNext/><w:spacing w:after="0"/></w:pPr><w:rPr><w:b/><w:rFonts w:eastAsia="黑体"/></w:rPr></w:style>
-<w:style w:type="paragraph" w:styleId="Dialogue"><w:name w:val="Dialogue"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="1440" w:right="1440"/><w:spacing w:after="0"/></w:pPr></w:style>
-<w:style w:type="paragraph" w:styleId="Parenthetical"><w:name w:val="Parenthetical"/><w:basedOn w:val="Normal"/><w:pPr>{parent_align}<w:ind w:left="1440" w:right="1440"/><w:keepNext/><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="{}"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Character"><w:name w:val="Character"/><w:basedOn w:val="Normal"/><w:pPr>{character_align}<w:keepNext/><w:spacing w:after="0"/></w:pPr><w:rPr><w:b/><w:rFonts w:eastAsia="黑体"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Dialogue"><w:name w:val="Dialogue"/><w:basedOn w:val="Normal"/><w:pPr>{dialogue_ind}<w:spacing w:after="0"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="Parenthetical"><w:name w:val="Parenthetical"/><w:basedOn w:val="Normal"/><w:pPr>{parent_align}{parent_ind}<w:keepNext/><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="{}"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Transition"><w:name w:val="Transition"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="{transition_align}"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>
 </w:styles>"#, if chinese { small } else { size });
 

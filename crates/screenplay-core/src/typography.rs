@@ -1,7 +1,16 @@
 //! Explicit presentation profiles; screenplay semantics remain unchanged.
 use crate::ast::{BlockType, ScreenplaySettings};
-pub fn chinese(s: &ScreenplaySettings) -> bool { s.typography == "chinese-reading" }
+pub const HOLLYWOOD: &str = "hollywood";
+pub const CHINESE_READING: &str = "chinese-reading";
+pub const CHINESE_PRODUCTION: &str = "chinese-production";
+pub const CHINESE_GENERAL: &str = "chinese-general";
+pub fn chinese(s: &ScreenplaySettings) -> bool { s.typography == CHINESE_READING }
+/// 中式剧本（△ 标记）：国内短剧/平台稿方言，动作行以 △ 引导、对白与人物名同一行。
+pub fn production(s: &ScreenplaySettings) -> bool { s.typography == CHINESE_PRODUCTION }
+/// 中文通用剧本：传统电影文学剧本版式，不加 △ 或平台稿符号。
+pub fn general(s: &ScreenplaySettings) -> bool { s.typography == CHINESE_GENERAL }
 pub fn indent(s: &ScreenplaySettings, t: BlockType) -> f64 {
+    if production(s) || general(s) { return 0.0; }
     if !chinese(s) { return crate::pagination::indent_of(t); }
     match t { BlockType::Dialogue | BlockType::Parenthetical => 1.0, _ => 0.0 }
 }
@@ -9,6 +18,9 @@ pub fn size_ratio(s: &ScreenplaySettings, t: BlockType) -> f64 {
     if chinese(s) && t == BlockType::Parenthetical { 0.85 } else { 1.0 }
 }
 pub fn bold(t: BlockType) -> bool { matches!(t, BlockType::SceneHeading | BlockType::Character | BlockType::Transition) }
+pub fn bold_in(s: &ScreenplaySettings, t: BlockType) -> bool {
+    if production(s) || general(s) { t == BlockType::SceneHeading } else { bold(t) }
+}
 /// Normalize the OCR spelling only in cue metadata, never in dialogue/actions.
 pub fn normalize_continuation(text:&str)->String {
  let trimmed=text.trim();
@@ -25,6 +37,85 @@ pub fn display_text(t: BlockType, text: &str) -> String {
     let canonical=if matches!(t,BlockType::Character|BlockType::Parenthetical){normalize_continuation(text)}else{text.into()};
     let text = canonical.trim();
     if t == BlockType::Parenthetical && !(text.starts_with('(') || text.starts_with('（')) { format!("（{text}）") } else { text.into() }
+}
+/// Presentation-only text for the selected profile. 中式剧本的动作行补 `△`，
+/// 但用户已经手打的 `△` 不会重复；其余预设保持原样。
+pub fn display_text_with(s: &ScreenplaySettings, t: BlockType, text: &str) -> String {
+    let base = display_text(t, text);
+    if production(s) && t == BlockType::Action && !base.trim_start().starts_with('△') {
+        format!("△{}", base.trim_start())
+    } else { base }
+}
+/// 中式剧本的场景头：`12-日-办公室-内`（场号-时间-地点-内外）。
+/// 中文通用剧本：`12、办公室，日，内`（场号、地点、时间、内外）。
+/// 场号开关关闭时省略场号；内外景未知时省略最后一段。
+pub fn scene_heading_display(doc: &crate::ast::ScreenplayDocument, b: &crate::ast::ScreenplayBlock) -> Option<String> {
+    if !(production(&doc.settings) || general(&doc.settings)) || b.block_type != BlockType::SceneHeading { return None; }
+    let data = b.scene_heading.clone()
+        .or_else(|| crate::heading_format::format_heading(&b.text, &doc.settings).map(|(_, d)| d))
+        .or_else(|| crate::parser::parse_scene_heading(&b.text).map(|(d, _)| d))?;
+    if data.location.trim().is_empty() { return None; }
+    let number = if doc.settings.show_scene_numbers {
+        let index = doc.blocks.iter().filter(|x| x.block_type == BlockType::SceneHeading).position(|x| x.id == b.id)?;
+        Some(data.scene_number.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| (index + 1).to_string()))
+    } else { None };
+    let int_ext = data.int_ext.to_zh();
+    if production(&doc.settings) {
+        let mut parts = Vec::new();
+        if let Some(n) = number { parts.push(n); }
+        if !data.time_of_day.trim().is_empty() { parts.push(data.time_of_day.trim().into()); }
+        parts.push(data.location.trim().into());
+        if !int_ext.is_empty() { parts.push(int_ext.into()); }
+        Some(parts.join("-"))
+    } else {
+        let mut rest = vec![data.location.trim().to_string()];
+        if !data.time_of_day.trim().is_empty() { rest.push(data.time_of_day.trim().into()); }
+        if !int_ext.is_empty() { rest.push(int_ext.into()); }
+        Some(match number { Some(n) => format!("{}、{}", n, rest.join("，")), None => rest.join("，") })
+    }
+}
+/// 导出用的呈现副本：中式剧本与中文通用剧本把「人物 + 可选括注 + 对白」合并成一行。
+/// 原始文档与撤销历史保持不变；其他预设原样返回。
+pub fn export_view(doc: &crate::ast::ScreenplayDocument) -> crate::ast::ScreenplayDocument {
+    if !(production(&doc.settings) || general(&doc.settings)) { return doc.clone(); }
+    let mut out = doc.clone();
+    let source = doc.blocks.clone();
+    let mut blocks = Vec::with_capacity(source.len());
+    let mut i = 0usize;
+    while i < source.len() {
+        let b = &source[i];
+        if b.block_type == BlockType::Character {
+            let (base, ext) = character_parts(&b.text);
+            let mut j = i + 1;
+            let mut paren: Option<String> = None;
+            if let Some(next) = source.get(j).filter(|n| n.block_type == BlockType::Parenthetical) {
+                let p = next.text.trim();
+                let p = p.strip_prefix('（').and_then(|v| v.strip_suffix('）'))
+                    .or_else(|| p.strip_prefix('(').and_then(|v| v.strip_suffix(')')))
+                    .unwrap_or(p);
+                if !p.trim().is_empty() { paren = Some(p.trim().into()); }
+                j += 1;
+            }
+            if let Some(dialogue) = source.get(j).filter(|n| n.block_type == BlockType::Dialogue && !n.text.trim().is_empty()) {
+                if !base.trim().is_empty() {
+                    let mut text = format!("{}{}", base.trim(), ext.unwrap_or(""));
+                    if let Some(p) = paren { text.push('（'); text.push_str(&p); text.push('）'); }
+                    text.push('：');
+                    text.push_str(dialogue.text.trim());
+                    let mut merged = b.clone();
+                    merged.block_type = BlockType::Dialogue;
+                    merged.text = text;
+                    blocks.push(merged);
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        blocks.push(b.clone());
+        i += 1;
+    }
+    out.blocks = blocks;
+    out
 }
 /// Only delivery qualifiers belong beside the name, never performance directions.
 pub fn character_parts(text: &str) -> (&str, Option<&str>) {
@@ -66,7 +157,7 @@ pub fn is_delivery(s: &str) -> bool {
 
 /// Display-only label: never insert generated numbering into editable source text.
 pub fn scene_label(doc: &crate::ast::ScreenplayDocument, id: &str) -> Option<String> {
-    if !doc.settings.show_scene_numbers { return None; }
+    if !doc.settings.show_scene_numbers || production(&doc.settings) || general(&doc.settings) { return None; }
     let index = doc.blocks.iter().filter(|b| b.block_type == crate::ast::BlockType::SceneHeading).position(|b| b.id == id)?;
     let block = doc.blocks.iter().find(|b| b.id == id)?;
     let number = block.scene_heading.as_ref().and_then(|s| s.scene_number.as_deref()).map(str::to_owned).unwrap_or_else(|| (index + 1).to_string());
@@ -98,7 +189,7 @@ pub fn grid_size(s: &ScreenplaySettings) -> f64 {
 pub fn style(s: &ScreenplaySettings, t: BlockType) -> crate::ast::ElementStyle {
     let mut style = s.element_styles.get(t.as_str()).cloned().unwrap_or_else(|| crate::ast::ElementStyle {
         font_family: if chinese(s) && t == BlockType::Character { "PingFang SC".into() } else { s.font_family.clone() },
-        font_size: s.font_size * size_ratio(s, t), bold: bold(t), italic: false, color: "#000000".into(),
+        font_size: s.font_size * size_ratio(s, t), bold: bold_in(s, t), italic: false, color: "#000000".into(),
     });
     if t == BlockType::Parenthetical { style.bold = false; }
     style
@@ -238,5 +329,60 @@ pub fn continued_cue(text:&str)->String{
   assert_eq!(continued_cue("甲（CONT'D）"),"甲（CONT'D）");
   assert_eq!(continued_cue("甲（画外音）"),"甲（画外音, CONT'D）");
   assert!(is_delivery("画外音, CONT'D"));
+ }
+}
+
+#[cfg(test)] mod production_tests {
+ use super::*;use crate::ast::*;
+ fn production_doc()->ScreenplayDocument{
+  let mut d=crate::parser::parse("内景 办公室 - 日\n\n李明擦汗后退，撞到墙。\n\n李明（低声）：报告……",&Default::default()).document;
+  d.settings.typography=CHINESE_PRODUCTION.into();d.settings.font_size=12.0;d.settings.line_height=1.5;d
+ }
+ #[test] fn scene_heading_is_number_time_location_int_ext(){
+  let mut d=production_doc();d.settings.show_scene_numbers=true;
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("1-日-办公室-内"));
+  d.settings.show_scene_numbers=false;
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("日-办公室-内"));
+ }
+ #[test] fn action_gets_single_delta_prefix(){
+  assert_eq!(display_text_with(&production_doc().settings,BlockType::Action,"李明擦汗"),"△李明擦汗");
+  assert_eq!(display_text_with(&production_doc().settings,BlockType::Action,"△李明擦汗"),"△李明擦汗");
+  let mut d=production_doc();d.settings.typography=HOLLYWOOD.into();
+  assert_eq!(display_text_with(&d.settings,BlockType::Action,"李明擦汗"),"李明擦汗");
+ }
+ #[test] fn production_heading_input_is_recognized(){
+  let (data,display)=crate::parser::parse_scene_heading("12-日-办公室-内").unwrap();
+  assert_eq!(data.scene_number.as_deref(),Some("12"));
+  assert_eq!(data.location,"办公室");
+  assert_eq!(data.time_of_day,"日");
+  assert_eq!(data.int_ext.to_zh(),"内");
+  assert!(display.contains("办公室"));
+  assert!(crate::parser::parse_scene_heading("内景 办公室 - 日").is_some());
+ }
+ #[test] fn general_profile_has_no_platform_marks(){
+  let mut d=production_doc();
+  d.settings.typography=CHINESE_GENERAL.into();
+  d.settings.show_scene_numbers=true;
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("1、办公室，日，内"));
+  assert_eq!(display_text_with(&d.settings,BlockType::Action,"李明擦汗"),"李明擦汗");
+  let html=crate::serializer::to_html(&d);
+  assert!(html.contains("李明（低声）：报告"));
+  assert!(!html.contains('△'));
+  assert!(html.contains("chinese-general"));
+ }
+ #[test] fn export_view_merges_one_dialogue_line_without_touching_source(){
+  let mut d=production_doc();
+  d.blocks=vec![ScreenplayBlock::new(BlockType::Character,"李明"),ScreenplayBlock::new(BlockType::Parenthetical,"低声"),ScreenplayBlock::new(BlockType::Dialogue,"报告……")];
+  let view=export_view(&d);
+  assert_eq!(view.blocks.len(),1);
+  assert_eq!(view.blocks[0].block_type,BlockType::Dialogue);
+  assert_eq!(view.blocks[0].text,"李明（低声）：报告……");
+  assert_eq!(d.blocks.len(),3);
+  assert_eq!(d.blocks[0].block_type,BlockType::Character);
+ }
+ #[test] fn other_profiles_are_untouched(){
+  let mut d=production_doc();d.settings.typography=CHINESE_READING.into();
+  let view=export_view(&d);
+  assert_eq!(view.blocks.len(),d.blocks.len());
  }
 }
