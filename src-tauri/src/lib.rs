@@ -959,7 +959,7 @@ fn update_settings(
     if patch.scene_heading_template.as_deref().is_some_and(|v| !screenplay_core::heading_format::valid_template(v)) || patch.scene_heading_language.as_deref().is_some_and(|v| !matches!(v,"zh"|"en")) {
         return Err(IpcError::InvalidArgument { message: "场景模板必须各包含一次 {type}、{location}、{time}，且不能换行".into() });
     }
-    if patch.typography.as_deref().is_some_and(|v| v != "hollywood" && v != "chinese-reading") {
+    if patch.typography.as_deref().is_some_and(|v| !matches!(v, "hollywood" | "chinese-reading" | "chinese-production" | "chinese-general")) {
         return Err(IpcError::InvalidArgument { message: "无效的剧本排版模板".into() });
     }
     if patch.element_styles.as_ref().is_some_and(|v| !screenplay_core::typography::validate_styles(v)) {
@@ -990,9 +990,28 @@ fn update_settings(
             if let Some(value) = patch.show_scene_numbers { doc.settings.show_scene_numbers = value; }
             if let Some(style) = patch.typography {
                 if style != doc.settings.typography {
-                    doc.settings.font_size = if style == "chinese-reading" { 14.0 } else { 12.0 };
-                    doc.settings.line_height = if style == "chinese-reading" { 1.6 } else { 1.0 };
-                    doc.settings.font_family = if style == "chinese-reading" { "Songti SC, SimSun, serif".into() } else { "Courier, monospace".into() };
+                    match style.as_str() {
+                        "chinese-reading" => {
+                            doc.settings.font_size = 14.0;
+                            doc.settings.line_height = 1.6;
+                            doc.settings.font_family = "Songti SC, SimSun, serif".into();
+                        }
+                        "chinese-production" => {
+                            doc.settings.font_size = 12.0;
+                            doc.settings.line_height = 1.5;
+                            doc.settings.font_family = "Courier New, Songti SC, SimSun, serif".into();
+                        }
+                        "chinese-general" => {
+                            doc.settings.font_size = 12.0;
+                            doc.settings.line_height = 1.5;
+                            doc.settings.font_family = "Songti SC, SimSun, serif".into();
+                        }
+                        _ => {
+                            doc.settings.font_size = 12.0;
+                            doc.settings.line_height = 1.0;
+                            doc.settings.font_family = "Courier, monospace".into();
+                        }
+                    }
                 }
                 doc.settings.typography = style;
             }
