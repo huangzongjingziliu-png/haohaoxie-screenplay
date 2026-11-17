@@ -125,7 +125,7 @@ pub fn usable_lines(s: &ScreenplaySettings) -> f64 {
 /// Courier 12pt 为 10 字符/英寸；中文字符按 2 个单位宽。
 pub fn units_per_line(s: &ScreenplaySettings, indent: f64) -> f64 {
     let content_w = s.paper.page_width_inch - s.paper.margin_left_inch - s.paper.margin_right_inch;
-    if crate::typography::chinese(s) || crate::typography::production(s) {
+    if crate::typography::chinese(s) || crate::typography::production(s) || crate::typography::general(s) {
         ((content_w - 2.0 * indent) * 72.0 / s.font_size.max(6.0) * 2.0).floor().max(10.0)
     } else { ((content_w - indent) * 10.0 * 12.0 / s.font_size.max(6.0)).floor().max(10.0) }
 }
@@ -395,11 +395,13 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
             // 剩余部分 → 后续页
             if head_n < all_lines.len() {
                 // 找该对白所属人物名，供 CONT'D 使用
+                // 合并呈现的预设里没有独立 Character 块，人物名在对白正文的冒号前。
                 let speaker = blocks[..i]
                     .iter()
                     .rev()
                     .find(|x| x.block_type == BlockType::Character)
-                    .map(|x| x.text.clone());
+                    .map(|x| x.text.clone())
+                    .or_else(|| crate::typography::merged_speaker(s, &b.text));
 
                 let mut rest = &all_lines[head_n..];
                 let mut source_line=head_n;
@@ -516,6 +518,31 @@ mod tests {
         .document
     }
 
+    #[test]
+    fn general_uses_chinese_line_width() {
+        let mut s = ScreenplaySettings::default();
+        s.font_size = 12.0;
+        s.typography = crate::typography::CHINESE_GENERAL.into();
+        assert_eq!(units_per_line(&s, 0.0), 72.0);
+    }
+
+    #[test]
+    fn merged_dialogue_continuation_repeats_speaker() {
+        let long = "台词。".repeat(2000);
+        let mut doc = build(&format!("1-日-办公室-内\n\n李明：{long}"));
+        doc.settings.typography = crate::typography::CHINESE_PRODUCTION.into();
+        doc.settings.font_size = 12.0;
+        doc.settings.line_height = 1.5;
+        let view = crate::typography::export_view(&doc);
+        let pag = paginate(&view);
+        assert!(pag.pages.len() > 1);
+        assert!(pag
+            .pages
+            .iter()
+            .skip(1)
+            .flat_map(|p| p.blocks.iter())
+            .any(|b| b.contd && b.text.contains("李明")));
+    }
     #[test]
     fn g01_scene_heading_never_alone_at_page_end() {
         // 构造一个让 scene heading 落在页尾的文档

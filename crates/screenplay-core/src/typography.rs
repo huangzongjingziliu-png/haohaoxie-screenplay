@@ -38,11 +38,19 @@ pub fn display_text(t: BlockType, text: &str) -> String {
     let text = canonical.trim();
     if t == BlockType::Parenthetical && !(text.starts_with('(') || text.starts_with('（')) { format!("（{text}）") } else { text.into() }
 }
+/// 合并行「人物（情态）：台词」在跨页续排时需要用正文里的人物名做续页提示。
+/// 只在两种合并预设下生效，且只取冒号前、长度合理的片段，避免把普通台词误当人物名。
+pub fn merged_speaker(s: &ScreenplaySettings, text: &str) -> Option<String> {
+    if !(production(s) || general(s)) { return None; }
+    let cue = text.split_once('：')?.0.trim();
+    if cue.is_empty() || cue.chars().count() > 40 { return None; }
+    Some(cue.to_string())
+}
 /// Presentation-only text for the selected profile. 中式剧本的动作行补 `△`，
 /// 但用户已经手打的 `△` 不会重复；其余预设保持原样。
 pub fn display_text_with(s: &ScreenplaySettings, t: BlockType, text: &str) -> String {
     let base = display_text(t, text);
-    if production(s) && t == BlockType::Action && !base.trim_start().starts_with('△') {
+    if production(s) && t == BlockType::Action && !base.trim().is_empty() && !base.trim_start().starts_with('△') {
         format!("△{}", base.trim_start())
     } else { base }
 }
@@ -51,9 +59,26 @@ pub fn display_text_with(s: &ScreenplaySettings, t: BlockType, text: &str) -> St
 /// 场号开关关闭时省略场号；内外景未知时省略最后一段。
 pub fn scene_heading_display(doc: &crate::ast::ScreenplayDocument, b: &crate::ast::ScreenplayBlock) -> Option<String> {
     if !(production(&doc.settings) || general(&doc.settings)) || b.block_type != BlockType::SceneHeading { return None; }
-    let data = b.scene_heading.clone()
-        .or_else(|| crate::heading_format::format_heading(&b.text, &doc.settings).map(|(_, d)| d))
-        .or_else(|| crate::parser::parse_scene_heading(&b.text).map(|(d, _)| d))?;
+    // 正文是唯一事实来源：编辑器改过场景头后，缓存的元数据可能已过期，
+    // 因此先用当前文本解析，元数据只用于补回只存在于元数据里的场号。
+    let parsed = crate::heading_format::format_heading(&b.text, &doc.settings)
+        .map(|(_, d)| d)
+        .or_else(|| crate::parser::parse_scene_heading(&b.text).map(|(d, _)| d))
+        .or_else(|| b.scene_heading.clone());
+    let Some(mut data) = parsed else {
+        // 解析不了的场景头也保留场号，避免编辑器有号、导出没号。
+        if !doc.settings.show_scene_numbers || b.text.trim().is_empty() { return None; }
+        let index = doc.blocks.iter().filter(|x| x.block_type == BlockType::SceneHeading).position(|x| x.id == b.id)?;
+        let number = b.scene_heading.as_ref().and_then(|d| d.scene_number.clone())
+            .filter(|n| !n.trim().is_empty()).unwrap_or_else(|| (index + 1).to_string());
+        let text = b.text.trim();
+        return Some(if production(&doc.settings) { format!("{number}-{text}") } else { format!("{number}、{text}") });
+    };
+    if data.scene_number.as_deref().map_or(true, |n| n.trim().is_empty()) {
+        if let Some(n) = b.scene_heading.as_ref().and_then(|d| d.scene_number.clone()).filter(|n| !n.trim().is_empty()) {
+            data.scene_number = Some(n);
+        }
+    }
     if data.location.trim().is_empty() { return None; }
     let number = if doc.settings.show_scene_numbers {
         let index = doc.blocks.iter().filter(|x| x.block_type == BlockType::SceneHeading).position(|x| x.id == b.id)?;
@@ -380,9 +405,38 @@ pub fn continued_cue(text:&str)->String{
   assert_eq!(d.blocks.len(),3);
   assert_eq!(d.blocks[0].block_type,BlockType::Character);
  }
+ #[test] fn empty_action_gets_no_marker(){
+  let d=production_doc();
+  let s=&d.settings;
+  assert_eq!(display_text_with(s,BlockType::Action,"  "),"");
+  assert_eq!(display_text_with(s,BlockType::Action,"他站起。"),"△他站起。");
+  assert_eq!(display_text_with(s,BlockType::Action,"△他站起。"),"△他站起。");
+ }
  #[test] fn other_profiles_are_untouched(){
   let mut d=production_doc();d.settings.typography=CHINESE_READING.into();
   let view=export_view(&d);
   assert_eq!(view.blocks.len(),d.blocks.len());
+ }
+ #[test] fn edited_heading_text_wins_over_cached_metadata(){
+  let mut d=production_doc();d.settings.show_scene_numbers=true;
+  d.blocks[0].text="1-夜-卧室-外".into();
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("1-夜-卧室-外"));
+ }
+ #[test] fn unparsed_heading_keeps_number_in_exports(){
+  let mut d=ScreenplayDocument::blank("x");
+  d.settings.typography=CHINESE_GENERAL.into();
+  d.settings.show_scene_numbers=true;
+  d.blocks.push(ScreenplayBlock::new(BlockType::SceneHeading,"字幕：三日后"));
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("1、字幕：三日后"));
+ }
+ #[test] fn cached_scene_number_survives_text_edit(){
+  let mut d=ScreenplayDocument::blank("x");
+  let mut b=ScreenplayBlock::new(BlockType::SceneHeading,"咖啡馆 / 内景 / 日");
+  b.scene_heading=Some(SceneHeadingData{scene_number:Some("12A".into()),..Default::default()});
+  d.blocks.push(b);
+  d.settings.typography=CHINESE_GENERAL.into();
+  d.settings.show_scene_numbers=true;
+  d.settings.scene_heading_template="{location} / {type} / {time}".into();
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("12A、咖啡馆，日，内"));
  }
 }
