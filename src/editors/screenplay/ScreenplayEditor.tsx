@@ -592,13 +592,21 @@ function BlockView({
   const index = screenplayDoc ? indexDocument(screenplayDoc.blocks) : undefined;
   const sceneBlock = index?.blocks.get(sourceId);
   const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(index?.scenes.get(sourceId) ?? 0);
-  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
+  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : settings.typography === 'chinese-production' ? `${sceneNumber}-` : settings.typography === 'chinese-general' ? `${sceneNumber}、` : `SCENE ${sceneNumber}`) : null;
   const chinese = settings?.typography === 'chinese-reading';
+  const production = settings?.typography === 'chinese-production';
+  const general = settings?.typography === 'chinese-general';
+  const cjkBrackets = chinese || production || general;
   const customStyle = settings?.element_styles?.[pb.block_type];
   const resolvedStyle = customStyle ?? defaultElementStyle(pb.block_type, settings?.typography ?? 'hollywood');
   const gridSize = Math.max(settings?.font_size ?? 12, ...Object.values(settings?.element_styles ?? {}).map(s => s?.font_size ?? 0));
   const customCss = customStyle ? { fontFamily: resolvedStyle.font_family, fontSize: `${resolvedStyle.font_size}pt`, fontWeight: pb.block_type !== 'parenthetical' && resolvedStyle.bold ? 700 : 400, fontStyle: resolvedStyle.italic ? 'italic' : 'normal', color: resolvedStyle.color } : {};
-  const indent = chinese ? (['dialogue', 'parenthetical'].includes(pb.block_type) ? 1 : 0) : (INDENT_INCHES[pb.block_type] ?? 0);
+  const indent = (production || general) ? 0 : chinese ? (['dialogue', 'parenthetical'].includes(pb.block_type) ? 1 : 0) : (INDENT_INCHES[pb.block_type] ?? 0);
+  // 中式剧本：人物（情态）后接冒号，动作行补 △。都是装饰，不写入正文。
+  const docIndex = screenplayDoc ? screenplayDoc.blocks.findIndex(b => b.id === sourceId) : -1;
+  const nextType = docIndex >= 0 ? screenplayDoc!.blocks.slice(docIndex + 1).find(b => b.text.trim())?.block_type : undefined;
+  const cueColon = production && nextType === 'dialogue' && (pb.block_type === 'character' || pb.block_type === 'parenthetical');
+  const deltaPrefix = production && pb.block_type === 'action' && !pb.text.trimStart().startsWith('△');
 
   const locationPrefix = completionInput?.match(/^((?:内景|外景|内|外|INT\.?|EXT\.?)[.。．\s]*)([^—\-\n]*)$/i);
   const suggestions = completionInput === null || !active ? [] : pb.block_type === 'character'
@@ -626,10 +634,10 @@ function BlockView({
       {sceneLabel && <div className="scene-number-label" style={customCss} contentEditable={false}>{sceneLabel}</div>}
       <div className={pb.block_type === 'parenthetical' ? 'parenthetical-shell' : undefined}
         style={pb.block_type === 'parenthetical' ? { marginLeft: `${indent}in`, marginRight: chinese ? `${indent}in` : undefined, fontSize: !customStyle && chinese ? '85%' : undefined, textAlign: chinese ? 'center' : undefined } : undefined}>
-      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{chinese ? '（' : '('}</span>}
+      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{cjkBrackets ? '（' : '('}</span>}
       <div
         ref={ref}
-        className={`screenplay-block block-${pb.block_type}`}
+        className={`screenplay-block block-${pb.block_type}${cueColon ? ' cue-colon' : ''}${deltaPrefix ? ' prefix-delta' : ''}`}
         data-block-type={pb.block_type}
         data-source-start={pb.source_start}
         data-source-end={pb.source_end}
@@ -692,7 +700,7 @@ function BlockView({
           if(!pb.contd)onKeyDown(e, sourceId);
         }}
       />
-      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{chinese ? '）' : ')'}</span>}
+      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{cjkBrackets ? '）' : ')'}</span>}
       </div>
       {suggestions.length > 0 && <div className="writing-completions" role="listbox" aria-label={tr("写作补全")}>
         {suggestions.map((value, index) => <button key={value} role="option" aria-selected={index === Math.min(completionIndex, suggestions.length - 1)}
