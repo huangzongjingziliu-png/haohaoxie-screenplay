@@ -1223,6 +1223,11 @@ body.dark .import-review-detail blockquote { background: #303036; }
 
 /* Writing comfort: physical page stays intact while the pane scales it. */
 .scene-number-label { font: inherit; font-weight: 700; white-space: nowrap; }
+/* 中式/中文通用的场号在导出时与场景头同行；纸面也保持同行，避免标签多占一行压住下一块。 */
+.typography-chinese-production .scene-number-label,
+.typography-chinese-general .scene-number-label { display: inline; }
+.typography-chinese-production .block-shell,
+.typography-chinese-general .block-shell { display: inline; }
 .exit-focus { position: fixed; top: 12px; right: 18px; z-index: 20; opacity: .65; }
 .exit-focus:hover, .exit-focus:focus { opacity: 1; }
 .toolbar { flex-wrap: wrap; gap: 8px; }

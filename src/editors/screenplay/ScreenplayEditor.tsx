@@ -606,7 +606,7 @@ function BlockView({
   const docIndex = screenplayDoc ? screenplayDoc.blocks.findIndex(b => b.id === sourceId) : -1;
   const nextType = docIndex >= 0 ? screenplayDoc!.blocks.slice(docIndex + 1).find(b => b.text.trim())?.block_type : undefined;
   const cueColon = production && nextType === 'dialogue' && (pb.block_type === 'character' || pb.block_type === 'parenthetical');
-  const deltaPrefix = production && pb.block_type === 'action' && !pb.text.trimStart().startsWith('△');
+  const deltaPrefix = production && pb.block_type === 'action' && pb.text.trim() !== '' && !pb.text.trimStart().startsWith('△');
 
   const locationPrefix = completionInput?.match(/^((?:内景|外景|内|外|INT\.?|EXT\.?)[.。．\s]*)([^—\-\n]*)$/i);
   const suggestions = completionInput === null || !active ? [] : pb.block_type === 'character'
@@ -632,7 +632,7 @@ function BlockView({
       {pb.more && <div className="more-marker">(MORE)</div>}
 
       {sceneLabel && <div className="scene-number-label" style={customCss} contentEditable={false}>{sceneLabel}</div>}
-      <div className={pb.block_type === 'parenthetical' ? 'parenthetical-shell' : undefined}
+      <div className={pb.block_type === 'parenthetical' ? 'parenthetical-shell' : 'block-shell'}
         style={pb.block_type === 'parenthetical' ? { marginLeft: `${indent}in`, marginRight: chinese ? `${indent}in` : undefined, fontSize: !customStyle && chinese ? '85%' : undefined, textAlign: chinese ? 'center' : undefined } : undefined}>
       {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{cjkBrackets ? '（' : '('}</span>}
       <div
