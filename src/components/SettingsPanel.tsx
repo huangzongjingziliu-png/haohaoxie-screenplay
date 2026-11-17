@@ -4,8 +4,17 @@ import { useEffect, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { ELEMENT_LABELS, validElementStyle, defaultElementStyle, readPresets, writePresets, readUiSize, saveUiSize } from '@/utils/appearance';
+import { TYPOGRAPHY_PRESETS } from '@/utils/typographyPresets';
 import type { ElementStyle } from '@/ipc/types/ElementStyle';
 import { ipc, ScreenplayError } from '@/ipc/client';
+
+/**
+ * 场号开关的“用户是否手动改过”只存本机偏好，不写进工程文件：
+ * 未改过时随预设切换取默认值，改过之后一切以用户选择为准。
+ */
+const SCENE_NUMBERS_TOUCHED_KEY = 'screenplay.scene-numbers-touched';
+const sceneNumbersDefaultFor = (typography: string) => typography === 'chinese-production';
+const readSceneNumbersTouched = () => { try { return localStorage.getItem(SCENE_NUMBERS_TOUCHED_KEY) === '1'; } catch { return false; } };
 
 /**
  * 设置面板。
@@ -44,6 +53,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
   const [author, setAuthor] = useState('');
   const [language, setLanguage] = useState('zh');
   const [sceneNumbers, setSceneNumbers] = useState(false);
+  const [sceneNumbersTouched, setSceneNumbersTouched] = useState(readSceneNumbersTouched);
   const [headingAuto,setHeadingAuto]=useState(true),[headingTemplate,setHeadingTemplate]=useState('{type}。{location}——{time}'),[headingLanguage,setHeadingLanguage]=useState('zh');
   const [typography, setTypography] = useState('hollywood');
   const style = styles[element] ?? defaultElementStyle(element, typography);
@@ -173,9 +183,8 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
 
         <label className="field">
           <span>{tr("剧本排版")}</span>
-          <select aria-label={tr("剧本排版模板")} value={typography} onChange={(e) => { setTypography(e.target.value); setStyles({}); setPresetName(''); setPresetChoice(''); }}>
-            <option value="hollywood">{tr("美式剧本 · Courier")}</option>
-            <option value="chinese-reading">{tr("中文标准版")}</option>
+          <select aria-label={tr("剧本排版模板")} value={typography} onChange={(e) => { const next = e.target.value; setTypography(next); if (!sceneNumbersTouched) setSceneNumbers(sceneNumbersDefaultFor(next)); setStyles({}); setPresetName(''); setPresetChoice(''); }}>
+            {TYPOGRAPHY_PRESETS.map(p => <option key={p.id} value={p.id}>{tr(p.label)}</option>)}
           </select>
 
         </label>
@@ -191,7 +200,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
         <section className="custom-style-settings">
           <h3>{tr("自定义元素样式")}</h3>
           <p className="modal-hint">{tr("基于上方默认格式修改。样式随工程保存；命名预设可用于其他剧本。大字号会相应增加行距。")}</p>
-          <label className="field"><span>{tr("使用已保存的预设")}</span><select aria-label={tr("样式预设")} value={presetChoice} onChange={e => { const p = presets.find(p => p.name === e.target.value); setPresetChoice(e.target.value); if (p) { setTypography(p.typography); setStyles(p.styles); setPresetName(p.name); } }}><option value="">{tr("选择预设…")}</option>{presets.map(p => <option key={p.name}>{p.name}</option>)}</select></label>
+          <label className="field"><span>{tr("使用已保存的预设")}</span><select aria-label={tr("样式预设")} value={presetChoice} onChange={e => { const p = presets.find(p => p.name === e.target.value); setPresetChoice(e.target.value); if (p) { setTypography(p.typography); if (!sceneNumbersTouched) setSceneNumbers(sceneNumbersDefaultFor(p.typography)); setStyles(p.styles); setPresetName(p.name); } }}><option value="">{tr("选择预设…")}</option>{presets.map(p => <option key={p.name}>{p.name}</option>)}</select></label>
           <label className="field"><span>{tr("元素标签")}</span><select aria-label={tr("样式元素")} value={element} onChange={e => setElement(e.target.value)}>{Object.entries(ELEMENT_LABELS).map(([key, label]) => <option key={key} value={key}>{tr(label)}{styles[key] ? tr(" · 已自定义") : ''}</option>)}</select></label>
           <div className="style-fields">
             <label className="field"><span>{tr("字体")}</span><input aria-label={tr("元素字体")} list="screenplay-fonts" value={style.font_family} onChange={e => updateStyle({ font_family: e.target.value })}/><datalist id="screenplay-fonts">{['Songti SC','PingFang SC','Heiti SC','Kaiti SC','Courier','Menlo','Arial','Times New Roman'].map(f => <option key={f} value={f}/>)}</datalist></label>
@@ -206,7 +215,7 @@ export function TypographySettings({ onClose, embedded=false, registerSave }: { 
           {presetError && <p role="alert">{presetError}</p>}
           <p className="modal-hint">{tr("可输入这台 Mac 已安装的字体名称；缺失的字体会由系统替代。PDF、Word、HTML 支持自定义外观；Fountain、FDX 和纯文本导出保留文字与结构，不包含这些自定义外观。")}</p>
         </section>
-          <label className="setting-checkbox"><input type="checkbox" checked={sceneNumbers} onChange={(e) => setSceneNumbers(e.target.checked)} />{tr("显示场号（中文模板为“第几场”）")}</label>
+          <label className="setting-checkbox"><input type="checkbox" checked={sceneNumbers} onChange={(e) => { setSceneNumbers(e.target.checked); setSceneNumbersTouched(true); try { localStorage.setItem(SCENE_NUMBERS_TOUCHED_KEY, '1'); } catch { /* 忽略存储失败 */ } }} />{tr("导出时显示场号")}</label>
         <label className="field">
           <span>{tr("语言")}</span>
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
