@@ -802,5 +802,10 @@
   "通过 CLI 连接外部 Agent": "Connect an external agent through CLI",
   "适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。": "For agents that can execute commands on this Mac. The copied instructions require local command access.",
   "开始书写剧本": "Start writing your script",
-  "点击这里，开始书写场景标题…": "Click here to write your first scene heading…"
+  "点击这里，开始书写场景标题…": "Click here to write your first scene heading…",
+  "外观": "Appearance",
+  "显示模式": "Appearance",
+  "浅色": "Light",
+  "深色": "Dark",
+  "选择应用界面的外观。跟随系统会随 macOS 外观即时切换；导出的 PDF、Word、HTML 始终使用浅色纸面。": "Choose how the app looks. Follow system switches instantly with macOS appearance; exported PDF, Word, and HTML always use a light page."
 }
