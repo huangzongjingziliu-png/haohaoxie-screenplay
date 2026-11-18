@@ -662,6 +662,25 @@ body.dark ::-webkit-scrollbar-thumb {
   background: #fff2bd;
 }
 
+/* 合并预设：人物、可选括注、对白共用一行，与导出排版一致。 */
+.merged-dialogue-row > .block-inline {
+  position: static !important;
+  display: inline !important;
+  width: auto !important;
+  margin: 0 !important;
+}
+
+.merged-dialogue-row > .block-inline .block-shell,
+.merged-dialogue-row > .block-inline .parenthetical-shell {
+  display: inline !important;
+  margin: 0 !important;
+}
+
+.merged-dialogue-row > .block-inline .screenplay-block {
+  display: inline !important;
+  margin: 0 !important;
+}
+
 .block-controls {
   position: absolute;
   left: -1.35in;
@@ -972,11 +991,25 @@ body.dark ::-webkit-scrollbar-thumb {
 
 .version-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.version-header h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.version-header p {
+  order: 2;
+  flex: 0 0 100%;
+  margin: 0;
 }
 
 .version-branch-badge {
+  order: 1;
+  margin-left: auto;
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(0, 122, 255, 0.12);
@@ -1205,8 +1238,32 @@ body.dark .import-review-detail blockquote { background: #303036; }
 .screenplay-editor .page-content { font: inherit; }
 .typography-chinese-reading .block-character { font-family: 'PingFang SC', 'Heiti SC', sans-serif; }
 
+/* 中式剧本（△ 标记）：动作行 △ 前缀、人物/情态后接全角冒号，均为装饰，不写入正文。 */
+.typography-chinese-production .block-character { font-family: 'Courier New', 'Songti SC', SimSun, serif; text-align: left; font-weight: 700; }
+.typography-chinese-production .block-parenthetical { text-align: left; }
+.typography-chinese-production .block-dialogue { text-align: left; }
+.typography-chinese-production .block-transition { text-align: left; font-weight: 700; }
+.typography-chinese-production .block-shot { font-style: normal; color: inherit; }
+.typography-chinese-production .block-row { margin-bottom: 0; }
+.typography-chinese-production .prefix-delta::before { content: '△'; }
+.typography-chinese-production .cue-colon::after { content: '：'; }
+
+/* 中文通用剧本：传统电影文学剧本，左对齐宋体，不加 △/冒号等装饰。 */
+.typography-chinese-general .block-character { text-align: left; }
+.typography-chinese-general .block-parenthetical { text-align: left; }
+.typography-chinese-general .block-dialogue { text-align: left; }
+.typography-chinese-general .block-transition { text-align: left; font-weight: 700; }
+
 /* Writing comfort: physical page stays intact while the pane scales it. */
 .scene-number-label { font: inherit; font-weight: 700; white-space: nowrap; }
+/* 中式/中文通用的场号在导出时与场景头同行；纸面也保持同行，避免标签多占一行压住下一块。
+   只作用于「有场号标签的场景头」，其余块保持原有块级布局。 */
+.typography-chinese-production .scene-number-label,
+.typography-chinese-general .scene-number-label { display: inline; }
+.typography-chinese-production .scene-number-label + .block-shell,
+.typography-chinese-general .scene-number-label + .block-shell { display: inline; }
+.typography-chinese-production .scene-number-label + .block-shell .block-scene_heading,
+.typography-chinese-general .scene-number-label + .block-shell .block-scene_heading { display: inline-block; min-width: .5em; }
 .exit-focus { position: fixed; top: 12px; right: 18px; z-index: 20; opacity: .65; }
 .exit-focus:hover, .exit-focus:focus { opacity: 1; }
 .toolbar { flex-wrap: wrap; gap: 8px; }

@@ -620,16 +620,6 @@ impl ProjectService {
     // -----------------------------------------------------------------
     // 导入
     // -----------------------------------------------------------------
-
-    /// 导入外部文件到当前项目（替换文档内容）
-    pub fn import_file(&self, path: &Path) -> Result<CommandResult, CommandError> {
-        let (document, original_source) = crate::read_import_with_source(path)
-            .map_err(|error| CommandError::Internal { message: error.message() })?;
-        self.run_with_original_source(
-            |svc| svc.load_document(Origin::Import, document),
-            original_source,
-        )
-    }
 }
 
 #[cfg(test)]
@@ -771,7 +761,8 @@ mod tests {
         std::fs::write(&source_path, original).unwrap();
 
         svc.create_new("导入归档测试").unwrap();
-        svc.import_file(&source_path).unwrap();
+        let (document, original_source) = crate::read_import_with_source(&source_path).unwrap();
+        svc.run_with_original_source(|s| s.load_document(Origin::Import, document), original_source).unwrap();
         svc.save(Some(&project_path)).unwrap();
         svc.open(&project_path).unwrap();
         assert_eq!(svc.require().unwrap().original_source().as_deref(), Some(original));

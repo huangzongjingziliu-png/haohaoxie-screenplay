@@ -8,6 +8,7 @@ const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard'
 beforeEach(() => {
   mockBackend.reset(); copy.mockClear();
   mockBackend.on('agent_connection_info', () => info);
+  mockBackend.on('mcp_http_info', () => ({ running: false, url: '', token: '', port: 0, error: '未启动' }));
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
 });
 afterEach(() => {
@@ -28,7 +29,7 @@ it('复制对话说明使用好好写剧本工具只读验证，不要求安装 
   expect(prompt).toContain('不要声称已经连接');
   expect(prompt).not.toContain('codex mcp add');
   expect(document.querySelector('[aria-label="MCP接入配置"]')).toBeNull();
-  expect(mockBackend.calls.map(c => c.cmd)).toEqual(['agent_connection_info']);
+  expect(mockBackend.calls.map(c => c.cmd).sort()).toEqual(['agent_connection_info', 'mcp_http_info']);
 });
 it('不存在操作工具时禁用对话复制，避免提供失效路径', async () => {
   mockBackend.on('agent_connection_info', () => ({ ...info, available: false }));

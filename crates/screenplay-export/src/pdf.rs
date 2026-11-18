@@ -163,6 +163,9 @@ fn units_per_line(doc: &ScreenplayDocument, indent_in: f64) -> f64 {
 
 /// 把分页结果转成 sidecar 规格：每页若干「行」，带绝对坐标。
 fn build_spec(doc: &ScreenplayDocument) -> Result<PdfSpec, PdfError> {
+    // 中式剧本的「人物（情态）：台词」是呈现层合并；其余预设为原文档副本。
+    let view = screenplay_core::typography::export_view(doc);
+    let doc = &view;
     let pag = pagination::paginate(doc);
     let paper = &doc.settings.paper;
     // 纸张尺寸（英寸 → 点）
@@ -261,8 +264,14 @@ fn build_spec(doc: &ScreenplayDocument) -> Result<PdfSpec, PdfError> {
             //
             // PageBlock.block_type 才是权威（D-08：不重复实现、不反推）。
             let btype = pb.block_type;
-            let mut display = screenplay_core::typography::display_text(btype, &pb.text);
-            if let Some(label) = screenplay_core::typography::scene_label(doc, &pb.block_id) { display = format!("{label}\n{display}"); }
+            let mut display = screenplay_core::typography::display_text_with(&doc.settings, btype, &pb.text);
+            // 中式剧本直接把场景头换成「场号-时间-地点-内外」；其他预设保留“第X场/SCENE X”标签。
+            let heading = doc.blocks.iter().find(|b| b.id == pb.block_id).and_then(|b| screenplay_core::typography::scene_heading_display(doc, b));
+            if let Some(heading) = heading {
+                display = heading;
+            } else if let Some(label) = screenplay_core::typography::scene_label(doc, &pb.block_id) {
+                display = format!("{label}\n{display}");
+            }
             let text = display.trim();
 
             // 注：跨页对白的 (CONT'D) 标记由 pagination 直接放进

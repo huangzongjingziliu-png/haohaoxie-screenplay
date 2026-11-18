@@ -484,7 +484,14 @@ fn standalone(
                 );
             }
             match read_import(&p) {
-                Ok((doc, source)) => {
+                Ok((mut doc, source)) => {
+                    // 与 GUI / 桥接导入一致：标题跟随工程名。
+                    // 封面读 title_page.title，必须一起同步。
+                    let title = ws.document().metadata.title.trim().to_string();
+                    if !title.is_empty() {
+                        doc.metadata.title = title.clone();
+                        doc.title_page.title = title;
+                    }
                     match ws.service.load_document(Origin::Cli, doc) {
                         Ok(result) => {
                             if let Err(message) = ws.set_original_source(source) {

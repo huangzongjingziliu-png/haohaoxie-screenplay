@@ -280,6 +280,12 @@ export default function ScreenplayEditor() {
       }
 
       if (e.key === 'Backspace') {
+        // 有选区时交给浏览器删除选中文字：选区起点常在块首，
+        // 若按「块首退格」处理会把整段文字并进上一块。
+        const sel = window.getSelection();
+        const hasSelection = !!sel && !sel.isCollapsed && sel.rangeCount > 0
+          && (el.contains(sel.getRangeAt(0).startContainer) || el.contains(sel.getRangeAt(0).endContainer));
+        if (hasSelection) return;
         const full = stripAutoContinuation(el.textContent ?? '', el.dataset.autoContd === 'true');
         const caret = (Number(el.dataset.sourceStart) || 0) + (getCaretOffset(el) ?? 0);
         const blocks = useEditorStore.getState().document?.blocks ?? [];
@@ -435,6 +441,15 @@ function PageView({
 }) {
   const settings = useEditorStore((s) => s.document?.settings);
   const contentHeight = settings ? settings.page_height_inch - settings.margin_top_inch - settings.margin_bottom_inch : 9;
+  const gridSize = Math.max(settings?.font_size ?? 12, ...Object.values(settings?.element_styles ?? {}).map(s => s?.font_size ?? 0));
+  const lineHeight = settings?.line_height ?? 1;
+  // 合并预设下，人物/括注/对白三块共用一行：同一个 group 的连续块收进一个行容器。
+  const rows: PageBlock[][] = [];
+  for (const pb of page.blocks) {
+    const prev = rows[rows.length - 1];
+    if (pb.group && prev && prev[prev.length - 1].group === pb.group) prev.push(pb);
+    else rows.push([pb]);
+  }
   return (
     <div
       className="page"
@@ -455,21 +470,50 @@ function PageView({
           style={{ width: '100%', height: '100%', display: 'block', textAlign: 'left', verticalAlign: 'top', background: 'transparent', border: 0, color: 'inherit', cursor: 'text', padding: 0 }}
           onClick={() => void onStartWriting()}
         ><span style={{ display: 'block', height: '100%', opacity: 0.5 }}>{tr("点击这里，开始书写场景标题…")}</span></button>}
-        {page.blocks.map((pb) => {
-          const fresh = blocksById.get(pb.block_id);
-          if (!fresh) return null;
+        {rows.map((row) => {
+          const head = blocksById.get(row[0].block_id);
+          if (!head) return null;
+          if (!head.group) {
+            return (
+              <BlockView
+                key={head.block_id}
+                pb={head}
+                active={activeBlockId === sourceBlockId(head.block_id)}
+                onSelect={onSelect}
+                onChangeText={onChangeText}
+                onKeyDown={onKeyDown}
+                onInsertAfter={onInsertAfter}
+                onDelete={onDelete}
+                onError={onError}
+              />
+            );
+          }
+          const top = Math.min(...row.map((p) => (blocksById.get(p.block_id) ?? p).start_line));
           return (
-            <BlockView
-              key={pb.block_id}
-              pb={fresh}
-              active={activeBlockId === sourceBlockId(pb.block_id)}
-              onSelect={onSelect}
-              onChangeText={onChangeText}
-              onKeyDown={onKeyDown}
-              onInsertAfter={onInsertAfter}
-              onDelete={onDelete}
-              onError={onError}
-            />
+            <div
+              key={`group:${head.group}`}
+              className="block-row merged-dialogue-row"
+              style={{ position: 'absolute', top: `${top * gridSize * lineHeight}pt`, width: '100%', margin: 0 }}
+            >
+              {row.map((p) => {
+                const fresh = blocksById.get(p.block_id);
+                if (!fresh) return null;
+                return (
+                  <BlockView
+                    key={fresh.block_id}
+                    pb={fresh}
+                    inline
+                    active={activeBlockId === sourceBlockId(fresh.block_id)}
+                    onSelect={onSelect}
+                    onChangeText={onChangeText}
+                    onKeyDown={onKeyDown}
+                    onInsertAfter={onInsertAfter}
+                    onDelete={onDelete}
+                    onError={onError}
+                  />
+                );
+              })}
+            </div>
           );
         })}
       </div>
@@ -480,6 +524,7 @@ function PageView({
 function BlockView({
   pb,
   active,
+  inline,
   onSelect,
   onChangeText,
   onKeyDown,
@@ -489,6 +534,8 @@ function BlockView({
 }: {
   pb: PageBlock;
   active: boolean;
+  /** 合并预设的行内片段：不参与绝对定位，由外层行容器排布。 */
+  inline?: boolean;
   onSelect: (id: string) => void;
   onChangeText: (id: string, text: string, expectedRevision?: number) => Promise<boolean>;
   onKeyDown: (e: React.KeyboardEvent, id: string) => void;
@@ -592,13 +639,23 @@ function BlockView({
   const index = screenplayDoc ? indexDocument(screenplayDoc.blocks) : undefined;
   const sceneBlock = index?.blocks.get(sourceId);
   const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(index?.scenes.get(sourceId) ?? 0);
-  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
   const chinese = settings?.typography === 'chinese-reading';
+  const production = settings?.typography === 'chinese-production';
+  const general = settings?.typography === 'chinese-general';
+  // 合并预设的场号已并入场景头正文（`1-日-办公室-内` / `1、办公室，日，内`），
+  // 不再额外渲染标签，避免编号重复。
+  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' && !production && !general ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
+  const cjkBrackets = chinese || production || general;
   const customStyle = settings?.element_styles?.[pb.block_type];
   const resolvedStyle = customStyle ?? defaultElementStyle(pb.block_type, settings?.typography ?? 'hollywood');
   const gridSize = Math.max(settings?.font_size ?? 12, ...Object.values(settings?.element_styles ?? {}).map(s => s?.font_size ?? 0));
   const customCss = customStyle ? { fontFamily: resolvedStyle.font_family, fontSize: `${resolvedStyle.font_size}pt`, fontWeight: pb.block_type !== 'parenthetical' && resolvedStyle.bold ? 700 : 400, fontStyle: resolvedStyle.italic ? 'italic' : 'normal', color: resolvedStyle.color } : {};
-  const indent = chinese ? (['dialogue', 'parenthetical'].includes(pb.block_type) ? 1 : 0) : (INDENT_INCHES[pb.block_type] ?? 0);
+  const indent = (production || general) ? 0 : chinese ? (['dialogue', 'parenthetical'].includes(pb.block_type) ? 1 : 0) : (INDENT_INCHES[pb.block_type] ?? 0);
+  // 中式剧本：人物（情态）后接冒号，动作行补 △。都是装饰，不写入正文。
+  const docIndex = screenplayDoc ? screenplayDoc.blocks.findIndex(b => b.id === sourceId) : -1;
+  const nextType = docIndex >= 0 ? screenplayDoc!.blocks.slice(docIndex + 1).find(b => b.text.trim())?.block_type : undefined;
+  const cueColon = production && nextType === 'dialogue' && (pb.block_type === 'character' || pb.block_type === 'parenthetical');
+  const deltaPrefix = production && pb.block_type === 'action' && pb.text.trim() !== '' && !pb.text.trimStart().startsWith('△');
 
   const locationPrefix = completionInput?.match(/^((?:内景|外景|内|外|INT\.?|EXT\.?)[.。．\s]*)([^—\-\n]*)$/i);
   const suggestions = completionInput === null || !active ? [] : pb.block_type === 'character'
@@ -617,19 +674,68 @@ function BlockView({
     schedule();
   };
 
+  /**
+   * 多行粘贴不能交给 contenteditable：浏览器会插入 <div>/<br>，
+   * 提交时 textContent 读不到换行，标题和正文会被拼成同一段。
+   * 按 Enter 的语义把每一行拆成独立块，空行保留为空块。
+   */
+  const pasteMultiline = async (text: string) => {
+    const el = ref.current;
+    if (!el) return;
+    if (inFlight.current) await inFlight.current;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed && el.contains(sel.anchorNode) && el.contains(sel.focusNode)) sel.deleteFromDocument();
+    const lines = text.replace(/\r\n?/g, '\n').split('\n');
+    if (lines.length < 2) return;
+    const local = stripAutoContinuation(el.textContent ?? '', pb.auto_contd);
+    const context = fragmentDraft.current ?? fragmentContext(
+      useEditorStore.getState().document?.blocks.find((b) => b.id === sourceId)?.text ?? pb.text,
+      pb.source_start,
+      pb.source_end,
+    );
+    const caret = context.prefix.length + Math.min(getCaretOffset(el) ?? local.length, local.length);
+    const full = context.prefix + local + context.suffix;
+    const first = full.slice(0, caret) + lines[0] + full.slice(caret);
+    if (!await onChangeText(sourceId, first)) return;
+    userEdited.current = false;
+    setCompletionInput(null);
+    let afterId = sourceId;
+    let prevType: BlockType = pb.block_type;
+    for (const line of lines.slice(1)) {
+      const type = nextTypeFor(prevType);
+      await onInsertAfter(afterId, type, line);
+      const inserted = useEditorStore.getState().activeBlockId;
+      if (!inserted || inserted === afterId) return;
+      afterId = inserted;
+      prevType = type;
+    }
+    const caretAtEnd = lines[lines.length - 1].length;
+    let attempts = 0;
+    const focusLast = () => {
+      const target = document.querySelector<HTMLElement>(`[data-block-id="${cssEscape(afterId)}"] .screenplay-block`);
+      if (!target) { if (++attempts < 60) requestAnimationFrame(focusLast); return; }
+      target.focus();
+      setCaretAt(target, caretAtEnd);
+      target.scrollIntoView?.({ block: 'nearest' });
+    };
+    requestAnimationFrame(focusLast);
+  };
+
   return (
-    <div className={`block-row ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
-      style={{ position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
+    <div className={`block-row ${inline ? 'block-inline' : ''} ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
+      style={inline
+        ? { position: 'static', display: 'inline', width: 'auto', margin: 0, ...customCss }
+        : { position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
       {pb.contd && pb.block_type !== 'character' && <div className="contd-marker">(CONT'D)</div>}
       {pb.more && <div className="more-marker">(MORE)</div>}
 
       {sceneLabel && <div className="scene-number-label" style={customCss} contentEditable={false}>{sceneLabel}</div>}
-      <div className={pb.block_type === 'parenthetical' ? 'parenthetical-shell' : undefined}
+      <div className={pb.block_type === 'parenthetical' ? 'parenthetical-shell' : 'block-shell'}
         style={pb.block_type === 'parenthetical' ? { marginLeft: `${indent}in`, marginRight: chinese ? `${indent}in` : undefined, fontSize: !customStyle && chinese ? '85%' : undefined, textAlign: chinese ? 'center' : undefined } : undefined}>
-      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{chinese ? '（' : '('}</span>}
+      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{cjkBrackets ? '（' : '('}</span>}
       <div
         ref={ref}
-        className={`screenplay-block block-${pb.block_type}`}
+        className={`screenplay-block block-${pb.block_type}${cueColon ? ' cue-colon' : ''}${deltaPrefix ? ' prefix-delta' : ''}`}
         data-block-type={pb.block_type}
         data-source-start={pb.source_start}
         data-source-end={pb.source_end}
@@ -674,6 +780,10 @@ function BlockView({
           // 粘贴一律走纯文本，避免带入外部 HTML/CSS 破坏纸面
           e.preventDefault();
           const txt = e.clipboardData.getData('text/plain');
+          if (/[\r\n]/.test(txt)) {
+            void pasteMultiline(txt).catch((error) => onError(String(error)));
+            return;
+          }
           document.execCommand('insertText', false, txt);
         }}
         onBlur={() => { setCompletionInput(null); void flush().then(()=>{const el=ref.current;if(!el||composing.current||userEdited.current||document.activeElement===el)return;const current=useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId);if(current){const display=(['scene_heading','character','parenthetical'].includes(current.block_type)||pb.source_start!==undefined)&&current.text===sceneBlock?.text?pb.text:pb.source_start!==undefined?backendText.current:current.text;setBlockText(el,display,false);backendText.current=display;externalWhileEditing.current=null;}}).catch((e) => onError(String(e))); }}
@@ -692,7 +802,7 @@ function BlockView({
           if(!pb.contd)onKeyDown(e, sourceId);
         }}
       />
-      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{chinese ? '）' : ')'}</span>}
+      {pb.block_type === 'parenthetical' && !/^[（(]/.test(pb.text.trim()) && <span className="bracket-decoration" contentEditable={false}>{cjkBrackets ? '）' : ')'}</span>}
       </div>
       {suggestions.length > 0 && <div className="writing-completions" role="listbox" aria-label={tr("写作补全")}>
         {suggestions.map((value, index) => <button key={value} role="option" aria-selected={index === Math.min(completionIndex, suggestions.length - 1)}

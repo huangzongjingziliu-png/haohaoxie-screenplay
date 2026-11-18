@@ -2,20 +2,20 @@ import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {tr} from '@/i18n';
 import {registerPendingEditor} from '@/utils/pendingEdits';
 /** Preview and editing use the same text element, metrics and scroll position. */
-export default function InlineSceneText({value,label,title=false,onSave}:{value:string;label:string;title?:boolean;onSave:(text:string,original:string)=>Promise<void>}) {
+export default function InlineSceneText({value,baseline,label,title=false,onSave}:{value:string;baseline?:string;label:string;title?:boolean;onSave:(text:string,original:string)=>Promise<void>}) {
  const [editing,setEditing]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const root=useRef<HTMLDivElement>(null),input=useRef<HTMLDivElement>(null),original=useRef(value),composing=useRef(false),saving=useRef(false),live=useRef(true),point=useRef<{x:number;y:number}|null>(null);
+ const root=useRef<HTMLDivElement>(null),input=useRef<HTMLDivElement>(null),original=useRef(value),raw=useRef(baseline??value),composing=useRef(false),saving=useRef(false),live=useRef(true),point=useRef<{x:number;y:number}|null>(null);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  useLayoutEffect(()=>{if(!editing&&input.current&&input.current.textContent!==value)input.current.textContent=value;},[value,editing]);
  useLayoutEffect(()=>{if(!editing||!input.current)return;const el=input.current,top=el.scrollTop;el.focus({preventScroll:true});const doc=document as Document&{caretRangeFromPoint?:(x:number,y:number)=>Range|null};const range=point.current&&doc.caretRangeFromPoint?.(point.current.x,point.current.y);if(range&&el.contains(range.startContainer)){range.collapse(true);const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);}el.scrollTop=top;point.current=null;},[editing]);
  useEffect(()=>{if(!editing)return;const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))input.current?.blur();};document.addEventListener('pointerdown',outside,true);return()=>document.removeEventListener('pointerdown',outside,true);},[editing]);
- const begin=()=>{original.current=value;setError('');setEditing(true);};
+ const begin=()=>{original.current=value;raw.current=baseline??value;setError('');setEditing(true);};
  const pending=useRef<Promise<void>|null>(null);
  const save=async()=>{if(pending.current){await pending.current;return;}if(composing.current)throw new Error(tr('请先完成输入法组字'));const currentText=input.current?.innerText??input.current?.textContent??'';const text=title?currentText.replace(/[\r\n]+/g,' ').trim():currentText;
   if(title&&!text){const message=tr('场景标题不能为空');setError(message);input.current?.focus();throw new Error(message);}
   if(text.length>1000){const message=tr('便签文字不能超过1000字');setError(message);input.current?.focus();throw new Error(message);}
   if(text===original.current){setEditing(false);return;}saving.current=true;setBusy(true);
-  const task=(async()=>{try{await onSave(text,original.current);if(live.current)setEditing(false);}catch(e){if(live.current){setError(String(e));requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));}throw e;}finally{saving.current=false;if(live.current)setBusy(false);}})();
+  const task=(async()=>{try{await onSave(text,raw.current);if(live.current)setEditing(false);}catch(e){if(live.current){setError(String(e));requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));}throw e;}finally{saving.current=false;if(live.current)setBusy(false);}})();
   pending.current=task;try{await task;}finally{pending.current=null;}
  };
  useEffect(()=>{const unregister=registerPendingEditor(async()=>{if(pending.current)await pending.current;else if(editing)await save();});return()=>{if(pending.current)void pending.current.finally(unregister).catch(()=>{});else unregister();};},[editing,onSave]);

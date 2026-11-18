@@ -800,9 +800,9 @@ impl ScreenplayDocument {
         //
         // 原实现硬编码为 0（注释写「由 PaginationEngine 填充」但从未实现），
         // 导致 GUI 状态栏、CLI `info`、MCP `document_stats` 全部显示 0 页。
-        // 这里直接调用 pagination::paginate —— 统计与纸面/PDF 用同一份分页，
+        // 这里直接调用 pagination::paginate_for_editor —— 统计与纸面/PDF 用同一份分页，
         // 不存在「状态栏 0 页、纸面 12 页」的可能（说明书 D-08）。
-        let pages = crate::pagination::paginate(self).total_pages;
+        let pages = crate::pagination::paginate_for_editor(self).total_pages;
         DocumentStats {
             pages,
             scenes: self.scenes.len(),

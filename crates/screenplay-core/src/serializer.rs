@@ -269,13 +269,18 @@ pub fn to_plain_text(doc: &ScreenplayDocument) -> String {
 }
 
 pub fn to_html(doc: &ScreenplayDocument) -> String {
+    let view = crate::typography::export_view(doc);
+    let doc = &view;
     let continued=crate::typography::continued_cues(doc);
     let mut body = String::new();
     for b in &doc.blocks {
         let cls = b.block_type.as_str();
         let cue=if continued.contains(&b.id){crate::typography::continued_cue(&b.text)}else{b.text.clone()};
-        let mut display = crate::typography::display_text(b.block_type, &cue);
-        if let Some(label) = crate::typography::scene_label(doc, &b.id) { display = format!("{label}\n{display}"); }
+        let heading=crate::typography::scene_heading_display(doc,b);
+        let mut display = heading.clone().unwrap_or_else(|| crate::typography::display_text_with(&doc.settings, b.block_type, &cue));
+        if heading.is_none() {
+            if let Some(label) = crate::typography::scene_label(doc, &b.id) { display = format!("{label}\n{display}"); }
+        }
         let (name, extension) = crate::typography::character_parts(&display);
         let txt = if b.block_type == BlockType::Character && extension.is_some() {
             format!("<span class=\"cue-name\">{}</span><span class=\"cue-extension\">{}</span>", escape_html(name), escape_html(extension.unwrap()))
@@ -288,8 +293,14 @@ pub fn to_html(doc: &ScreenplayDocument) -> String {
         body.push_str(&format!("<div class=\"{}\"{}>{}</div>\n", cls, custom, txt));
     }
     let chinese = crate::typography::chinese(&doc.settings);
-    let profile = if chinese { "chinese-reading" } else { "hollywood" };
-    let extra = if chinese { format!("body{{font-family:'Songti SC',SimSun,serif;font-size:{}pt;line-height:{};}} .character{{margin-left:0;text-align:center;font-family:'PingFang SC',sans-serif;font-weight:700;}} .cue-extension{{position:absolute;margin-left:.3em;font-weight:400;font-size:85%;font-family:'Songti SC',SimSun,serif;}} .parenthetical{{margin:0 1in;text-align:center;font-size:85%;}} .dialogue{{margin:0 1in;}} .transition{{text-align:left;font-weight:700;}}", doc.settings.font_size, doc.settings.line_height) } else { ".character{font-weight:700}.cue-extension{font-weight:400}".into() };
+    let production = crate::typography::production(&doc.settings);
+    let general = crate::typography::general(&doc.settings);
+    let profile = if production { "chinese-production" } else if general { "chinese-general" } else if chinese { "chinese-reading" } else { "hollywood" };
+    let extra = if production {
+        format!("body{{font-family:'Courier New','Songti SC',SimSun,serif;font-size:{}pt;line-height:{};}} .scene_heading{{text-transform:none;}} .character{{margin-left:0;text-align:left;font-weight:700;}} .parenthetical{{margin-left:0;text-align:left;}} .dialogue{{margin-left:0;margin-right:0;}} .transition{{text-align:left;font-weight:700;}}", doc.settings.font_size, doc.settings.line_height)
+    } else if general {
+        format!("body{{font-family:'Songti SC',SimSun,serif;font-size:{}pt;line-height:{};}} .scene_heading{{text-transform:none;}} .character{{margin-left:0;text-align:left;}} .parenthetical{{margin-left:0;text-align:left;}} .dialogue{{margin-left:0;margin-right:0;}} .transition{{text-align:left;font-weight:700;}}", doc.settings.font_size, doc.settings.line_height)
+    } else if chinese { format!("body{{font-family:'Songti SC',SimSun,serif;font-size:{}pt;line-height:{};}} .character{{margin-left:0;text-align:center;font-family:'PingFang SC',sans-serif;font-weight:700;}} .cue-extension{{position:absolute;margin-left:.3em;font-weight:400;font-size:85%;font-family:'Songti SC',SimSun,serif;}} .parenthetical{{margin:0 1in;text-align:center;font-size:85%;}} .dialogue{{margin:0 1in;}} .transition{{text-align:left;font-weight:700;}}", doc.settings.font_size, doc.settings.line_height) } else { ".character{font-weight:700}.cue-extension{font-weight:400}".into() };
     format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>{}</title>

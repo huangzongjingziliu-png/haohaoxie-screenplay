@@ -410,10 +410,15 @@ pub fn handle(app: &AppHandle, project: &ProjectService, req: BridgeRequest) -> 
                     ws.revision(),
                 );
             }
-            let (outcome, original_source) = match crate::read_import_with_source(&p) {
+            let (mut outcome, original_source) = match crate::read_import_with_source(&p) {
                 Ok(o) => o,
                 Err(e) => return BridgeResponse::fail(e, ws.revision()),
             };
+            // 与 GUI 导入保持一致：替换正文但不改工程名。
+            // 封面（PDF / DOCX）读 title_page.title，必须与工程标题同步，
+            // 否则解析器补的「未命名剧本」会留在封面上。
+            let current_title = ws.document().metadata.title;
+            crate::carry_project_title(&mut outcome, project.state().title(), &current_title);
             // 外部导入标为 MCP 来源，审计可追溯
             match project.run_with_original_source(|svc| svc.load_document(EXTERNAL_ORIGIN, outcome), original_source) {
                 Ok(r) => {
@@ -466,7 +471,7 @@ pub fn handle(app: &AppHandle, project: &ProjectService, req: BridgeRequest) -> 
         // ---------------- 分页与序列化 ----------------
         BridgeRequest::GetPagination => {
             let doc = ws.document();
-            let p = screenplay_core::pagination::paginate(&doc);
+            let p = screenplay_core::pagination::paginate_for_editor(&doc);
             BridgeResponse::ok(serde_json::to_value(&p).unwrap_or(serde_json::Value::Null), doc.revision)
         }
 
