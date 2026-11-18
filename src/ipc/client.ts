@@ -155,6 +155,11 @@ export interface SearchHit {
 
 export interface PlanningPatch {episode_id:string;field:string;value:string;expected_value:string}
 export interface SeriesCheckProgress {jobId:string;completed:number;total:number;message:string}
+/** 权益状态（与 Rust entitlement_status 契约一致） */
+export interface EntitlementStatus {pro:boolean;source:string;productId:string|null;checkedAt:string;verified:boolean}
+/** 商店商品（价格由 StoreKit 返回，前端不得写死金额） */
+export interface StoreProduct {id:string;displayName:string;description:string;displayPrice:string;type:string}
+export interface PurchaseOutcome {status:'purchased'|'cancelled'|'pending';entitlement:EntitlementStatus}
 export const ipc = {
   saveSeriesPlanning: (projectId:string,patches:PlanningPatch[],expectedRevision:number) => call<CommandResult>('save_series_planning',{projectId,patches,expectedRevision}),
   checkSeriesContinuity: (episodeIds:string[],jobId:string) => call<CommandResult>('check_series_continuity',{episodeIds,jobId,uiLanguage:effectiveLanguage()}),
@@ -165,6 +170,13 @@ export const ipc = {
   compareProjectVersions: (versionA:string,versionB?:string) => call<import('./types/RevisionComparison').RevisionComparison>('compare_project_versions',{versionA,versionB}),
   editSeries: (action:string,id:string,title:string,order:string[],expectedRevision:number) => call<CommandResult>('edit_series',{action,id,title,order,expectedRevision}),
   exportSeriesFiles: (directory:string,format:string) => call<string[]>('export_series_files',{directory,format}),
+  exportSeriesMergedPdf: (path:string) => call<string>('export_series_merged_pdf',{path}),
+  exportVersionComparison: (path:string,versionA:string,versionB?:string) => call<string>('export_version_comparison',{path,versionA,versionB}),
+  // 专业版权益（商店渠道）
+  entitlementStatus: () => call<EntitlementStatus>('entitlement_status'),
+  storeProducts: () => call<StoreProduct[]>('store_products'),
+  storePurchase: (productId?:string) => call<PurchaseOutcome>('store_purchase',productId?{productId}:{}),
+  storeRestore: () => call<EntitlementStatus>('store_restore'),
   openHelpLink: (url:string) => call<void>('open_help_link', {url}),
   // 生命周期
   bootstrap: () => call<Bootstrap>('bootstrap'),

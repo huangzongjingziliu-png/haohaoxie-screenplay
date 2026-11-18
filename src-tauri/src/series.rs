@@ -6,7 +6,8 @@ pub fn edit_series(app:AppHandle,state:State<'_,AppState>,action:String,id:Strin
  let result=state.project.run(|svc|svc.edit_series(&action,&id,&title,&order,expected_revision))?;broadcast(&app,"gui-left",&result);Ok(result)
 }
 #[tauri::command]
-pub async fn export_series_files(state:State<'_,AppState>,directory:String,format:String)->IpcResult<Vec<String>>{
+pub async fn export_series_files(app:AppHandle,state:State<'_,AppState>,directory:String,format:String)->IpcResult<Vec<String>>{
+ crate::entitlement::require_pro(&app,"分集批量导出")?;
  let doc=state.project.document()?;
  tauri::async_runtime::spawn_blocking(move||export_all(&doc,&directory,&format)).await.map_err(|e|IpcError::Internal{message:e.to_string()})?
 }
@@ -23,6 +24,48 @@ fn export_all(doc:&screenplay_core::ast::ScreenplayDocument,directory:&str,forma
  let mut written:Vec<std::path::PathBuf>=Vec::new();
  for (path,bytes) in prepared{use std::io::Write;let output=std::fs::OpenOptions::new().write(true).create_new(true).open(&path);let result=match output{Ok(mut f)=>{written.push(path.clone());f.write_all(&bytes).and_then(|_|f.sync_all())},Err(e)=>Err(e)};if let Err(e)=result{for created in &written{let _=std::fs::remove_file(created);}return Err(IpcError::Internal{message:format!("导出失败 {e}")});}}
  Ok(written.iter().map(|p|p.to_string_lossy().into()).collect())
+}
+
+/// 把全部分集合并导出为一份 PDF（专业版功能）。
+#[tauri::command]
+pub async fn export_series_merged_pdf(app:AppHandle,state:State<'_,AppState>,path:String)->IpcResult<String>{
+ crate::entitlement::require_pro(&app,"合并 PDF 导出")?;
+ let _access=crate::file_access::acquire(&path).map_err(|message|IpcError::AppState{message})?;
+ let doc=state.project.document()?;
+ tauri::async_runtime::spawn_blocking(move||{
+  let merged=screenplay_core::series::merged_copy(&doc).map_err(|message|IpcError::InvalidArgument{message})?;
+  let bytes=screenplay_export::export(&merged,screenplay_export::ExportFormat::Pdf).map_err(|e|IpcError::Internal{message:format!("导出失败 {e}")})?;
+  std::fs::write(&path,bytes).map_err(|e|IpcError::Internal{message:format!("写入文件失败 {e}")})?;
+  Ok(path)
+ }).await.map_err(|e|IpcError::Internal{message:e.to_string()})?
+}
+
+/// 把一次版本对比导出为 Markdown 文本（专业版功能）。
+#[tauri::command]
+pub fn export_version_comparison(app:AppHandle,state:State<'_,AppState>,path:String,version_a:String,version_b:Option<String>)->IpcResult<String>{
+ crate::entitlement::require_pro(&app,"版本对比导出")?;
+ let _access=crate::file_access::acquire(&path).map_err(|message|IpcError::AppState{message})?;
+ let ws=state.project.require()?;
+ let old=ws.service.store.version_document(&version_a).ok_or_else(||IpcError::NotFound{what:"version".into(),id:version_a})?;
+ let new=if let Some(id)=version_b.filter(|s|!s.is_empty()){ws.service.store.version_document(&id).ok_or_else(||IpcError::NotFound{what:"version".into(),id})?}else{ws.document()};
+ let comparison=screenplay_core::revision_compare::compare(&old,&new);
+ std::fs::write(&path,comparison_markdown(&comparison)).map_err(|e|IpcError::Internal{message:format!("写入文件失败 {e}")})?;
+ Ok(path)
+}
+fn comparison_markdown(c:&screenplay_core::revision_compare::RevisionComparison)->String{
+ let label=|s:&str,empty:&str|if s.trim().is_empty(){empty.to_string()}else{s.to_string()};
+ let mut out=format!("# 版本对比\n\n- 起始版本：{}\n- 目标版本：{}\n\n",label(&c.from_label,"（未命名）"),label(&c.to_label,"当前内容"));
+ for ep in &c.episodes{
+  out.push_str(&format!("## {}（新增 {} / 删除 {} / 修改 {}）\n\n",ep.title,ep.added_blocks,ep.removed_blocks,ep.changed_blocks));
+  if ep.changes.is_empty(){out.push_str("- 无变化\n\n");continue;}
+  for change in &ep.changes{
+   out.push_str(&format!("- **[{}] {}**\n",change.kind,change.label));
+   if !change.before.trim().is_empty(){out.push_str(&format!("  - 之前：{}\n",change.before.replace('\n'," ")));}
+   if !change.after.trim().is_empty(){out.push_str(&format!("  - 现在：{}\n",change.after.replace('\n'," ")));}
+  }
+  out.push('\n');
+ }
+ out
 }
 
 #[cfg(test)]mod tests{use super::*;use screenplay_core::ast::*;

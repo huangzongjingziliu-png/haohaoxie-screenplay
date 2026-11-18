@@ -5,12 +5,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { ipc, ScreenplayError } from '@/ipc/client';
+import { STORE_BUILD } from '@/buildChannel';
+import { useEntitlementStore, usePro } from '@/stores/entitlement';
 
 const EXPORT_FORMATS = [
   { ext: 'pdf', label: 'PDF' },
   { ext: 'docx', label: 'Word (.docx)' },
-  { ext: 'fdx', label: 'Final Draft (.fdx)' },
-  { ext: 'fountain', label: 'Fountain' },
+  { ext: 'fdx', label: 'Final Draft (.fdx)', proOnly: true },
+  { ext: 'fountain', label: 'Fountain', proOnly: true },
   { ext: 'txt', label: '纯文本' },
   { ext: 'md', label: 'Markdown (.md)' },
   { ext: 'html', label: 'HTML' },
@@ -53,6 +55,8 @@ export default function Toolbar({
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const history = useEditorStore((s) => s.history);
+  const pro = usePro();
+  const openPro = useEntitlementStore((s) => s.openDialog);
 
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -82,7 +86,7 @@ export default function Toolbar({
       const { save: dialog } = await import('@tauri-apps/plugin-dialog');
       const current=useEditorStore.getState().document;
       const episode=current?.series?.episodes.find(e=>e.id===current.series?.active_id);
-      const name = ((project.title || tr("剧本"))+(episode?"-"+episode.title:"")+(current?.draft_label?"-"+current.draft_label:"")).replace(/[/\\]/g, '-');
+      const name = ((project.title || tr("剧本"))+(episode?"-"+episode.title:"")+(pro&&current?.draft_label?"-"+current.draft_label:"")).replace(/[/\\]/g, '-');
       const path = await dialog({
         defaultPath: `${name}.${ext}`,
         filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
@@ -171,15 +175,17 @@ export default function Toolbar({
           disabled={busy || project.state === 'empty'}
           onChange={(e) => {
             const v = e.target.value;
-            if (v) void doExport(v);
+            const item = EXPORT_FORMATS.find((f) => f.ext === v);
+            if (item?.proOnly && !pro) openPro();
+            else if (v) void doExport(v);
             e.target.value = '';
           }}
-          title={tr("导出为…")}
+          title={!pro ? tr("导出为…（Fountain / FDX 为专业版功能）") : tr("导出为…")}
         >
           <option value="">{tr("导出…")}</option>
           {EXPORT_FORMATS.map((f) => (
             <option key={f.ext} value={f.ext}>
-              {tr(f.label)}
+              {tr(f.label)}{f.proOnly && !pro ? ` · ${tr("专业版")}` : ''}
             </option>
           ))}
         </select>
@@ -195,6 +201,7 @@ export default function Toolbar({
             <p className="menu-section-label">{tr("工具与设置")}</p>
             {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent…")}</button>}
             <button onClick={()=>void checkUpdates(true)}>{tr("检查更新")}</button>
+            {STORE_BUILD && <button onClick={() => openPro()}>{pro ? tr("专业版 · 已解锁") : tr("专业版…")}</button>}
             {onHelp && <button onClick={onHelp}>{tr("帮助与教程")}</button>}
             {onSettings && <button onClick={onSettings}>{tr("设置… ")}<small>⌘,</small></button>}
             <hr />

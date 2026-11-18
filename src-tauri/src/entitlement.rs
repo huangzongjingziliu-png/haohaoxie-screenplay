@@ -362,6 +362,39 @@ fn provider(app: &AppHandle) -> Box<dyn EntitlementProvider> {
     Box::new(FakeProvider::from_env())
 }
 
+// ---------------------------------------------------------------------------
+// 渠道能力门禁
+// ---------------------------------------------------------------------------
+
+/// 免费版 PDF 页脚水印文案。
+pub const FREE_PDF_WATERMARK: &str = "好好写剧本 · 免费版";
+
+/// 当前构建是否为商店渠道。
+///
+/// 只有带 `app-store` feature 编译的包才执行付费边界；直售 / GitHub 渠道
+/// 恒为专业版，不出现任何付费墙。
+pub fn store_build() -> bool {
+    cfg!(feature = "app-store")
+}
+
+/// 当前是否已解锁专业版。非商店构建恒为 true。
+pub fn unlocked(app: &AppHandle) -> bool {
+    if !store_build() {
+        return true;
+    }
+    provider(app).status().pro
+}
+
+/// 专业版功能门禁：未解锁时返回可直接展示的中文错误。
+pub fn require_pro(app: &AppHandle, feature: &str) -> Result<(), IpcError> {
+    if unlocked(app) {
+        return Ok(());
+    }
+    Err(IpcError::InvalidArgument {
+        message: format!("{feature}属于专业版功能，可在「专业版」中购买或恢复购买后使用。"),
+    })
+}
+
 async fn run<T, F>(app: AppHandle, action: F) -> IpcResult<T>
 where
     T: Send + 'static,
@@ -424,5 +457,14 @@ mod tests {
         // ad-hoc 本机进程没有 App Store 收据，不应解锁。
         assert!(!entitlement.is_pro);
         assert!(!entitlement.verified);
+    }
+
+    #[test]
+    fn resale_build_never_gates_features() {
+        // 直售 / GitHub 渠道不带 app-store feature，付费墙必须完全关闭。
+        if !cfg!(feature = "app-store") {
+            assert!(!store_build(), "直售构建不得被识别为商店渠道");
+        }
+        assert!(FREE_PDF_WATERMARK.contains("免费版"));
     }
 }

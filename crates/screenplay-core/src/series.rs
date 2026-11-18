@@ -53,6 +53,31 @@ pub fn serialize_ui_document<S:serde::Serializer>(doc:&ScreenplayDocument,serial
 }
 
 pub fn publication_copy(doc:&ScreenplayDocument)->ScreenplayDocument{let mut draft=doc.clone();draft.series=None;if let Some(label)=doc.draft_label.as_deref().filter(|s|!s.trim().is_empty()){draft.metadata.title=format!("{} · {}",draft.metadata.title,label);draft.title_page.title=draft.metadata.title.clone();}draft}
+
+/// 把全部剧集按顺序合成一份文档，供「合并 PDF」导出使用。
+///
+/// 每集前插入一条 Section 标题（导出稿名），正文原样拼接；
+/// 单集工程直接返回发布副本，避免多出一层无意义标题。
+pub fn merged_copy(doc:&ScreenplayDocument)->Result<ScreenplayDocument,String>{
+ let drafts=export_drafts(doc)?;
+ if drafts.len()==1{return Ok(drafts.into_iter().next().map(|(_,d)|d).unwrap());}
+ let mut merged=ScreenplayDocument::blank(&doc.metadata.title);
+ merged.title_page=doc.title_page.clone();
+ merged.settings=doc.settings.clone();
+ merged.settings.scene_board.cards.clear();
+ merged.settings.scene_board.groups.clear();
+ merged.settings.scene_board.links.clear();
+ for (name,draft) in drafts{
+  merged.blocks.push(ScreenplayBlock::new(BlockType::Section,name));
+  merged.blocks.extend(draft.blocks);
+ }
+ merged.rebuild_derived();
+ Ok(merged)
+}
+#[cfg(test)]mod merged_tests{use super::*;
+ #[test]fn merged_copy_keeps_episode_order_and_separators(){let mut doc=ScreenplayDocument::blank("剧集");doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"第一集正文"));edit(&mut doc,"add","","第二集",&[]).unwrap();doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"第二集正文"));let merged=merged_copy(&doc).unwrap();assert!(merged.series.is_none());let texts:Vec<_>=merged.blocks.iter().map(|b|b.text.clone()).collect();let first=texts.iter().position(|t|t=="第一集正文").unwrap();let second=texts.iter().position(|t|t=="第二集正文").unwrap();assert!(first<second,"合并后必须保持分集顺序");assert!(merged.blocks.iter().filter(|b|b.block_type==BlockType::Section).count()==2);}
+ #[test]fn merged_copy_of_single_episode_is_publication_copy(){let mut doc=ScreenplayDocument::blank("单篇");doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"正文"));let merged=merged_copy(&doc).unwrap();assert_eq!(merged.metadata.title,"单篇");assert!(merged.blocks.iter().all(|b|b.block_type!=BlockType::Section));}
+}
 #[cfg(test)]mod publication_tests{use super::*;
  #[test]fn published_draft_is_labelled_without_changing_original(){let mut doc=ScreenplayDocument::blank("剧集");doc.draft_label=Some("V2.1".into());doc.blocks.push(ScreenplayBlock::new(BlockType::Action,"原文"));let copy=publication_copy(&doc);assert!(copy.title_page.title.contains("V2.1"));assert_eq!(doc.metadata.title,"剧集");assert_eq!(copy.blocks[0].text,"原文");}
 }

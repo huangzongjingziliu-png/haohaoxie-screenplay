@@ -1101,6 +1101,8 @@ fn create_version(
     note: String,
     project_id: Option<String>,
 ) -> IpcResult<CommandResult> {
+    // 命名稿号属于专业版交付能力；自动检查点不受影响。
+    entitlement::require_pro(&app, "命名稿号")?;
     let r =
         state.project.run(|svc| {
             if project_id.as_ref().is_some_and(|id|id!=&svc.store.snapshot().id) {return Err(screenplay_store::command::CommandError::InvalidArgument{message:"项目已切换，请重新打开历史记录".into()});}
@@ -1317,6 +1319,7 @@ fn cancel_import(state: State<'_, AppState>, request_id: String) -> IpcResult<bo
 
 #[tauri::command]
 fn export_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     path: String,
     format: Option<String>,
@@ -1328,9 +1331,22 @@ fn export_file(
             message: e.message(),
         }
     })?;
-    let doc = state.project.document()?;
-    let doc = if let Some(series)=&doc.series { screenplay_core::series::export_drafts(&doc).map_err(|message|IpcError::InvalidArgument{message})?.into_iter().nth(series.episodes.iter().position(|e|e.id==series.active_id).unwrap_or(0)).ok_or_else(||IpcError::InvalidArgument{message:"分集不存在".into()})?.1 } else {screenplay_core::series::publication_copy(&doc)};
-    let bytes = screenplay_export::export(&doc, fmt)
+    // 商店渠道的免费版边界：交换格式（Fountain / FDX）需要专业版；
+    // PDF 免费但带页脚水印。直售渠道 `unlocked` 恒为 true，行为不变。
+    let unlocked = entitlement::unlocked(&app);
+    if !unlocked && matches!(fmt, screenplay_export::ExportFormat::Fountain | screenplay_export::ExportFormat::Fdx) {
+        return Err(IpcError::InvalidArgument {
+            message: "Fountain / FDX 导出属于专业版功能，可在「专业版」中购买或恢复购买后使用。".into(),
+        });
+    }
+    let watermark = if unlocked { None } else { Some(entitlement::FREE_PDF_WATERMARK) };
+    let mut source = state.project.document()?;
+    if !unlocked {
+        // 「导出携带稿号」属于专业版；免费版先摘掉稿号再生成发布副本。
+        source.draft_label = None;
+    }
+    let doc = if let Some(series)=&source.series { screenplay_core::series::export_drafts(&source).map_err(|message|IpcError::InvalidArgument{message})?.into_iter().nth(series.episodes.iter().position(|e|e.id==series.active_id).unwrap_or(0)).ok_or_else(||IpcError::InvalidArgument{message:"分集不存在".into()})?.1 } else {screenplay_core::series::publication_copy(&source)};
+    let bytes = screenplay_export::export_with_watermark(&doc, fmt, watermark)
         .map_err(|e| IpcError::Internal {
             message: format!("导出失败: {e}"),
         })?;
@@ -1861,6 +1877,8 @@ pub fn run() {
             continuity::check_series_continuity,
             continuity::cancel_series_check,
             series::export_series_files,
+            series::export_series_merged_pdf,
+            series::export_version_comparison,
             // 生命周期
             bootstrap,
             new_project,

@@ -166,8 +166,23 @@ pub fn export(
     doc: &ScreenplayDocument,
     format: ExportFormat,
 ) -> Result<Vec<u8>, anyhow::Error> {
+    export_with_watermark(doc, format, None)
+}
+
+/// 统一导出入口（可带 PDF 页脚水印）。
+///
+/// 水印只作用于 PDF；其他格式忽略该参数。默认入口 [`export`] 永远无水印，
+/// 直售渠道、CLI、MCP 与既有调用方行为不变。
+pub fn export_with_watermark(
+    doc: &ScreenplayDocument,
+    format: ExportFormat,
+    watermark: Option<&str>,
+) -> Result<Vec<u8>, anyhow::Error> {
+    if format == ExportFormat::Pdf {
+        return pdf::export_pdf_with_watermark(doc, watermark).map_err(|e| anyhow::anyhow!("{e}"));
+    }
     match format {
-        ExportFormat::Pdf => pdf::export_pdf(doc).map_err(|e| anyhow::anyhow!("{e}")),
+        ExportFormat::Pdf => unreachable!(),
         ExportFormat::Docx => docx::export_docx(doc),
         ExportFormat::Fountain => Ok(export_fountain(doc).into_bytes()),
         ExportFormat::Fdx => Ok(export_fdx(doc).into_bytes()),
