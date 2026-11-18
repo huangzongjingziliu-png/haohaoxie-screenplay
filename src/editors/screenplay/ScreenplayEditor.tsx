@@ -280,6 +280,12 @@ export default function ScreenplayEditor() {
       }
 
       if (e.key === 'Backspace') {
+        // 有选区时交给浏览器删除选中文字：选区起点常在块首，
+        // 若按「块首退格」处理会把整段文字并进上一块。
+        const sel = window.getSelection();
+        const hasSelection = !!sel && !sel.isCollapsed && sel.rangeCount > 0
+          && (el.contains(sel.getRangeAt(0).startContainer) || el.contains(sel.getRangeAt(0).endContainer));
+        if (hasSelection) return;
         const full = stripAutoContinuation(el.textContent ?? '', el.dataset.autoContd === 'true');
         const caret = (Number(el.dataset.sourceStart) || 0) + (getCaretOffset(el) ?? 0);
         const blocks = useEditorStore.getState().document?.blocks ?? [];
@@ -435,6 +441,15 @@ function PageView({
 }) {
   const settings = useEditorStore((s) => s.document?.settings);
   const contentHeight = settings ? settings.page_height_inch - settings.margin_top_inch - settings.margin_bottom_inch : 9;
+  const gridSize = Math.max(settings?.font_size ?? 12, ...Object.values(settings?.element_styles ?? {}).map(s => s?.font_size ?? 0));
+  const lineHeight = settings?.line_height ?? 1;
+  // 合并预设下，人物/括注/对白三块共用一行：同一个 group 的连续块收进一个行容器。
+  const rows: PageBlock[][] = [];
+  for (const pb of page.blocks) {
+    const prev = rows[rows.length - 1];
+    if (pb.group && prev && prev[prev.length - 1].group === pb.group) prev.push(pb);
+    else rows.push([pb]);
+  }
   return (
     <div
       className="page"
@@ -455,21 +470,50 @@ function PageView({
           style={{ width: '100%', height: '100%', display: 'block', textAlign: 'left', verticalAlign: 'top', background: 'transparent', border: 0, color: 'inherit', cursor: 'text', padding: 0 }}
           onClick={() => void onStartWriting()}
         ><span style={{ display: 'block', height: '100%', opacity: 0.5 }}>{tr("点击这里，开始书写场景标题…")}</span></button>}
-        {page.blocks.map((pb) => {
-          const fresh = blocksById.get(pb.block_id);
-          if (!fresh) return null;
+        {rows.map((row) => {
+          const head = blocksById.get(row[0].block_id);
+          if (!head) return null;
+          if (!head.group) {
+            return (
+              <BlockView
+                key={head.block_id}
+                pb={head}
+                active={activeBlockId === sourceBlockId(head.block_id)}
+                onSelect={onSelect}
+                onChangeText={onChangeText}
+                onKeyDown={onKeyDown}
+                onInsertAfter={onInsertAfter}
+                onDelete={onDelete}
+                onError={onError}
+              />
+            );
+          }
+          const top = Math.min(...row.map((p) => (blocksById.get(p.block_id) ?? p).start_line));
           return (
-            <BlockView
-              key={pb.block_id}
-              pb={fresh}
-              active={activeBlockId === sourceBlockId(pb.block_id)}
-              onSelect={onSelect}
-              onChangeText={onChangeText}
-              onKeyDown={onKeyDown}
-              onInsertAfter={onInsertAfter}
-              onDelete={onDelete}
-              onError={onError}
-            />
+            <div
+              key={`group:${head.group}`}
+              className="block-row merged-dialogue-row"
+              style={{ position: 'absolute', top: `${top * gridSize * lineHeight}pt`, width: '100%', margin: 0 }}
+            >
+              {row.map((p) => {
+                const fresh = blocksById.get(p.block_id);
+                if (!fresh) return null;
+                return (
+                  <BlockView
+                    key={fresh.block_id}
+                    pb={fresh}
+                    inline
+                    active={activeBlockId === sourceBlockId(fresh.block_id)}
+                    onSelect={onSelect}
+                    onChangeText={onChangeText}
+                    onKeyDown={onKeyDown}
+                    onInsertAfter={onInsertAfter}
+                    onDelete={onDelete}
+                    onError={onError}
+                  />
+                );
+              })}
+            </div>
           );
         })}
       </div>
@@ -480,6 +524,7 @@ function PageView({
 function BlockView({
   pb,
   active,
+  inline,
   onSelect,
   onChangeText,
   onKeyDown,
@@ -489,6 +534,8 @@ function BlockView({
 }: {
   pb: PageBlock;
   active: boolean;
+  /** 合并预设的行内片段：不参与绝对定位，由外层行容器排布。 */
+  inline?: boolean;
   onSelect: (id: string) => void;
   onChangeText: (id: string, text: string, expectedRevision?: number) => Promise<boolean>;
   onKeyDown: (e: React.KeyboardEvent, id: string) => void;
@@ -592,10 +639,12 @@ function BlockView({
   const index = screenplayDoc ? indexDocument(screenplayDoc.blocks) : undefined;
   const sceneBlock = index?.blocks.get(sourceId);
   const sceneNumber = sceneBlock?.scene_heading?.scene_number ?? String(index?.scenes.get(sourceId) ?? 0);
-  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : settings.typography === 'chinese-production' ? `${sceneNumber}-` : settings.typography === 'chinese-general' ? `${sceneNumber}、` : `SCENE ${sceneNumber}`) : null;
   const chinese = settings?.typography === 'chinese-reading';
   const production = settings?.typography === 'chinese-production';
   const general = settings?.typography === 'chinese-general';
+  // 合并预设的场号已并入场景头正文（`1-日-办公室-内` / `1、办公室，日，内`），
+  // 不再额外渲染标签，避免编号重复。
+  const sceneLabel = settings?.show_scene_numbers && pb.block_type === 'scene_heading' && !production && !general ? (settings.typography === 'chinese-reading' ? `第${sceneNumber}场` : `SCENE ${sceneNumber}`) : null;
   const cjkBrackets = chinese || production || general;
   const customStyle = settings?.element_styles?.[pb.block_type];
   const resolvedStyle = customStyle ?? defaultElementStyle(pb.block_type, settings?.typography ?? 'hollywood');
@@ -673,8 +722,10 @@ function BlockView({
   };
 
   return (
-    <div className={`block-row ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
-      style={{ position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
+    <div className={`block-row ${inline ? 'block-inline' : ''} ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''}`} data-block-id={pb.block_id}
+      style={inline
+        ? { position: 'static', display: 'inline', width: 'auto', margin: 0, ...customCss }
+        : { position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss, zIndex: active ? 10 : undefined }}>
       {pb.contd && pb.block_type !== 'character' && <div className="contd-marker">(CONT'D)</div>}
       {pb.more && <div className="more-marker">(MORE)</div>}
 

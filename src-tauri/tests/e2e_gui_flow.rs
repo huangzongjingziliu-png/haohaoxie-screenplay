@@ -382,7 +382,10 @@ fn e2e_导入替换整个文档且可保存重开() {
     .unwrap();
 
     svc.create_new("导入目标").unwrap();
-    let r = svc.import_file(&src).unwrap();
+    let (document, original_source) = screenplay_desktop_lib::read_import_with_source(&src).unwrap();
+    let r = svc
+        .run_with_original_source(|s| s.load_document(Origin::Import, document), original_source)
+        .unwrap();
     assert!(r.document.blocks.len() >= 2, "导入应产生块");
 
     svc.save(Some(&path)).unwrap();

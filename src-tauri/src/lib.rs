@@ -289,6 +289,28 @@ fn read_import_with_source_controlled(path: &std::path::Path, control: &screenpl
         })
 }
 
+/// 导入只替换正文，标题始终跟随工程标题。
+///
+/// 解析器对没有标题的来源会填「未命名剧本」，而 PDF / DOCX 封面读的是
+/// `title_page.title`（不是 `metadata.title`）。两条导入路径都要用工程标题
+/// 覆盖这两处，否则封面会显示占位名。`project_title` 为空时退回当前文档标题。
+pub(crate) fn carry_project_title(
+    doc: &mut ScreenplayDocument,
+    project_title: &str,
+    current_title: &str,
+) {
+    let title = if project_title.trim().is_empty() {
+        current_title.trim()
+    } else {
+        project_title.trim()
+    };
+    if title.is_empty() {
+        return;
+    }
+    doc.metadata.title = title.to_string();
+    doc.title_page.title = title.to_string();
+}
+
 // ---------------------------------------------------------------------------
 // 跨进程桥接：让 CLI / MCP 操作 GUI 当前打开的项目（说明书第 82 条）
 // ---------------------------------------------------------------------------
@@ -758,17 +780,28 @@ fn search(
     };
     let mut hits = Vec::new();
     for (i, b) in doc.blocks.iter().enumerate() {
-        let hay = if case_sensitive {
-            b.text.clone()
+        // 场景头在纸面显示的是规整写法（`内景。办公室——日`），但正文仍存原文，
+        // 搜索必须两者都命中，否则用户按看到的场景名搜不到。
+        let display = if b.block_type == BlockType::SceneHeading {
+            screenplay_core::typography::scene_heading_display(&doc, b).or_else(|| {
+                screenplay_core::heading_format::format_heading(&b.text, &doc.settings)
+                    .map(|(text, _)| text)
+            })
         } else {
-            b.text.to_lowercase()
+            None
         };
-        if let Some(start) = hay.find(&q) {
+        let found = std::iter::once(b.text.clone())
+            .chain(display)
+            .find_map(|text| {
+                let hay = if case_sensitive { text.clone() } else { text.to_lowercase() };
+                hay.find(&q).map(|start| (text, start))
+            });
+        if let Some((text, start)) = found {
             hits.push(SearchHit {
                 block_id: b.id.clone(),
                 block_index: i,
                 block_type: b.block_type.as_str().to_string(),
-                text: b.text.clone(),
+                text,
                 start,
                 end: start + query.chars().count(),
                 scene_id: b.scene_id.clone(),
@@ -914,7 +947,7 @@ fn replace_source_text(
 #[tauri::command]
 fn get_pagination(state: State<'_, AppState>) -> IpcResult<screenplay_core::pagination::Pagination> {
     let doc = state.project.document()?;
-    Ok(screenplay_core::pagination::paginate(&doc))
+    Ok(screenplay_core::pagination::paginate_for_editor(&doc))
 }
 
 /// 文档统计（字数、场景数、人物数等）
@@ -1260,9 +1293,8 @@ async fn import_file(app: AppHandle, state: State<'_, AppState>, path: String, r
                 return Err(CommandError::InvalidArgument { message: "导入期间剧本已发生变化，请重新导入".into() });
             }
             // 导入替换正文，不改工程名；解析器对无标题来源会填「未命名剧本」。
-            if !current.metadata.title.trim().is_empty() {
-                doc.metadata.title = current.metadata.title;
-            }
+            // 封面（PDF / DOCX）读的是 title_page.title，必须与工程标题同步。
+            carry_project_title(&mut doc, project.state().title(), &current.metadata.title);
             svc.load_document(Origin::Import, doc)
         }, original_source)?;
         broadcast(&app, "import", &r);
@@ -2032,5 +2064,25 @@ mod import_safety_tests {
         let (document, archived) = result.unwrap();
         assert_eq!(archived, source);
         assert_eq!(document.import_info.unwrap().source_name.as_deref(), Some(expected_name.as_str()));
+    }
+
+    #[test]
+    fn imported_file_title_page_follows_project_title() {
+        let path = std::env::temp_dir().join(format!("muben-title-{}.txt", std::process::id()));
+        std::fs::write(&path, "1 日-办公室-内\n\n张三\n你好。\n").unwrap();
+        let mut document = super::read_import(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        super::carry_project_title(&mut document, "QA分页", "");
+        assert_eq!(document.metadata.title, "QA分页");
+        // PDF / DOCX 封面读的是 title_page.title
+        assert_eq!(document.title_page.title, "QA分页");
+    }
+
+    #[test]
+    fn imported_title_falls_back_to_current_when_project_title_empty() {
+        let mut document = super::ScreenplayDocument::blank("未命名剧本");
+        super::carry_project_title(&mut document, "  ", "旧工程名");
+        assert_eq!(document.metadata.title, "旧工程名");
+        assert_eq!(document.title_page.title, "旧工程名");
     }
 }

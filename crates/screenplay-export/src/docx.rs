@@ -17,7 +17,11 @@ pub fn export_docx(doc: &ScreenplayDocument) -> Result<Vec<u8>, anyhow::Error> {
     let general = screenplay_core::typography::general(&doc.settings);
     let mut body = String::new();
     for block in &doc.blocks {
-        let heading = screenplay_core::typography::scene_heading_display(doc, block);
+        let heading = screenplay_core::typography::scene_heading_display(doc, block).or_else(|| {
+            // 与 PDF / 纸面一致：非合并预设也要把场景头规整成同一写法。
+            screenplay_core::heading_format::format_heading(&block.text, &doc.settings)
+                .map(|(text, _)| text)
+        });
         let mut text = heading.clone().unwrap_or_else(|| screenplay_core::typography::display_text_with(&doc.settings, block.block_type, &block.text));
         if heading.is_none() {
             if let Some(label) = screenplay_core::typography::scene_label(doc, &block.id) { text = format!("{label}\n{text}"); }
@@ -127,6 +131,17 @@ fn escape_xml(s: &str) -> String {
 mod tests {
     use super::*;
     use screenplay_core::ast::ScreenplayBlock;
+
+    #[test]
+    fn scene_heading_matches_pdf_punctuation() {
+        let mut doc = ScreenplayDocument::blank("Test");
+        doc.blocks.push(ScreenplayBlock::new(BlockType::SceneHeading, "日-办公室-内"));
+        let bytes = export_docx(&doc).unwrap();
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+        assert!(xml.contains("内景。办公室——日"), "DOCX 场景头应跟随纸面写法: {xml}");
+    }
 
     #[test]
     fn t01_export_basic_docx() {

@@ -110,44 +110,106 @@ pub fn scene_heading_display(doc: &crate::ast::ScreenplayDocument, b: &crate::as
         Some(match number { Some(n) => format!("{}、{}", n, rest.join("，")), None => rest.join("，") })
     }
 }
-/// 导出用的呈现副本：中式剧本与中文通用剧本把「人物 + 可选括注 + 对白」合并成一行。
-/// 原始文档与撤销历史保持不变；其他预设原样返回。
-pub fn export_view(doc: &crate::ast::ScreenplayDocument) -> crate::ast::ScreenplayDocument {
-    if !(production(&doc.settings) || general(&doc.settings)) { return doc.clone(); }
-    let mut out = doc.clone();
-    let source = doc.blocks.clone();
-    let mut blocks = Vec::with_capacity(source.len());
+/// 合并行「人物（情态）：台词」在原始文档中对应的块。
+/// `export_view` 与编辑器纸面分页共用同一份计算，避免两处各写一遍合并规则。
+#[derive(Debug, Clone)]
+pub struct MergedLine {
+    /// Character 块在 `doc.blocks` 中的下标。
+    pub start: usize,
+    /// Dialogue 块在 `doc.blocks` 中的下标。
+    pub end: usize,
+    pub character_id: String,
+    /// 编辑器行内显示的人物名（场内续说时已带 `(CONT'D)`）。
+    pub character_text: String,
+    pub parenthetical_id: Option<String>,
+    pub parenthetical_text: Option<String>,
+    pub dialogue_id: String,
+    /// 合并行里位于冒号之前的部分（人物名 + 语音提示 + 括注 + 冒号）。
+    pub cue: String,
+    /// 完整合并文本：`人物（情态）：台词`。
+    pub text: String,
+    /// 该人物是场内续说，提示由排版生成，不属于正文。
+    pub continued: bool,
+}
+
+/// 合并预设下，按导出顺序列出每个「人物 + 可选括注 + 对白」合并行。
+/// 其他预设返回空列表，保证正文与呈现完全分离。
+pub fn merged_lines(doc: &crate::ast::ScreenplayDocument) -> Vec<MergedLine> {
+    if !(production(&doc.settings) || general(&doc.settings)) { return Vec::new(); }
+    let continued = continued_cues(doc);
+    let mut out = Vec::new();
     let mut i = 0usize;
-    while i < source.len() {
-        let b = &source[i];
+    while i < doc.blocks.len() {
+        let b = &doc.blocks[i];
         if b.block_type == BlockType::Character {
-            let (base, ext) = character_parts(&b.text);
+            let is_continued = continued.contains(&b.id);
+            let cue_text = if is_continued { continued_cue(&b.text) } else { b.text.trim().to_string() };
+            let (base, ext) = character_parts(&cue_text);
             let mut j = i + 1;
-            let mut paren: Option<String> = None;
-            if let Some(next) = source.get(j).filter(|n| n.block_type == BlockType::Parenthetical) {
-                let p = next.text.trim();
-                let p = p.strip_prefix('（').and_then(|v| v.strip_suffix('）'))
-                    .or_else(|| p.strip_prefix('(').and_then(|v| v.strip_suffix(')')))
-                    .unwrap_or(p);
-                if !p.trim().is_empty() { paren = Some(p.trim().into()); }
+            let mut paren_block: Option<&crate::ast::ScreenplayBlock> = None;
+            if let Some(next) = doc.blocks.get(j).filter(|n| n.block_type == BlockType::Parenthetical) {
+                paren_block = Some(next);
                 j += 1;
             }
-            if let Some(dialogue) = source.get(j).filter(|n| n.block_type == BlockType::Dialogue && !n.text.trim().is_empty()) {
+            if let Some(dialogue) = doc.blocks.get(j).filter(|n| n.block_type == BlockType::Dialogue && !n.text.trim().is_empty()) {
                 if !base.trim().is_empty() {
-                    let mut text = format!("{}{}", base.trim(), ext.unwrap_or(""));
-                    if let Some(p) = paren { text.push('（'); text.push_str(&p); text.push('）'); }
-                    text.push('：');
-                    text.push_str(dialogue.text.trim());
-                    let mut merged = b.clone();
-                    merged.block_type = BlockType::Dialogue;
-                    merged.text = text;
-                    blocks.push(merged);
+                    let mut cue = format!("{}{}", base.trim(), ext.unwrap_or(""));
+                    let mut parenthetical_text = None;
+                    if let Some(p) = paren_block {
+                        let p = p.text.trim();
+                        let p = p.strip_prefix('（').and_then(|v| v.strip_suffix('）'))
+                            .or_else(|| p.strip_prefix('(').and_then(|v| v.strip_suffix(')')))
+                            .unwrap_or(p);
+                        if !p.trim().is_empty() {
+                            cue.push('（'); cue.push_str(p.trim()); cue.push('）');
+                            parenthetical_text = Some(paren_block.map(|b| b.text.trim().to_string()).unwrap_or_default());
+                        }
+                    }
+                    cue.push('：');
+                    out.push(MergedLine {
+                        start: i,
+                        end: j,
+                        character_id: b.id.clone(),
+                        character_text: format!("{}{}", base.trim(), ext.unwrap_or("")),
+                        parenthetical_id: if parenthetical_text.is_some() { paren_block.map(|p| p.id.clone()) } else { None },
+                        parenthetical_text,
+                        dialogue_id: dialogue.id.clone(),
+                        text: format!("{}{}", cue, dialogue.text.trim()),
+                        cue,
+                        continued: is_continued,
+                    });
                     i = j + 1;
                     continue;
                 }
             }
         }
-        blocks.push(b.clone());
+        i += 1;
+    }
+    out
+}
+
+/// 导出用的呈现副本：中式剧本与中文通用剧本把「人物 + 可选括注 + 对白」合并成一行。
+/// 原始文档与撤销历史保持不变；其他预设原样返回。
+pub fn export_view(doc: &crate::ast::ScreenplayDocument) -> crate::ast::ScreenplayDocument {
+    let lines = merged_lines(doc);
+    if lines.is_empty() { return doc.clone(); }
+    let mut out = doc.clone();
+    let mut blocks = Vec::with_capacity(doc.blocks.len());
+    let mut l = 0usize;
+    let mut i = 0usize;
+    while i < doc.blocks.len() {
+        if let Some(line) = lines.get(l).filter(|line| line.start == i) {
+            let mut merged = doc.blocks[i].clone();
+            // 合并块沿用对白块 id：分页片段与编辑提交都指向真正的正文块。
+            merged.id = line.dialogue_id.clone();
+            merged.block_type = BlockType::Dialogue;
+            merged.text = line.text.clone();
+            blocks.push(merged);
+            i = line.end + 1;
+            l += 1;
+            continue;
+        }
+        blocks.push(doc.blocks[i].clone());
         i += 1;
     }
     out.blocks = blocks;
@@ -392,7 +454,7 @@ pub fn continued_cue(text:&str)->String{
   assert_eq!(data.location,"办公室");
   assert_eq!(data.time_of_day,"日");
   assert_eq!(data.int_ext.to_zh(),"内");
-  assert!(display.contains("办公室"));
+  assert_eq!(display,"日-办公室-内");
   assert!(crate::parser::parse_scene_heading("内景 办公室 - 日").is_some());
  }
  #[test] fn general_profile_has_no_platform_marks(){
@@ -415,6 +477,20 @@ pub fn continued_cue(text:&str)->String{
   assert_eq!(view.blocks[0].text,"李明（低声）：报告……");
   assert_eq!(d.blocks.len(),3);
   assert_eq!(d.blocks[0].block_type,BlockType::Character);
+ }
+ #[test] fn merged_dialogue_keeps_in_scene_continued_cue(){
+  let mut d=production_doc();
+  d.blocks=vec![
+   ScreenplayBlock::new(BlockType::Character,"李明"),
+   ScreenplayBlock::new(BlockType::Dialogue,"第一句。"),
+   ScreenplayBlock::new(BlockType::Action,"他转身。"),
+   ScreenplayBlock::new(BlockType::Character,"李明"),
+   ScreenplayBlock::new(BlockType::Dialogue,"第二句。"),
+  ];
+  let view=export_view(&d);
+  let texts:Vec<_>=view.blocks.iter().map(|b|b.text.as_str()).collect();
+  assert_eq!(texts,vec!["李明：第一句。","他转身。","李明(CONT'D)：第二句。"]);
+  assert_eq!(d.blocks[3].text,"李明");
  }
  #[test] fn empty_action_gets_no_marker(){
   let d=production_doc();

@@ -140,7 +140,10 @@ fn parse_production_heading(line: &str) -> Option<(SceneHeadingData, String)> {
         time_of_day: caps.name("time")?.as_str().into(),
         display_language: "zh".into(),
     };
-    Some((data.clone(), format_scene_heading(&data)))
+    // 保留原写法的可读顺序：`日-办公室-内`。场号只作为元数据，
+    // 由导出/纸面按需补回，避免正文重复编号，也避免显示成 `内. 办公室 日`。
+    let display = format!("{}-{}-{}", data.time_of_day, data.location, data.int_ext.to_zh());
+    Some((data, display))
 }
 
 pub fn parse_scene_heading(line: &str) -> Option<(SceneHeadingData, String)> {

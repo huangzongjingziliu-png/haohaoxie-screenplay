@@ -83,6 +83,11 @@ pub struct PageBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source_end: Option<usize>,
+    /// 编辑器行内合并显示的分组键：同一「人物/括注/对白」组共用。
+    /// 只用于 GUI 纸面渲染，导出不读取。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -293,7 +298,11 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
     while i < blocks.len() {
         let original = &blocks[i];
         let normalized = if original.block_type == BlockType::SceneHeading {
-            crate::heading_format::format_heading(&original.text, s).map(|(text, data)| { let mut b=original.clone();b.text=text;b.scene_heading=Some(data);b })
+            // 合并预设的纸面与导出统一使用 scene_heading_display 的顺序
+            // （中式 `1-日-办公室-内`、通用 `1、办公室，日，内`）。
+            crate::typography::scene_heading_display(doc, original)
+                .map(|text| { let mut b=original.clone();b.text=text;b })
+                .or_else(|| crate::heading_format::format_heading(&original.text, s).map(|(text, data)| { let mut b=original.clone();b.text=text;b.scene_heading=Some(data);b }))
         } else if original.block_type==BlockType::Character && continued.contains(&original.id) {let mut b=original.clone();b.text=crate::typography::continued_cue(&b.text);Some(b)} else { None };
         let b = normalized.as_ref().unwrap_or(original);
         let bt = b.block_type;
@@ -389,6 +398,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                 contd_character: None,
                         auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
                         source_start: Some(0), source_end: Some(if head_n==all_lines.len(){b.text.encode_utf16().count()}else{source_ranges[head_n-1].1}),
+                        group: None,
             });
             page.used_lines = start_line + head_n as f64 + if head_n < all_lines.len() { 1.0 } else { 0.0 };
 
@@ -425,6 +435,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                             contd_character: Some(sp.clone()),
                             auto_contd: None,
                             source_start: None, source_end: None,
+                            group: None,
                         });
                         y = 1.0;
                     }
@@ -444,6 +455,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
                         contd_character: None,
                         auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
                         source_start: Some(source_ranges[source_line].0), source_end: Some(if source_line+take==all_lines.len(){b.text.encode_utf16().count()}else{source_ranges[source_line+take-1].1}),
+                        group: None,
                     });
                     p.used_lines = y + take as f64 + if take < rest.len() { 1.0 } else { 0.0 };
                     source_line += take;
@@ -474,6 +486,7 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
             contd_character: None,
                         auto_contd: if bt==BlockType::Character && continued.contains(&b.id){Some(true)}else{None},
                         source_start: None, source_end: None,
+                        group: None,
         });
         page.used_lines = start_line + lines;
         i += 1;
@@ -491,6 +504,94 @@ pub fn paginate(doc: &ScreenplayDocument) -> Pagination {
         total_pages: total,
         has_title_page,
     }
+}
+
+/// GUI 纸面专用分页。
+///
+/// 合并预设下与 PDF 使用同一份 `export_view` 排版（页数一致、场景头顺序一致），
+/// 再把每个合并行拆回「人物 / 括注 / 对白」三个 PageBlock，
+/// 通过 `group` 标记为同一行内编辑组。其他预设原样分页。
+pub fn paginate_for_editor(doc: &ScreenplayDocument) -> Pagination {
+    if !(crate::typography::production(&doc.settings) || crate::typography::general(&doc.settings)) {
+        return paginate(doc);
+    }
+    let lines = crate::typography::merged_lines(doc);
+    if lines.is_empty() { return paginate(doc); }
+    let mut pag = paginate(&crate::typography::export_view(doc));
+    for page in &mut pag.pages {
+        let original = std::mem::take(&mut page.blocks);
+        let mut out = Vec::with_capacity(original.len() + lines.len() * 2);
+        for pb in original {
+            if let Some(line) = lines.iter().find(|l| l.dialogue_id == pb.block_id) {
+                let Some(dialogue_text) = pb.text.strip_prefix(line.cue.as_str()).map(str::to_string) else {
+                    out.push(pb);
+                    continue;
+                };
+                let cue_utf16 = line.cue.encode_utf16().count();
+                out.push(PageBlock {
+                    block_id: line.character_id.clone(),
+                    block_type: BlockType::Character,
+                    text: line.character_text.clone(),
+                    scene_id: pb.scene_id.clone(),
+                    start_line: pb.start_line,
+                    line_count: 0.0,
+                    split: false,
+                    more: false,
+                    contd: false,
+                    contd_character: None,
+                    auto_contd: if line.continued { Some(true) } else { None },
+                    source_start: None,
+                    source_end: None,
+                    group: Some(line.dialogue_id.clone()),
+                });
+                if let (Some(id), Some(text)) = (&line.parenthetical_id, &line.parenthetical_text) {
+                    out.push(PageBlock {
+                        block_id: id.clone(),
+                        block_type: BlockType::Parenthetical,
+                        text: text.clone(),
+                        scene_id: pb.scene_id.clone(),
+                        start_line: pb.start_line,
+                        line_count: 0.0,
+                        split: false,
+                        more: false,
+                        contd: false,
+                        contd_character: None,
+                        auto_contd: None,
+                        source_start: None,
+                        source_end: None,
+                        group: Some(line.dialogue_id.clone()),
+                    });
+                }
+                let mut dpb = pb;
+                dpb.text = dialogue_text;
+                if dpb.split {
+                    dpb.source_start = dpb.source_start.map(|s| s.saturating_sub(cue_utf16));
+                    dpb.source_end = dpb.source_end.map(|e| e.saturating_sub(cue_utf16));
+                } else {
+                    dpb.source_start = None;
+                    dpb.source_end = None;
+                }
+                dpb.group = Some(line.dialogue_id.clone());
+                out.push(dpb);
+                continue;
+            }
+            // 跨页续排的对白片段：偏移量基于合并文本，需要减去人物提示长度。
+            if pb.block_id.contains(":part:") {
+                let base = pb.block_id.split(":part:").next().unwrap_or("");
+                if let Some(line) = lines.iter().find(|l| l.dialogue_id == base) {
+                    let cue_utf16 = line.cue.encode_utf16().count();
+                    let mut dpb = pb;
+                    dpb.source_start = dpb.source_start.map(|s| s.saturating_sub(cue_utf16));
+                    dpb.source_end = dpb.source_end.map(|e| e.saturating_sub(cue_utf16));
+                    out.push(dpb);
+                    continue;
+                }
+            }
+            out.push(pb);
+        }
+        page.blocks = out;
+    }
+    pag
 }
 
 fn new_page(pages: &mut Vec<Page>) {
@@ -543,6 +644,40 @@ mod tests {
             .flat_map(|p| p.blocks.iter())
             .any(|b| b.contd && b.text.contains("李明")));
     }
+    #[test]
+    fn editor_pagination_matches_export_and_merges_cue_rows() {
+        let mut doc = ScreenplayDocument::blank("editor");
+        doc.settings.typography = crate::typography::CHINESE_PRODUCTION.into();
+        doc.settings.font_size = 12.0;
+        doc.settings.line_height = 1.5;
+        doc.settings.show_scene_numbers = true;
+        doc.blocks.push(ScreenplayBlock::new(BlockType::SceneHeading, "内景。办公室——日"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Character, "李明"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Parenthetical, "低声"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Dialogue, "报告。"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Action, "他站起。"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Character, "阿芳"));
+        doc.blocks.push(ScreenplayBlock::new(BlockType::Dialogue, "台词。".repeat(2000)));
+
+        let view = crate::typography::export_view(&doc);
+        let paper = paginate_for_editor(&doc);
+        // 纸面页数与 PDF/导出完全一致。
+        assert_eq!(paper.total_pages, paginate(&view).total_pages);
+
+        let blocks = &paper.pages[0].blocks;
+        assert_eq!(blocks[0].block_type, BlockType::SceneHeading);
+        assert_eq!(blocks[0].text, "1-日-办公室-内");
+
+        let group_key = blocks[1].group.clone().expect("人物块应带分组键");
+        let group: Vec<_> = blocks.iter().filter(|b| b.group.as_deref() == Some(group_key.as_str())).collect();
+        assert_eq!(group.len(), 3);
+        assert!(group.iter().all(|b| b.start_line == group[0].start_line));
+        assert_eq!(group[0].block_type, BlockType::Character);
+        assert_eq!(group[1].block_type, BlockType::Parenthetical);
+        assert_eq!(group[2].block_type, BlockType::Dialogue);
+        assert_eq!(group[2].text, "报告。");
+    }
+
     #[test]
     fn g01_scene_heading_never_alone_at_page_end() {
         // 构造一个让 scene heading 落在页尾的文档

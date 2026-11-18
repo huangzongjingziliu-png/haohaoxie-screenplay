@@ -2,13 +2,14 @@ import ReplaceDialog from './ReplaceDialog';
 import {tr,fmt} from '@/i18n';
 import {sourceSegments} from '@/utils/sourcePositions';
 import { useSceneDrag } from '@/utils/useSceneDrag';
-import { moveScene } from '@/utils/scenes';
+import { moveScene, useSceneHeadingDisplays } from '@/utils/scenes';
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/stores/editor';
 
 /** 大纲导航：场景 / 人物 / 地点 / 结构。数据全部来自后端 AST。 */
 export default function Navigator() {
   const {startDrag,pointerTarget,insertion} = useSceneDrag('vertical');
+  const headingDisplays = useSceneHeadingDisplays();
   const [dragged, setDragged] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const doc = useEditorStore((s) => s.document);
@@ -120,7 +121,7 @@ export default function Navigator() {
                 onClick={() => jump(s.id)}
               >
                 <span className="num">{s.no}</span>
-                <span className="label">{s.label}</span>
+                <span className="label">{headingDisplays[s.id] ?? s.label}</span>
               </li>
             ))}
           </ul>

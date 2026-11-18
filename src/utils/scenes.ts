@@ -1,10 +1,20 @@
 import type { ScreenplayDocument } from '@/ipc/types';
 import type { SceneBoard } from '@/ipc/types/SceneBoard';
 import type { SceneCard } from '@/ipc/types/SceneCard';
+import { useEffect, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 export const defaultBoard = (): SceneBoard => ({color:'#FFF2A8', summaries_enabled:false, cards:{}, groups:[], links:[], hide_links:false});
+/** 场景头在纸面与导出里的实际写法（`内景。办公室——日` / `1-日-办公室-内`）。
+ *  直接取分页结果，避免前端复制 Rust 的排版规则；文档 revision 变化时刷新。
+ *  只用于显示：原文仍以 `block.text` 为准，编辑、搜索替换与排序都不受影响。 */
+export function useSceneHeadingDisplays() {
+  const revision = useEditorStore(s=>s.document?.revision);
+  const [names,setNames] = useState<Record<string,string>>({});
+  useEffect(()=>{let live=true;void ipc.getPagination().then(p=>{if(!live)return;const map:Record<string,string>={};for(const page of p.pages)for(const block of page.blocks)if(block.block_type==='scene_heading')map[block.block_id]=block.text;setNames(map);}).catch(()=>{});return ()=>{live=false;};},[revision]);
+  return names;
+}
 export const defaultCard = (): SceneCard => ({color:'',width:0,height:0,summary:'',summary_source:'',summary_manual:false,comments:[]});
 export function scenesOf(doc: ScreenplayDocument | null) {
   const blocks = doc?.blocks ?? [];
