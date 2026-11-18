@@ -258,8 +258,13 @@ impl ProjectService {
     }
     /// 新建空白项目。若已有项目，**无条件替换**（不得继续写入旧项目）。
     pub fn create_new(&self, title: &str) -> Result<(), String> {
+        self.create_new_document(ScreenplayDocument::blank(title))
+    }
+
+    /// 用模板生成的文档新建项目。同样无条件替换当前项目。
+    pub fn create_new_document(&self, document: ScreenplayDocument) -> Result<(), String> {
         let _saving=self.saving.lock().map_err(|e|e.to_string())?;
-        let ws = Workspace::blank(title)?;
+        let ws = Workspace::from_document(document)?;
         self.sync_recovery_source_from(&ws);
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
         *self.project_lock.lock().unwrap()=None;

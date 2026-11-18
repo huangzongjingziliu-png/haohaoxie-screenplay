@@ -802,5 +802,8 @@
   "通过 CLI 连接外部 Agent": "Connect an external agent through CLI",
   "适合能执行这台 Mac 本地命令的 Agent。复制的是操作请求，需要客户端具备本机命令执行能力。": "For agents that can execute commands on this Mac. The copied instructions require local command access.",
   "开始书写剧本": "Start writing your script",
-  "点击这里，开始书写场景标题…": "Click here to write your first scene heading…"
+  "点击这里，开始书写场景标题…": "Click here to write your first scene heading…",
+  "从模板开始": "Start from a template",
+  "正在读取模板…": "Loading templates…",
+  "把 JSON 模板文件放进 {0}，即可新增模板。": "Add new templates by dropping JSON files into {0}."
 }

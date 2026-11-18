@@ -20,6 +20,7 @@ mod agent_harness;
 mod credentials;
 mod entitlement;
 mod mcp_http;
+mod templates;
 pub mod service;
 
 use crate::service::{
@@ -620,16 +621,29 @@ fn push_recent(path: &str, title: &str) {
 // 项目生命周期命令
 // ---------------------------------------------------------------------------
 
-/// 新建空白项目。
+/// 新建项目。可选模板 id；为空或 `blank` 时创建空白工程。
 /// **保证**：调用后后端 Workspace 一定是新项目，不会继续写入旧项目。
 #[tauri::command]
 fn new_project(
     app: AppHandle,
     state: State<'_, AppState>,
     title: String,
+    template: Option<String>,
 ) -> IpcResult<ProjectInfo> {
-    state.project.create_new(&title)?;
-    diag::log("new_project title={title}");
+    match template.as_deref().filter(|id| !id.is_empty() && *id != "blank") {
+        Some(id) => {
+            let resolved = templates::find(id)
+                .ok_or_else(|| IpcError::InvalidArgument { message: format!("找不到模板：{id}") })?;
+            let document = screenplay_core::templates::build_document(&title, &resolved)
+                .map_err(|message| IpcError::InvalidArgument { message })?;
+            state.project.create_new_document(document)?;
+            diag::log(&format!("new_project title={title} template={id}"));
+        }
+        None => {
+            state.project.create_new(&title)?;
+            diag::log("new_project title={title}");
+        }
+    }
     state.refresh_bridge_descriptor();
     let info = project_info(&state.project);
     let _ = app.emit("project-changed", &info);
@@ -1864,6 +1878,7 @@ pub fn run() {
             // 生命周期
             bootstrap,
             new_project,
+            templates::list_project_templates,
             open_project,
             close_project,
             save_project,

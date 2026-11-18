@@ -58,11 +58,16 @@ impl Workspace {
 
     /// 新建空白项目
     pub fn blank(title: &str) -> Result<Self, String> {
+        Self::from_document(ScreenplayDocument::blank(title))
+    }
+
+    /// 用已经构建好的文档新建项目（模板新建工程走这里）。
+    pub fn from_document(document: ScreenplayDocument) -> Result<Self, String> {
         let workdir = std::env::temp_dir().join(format!("screenplay-{}", new_id("ws")));
         std::fs::create_dir_all(&workdir).map_err(|e| e.to_string())?;
         let db_path = workdir.join("project.sqlite");
         let conn = open_db(&db_path).map_err(|e| e.to_string())?;
-        let store = Arc::new(Store::new(conn, ScreenplayDocument::blank(title)));
+        let store = Arc::new(Store::new(conn, document));
         Ok(Self {
             container: Mutex::new(None),
             db_path,

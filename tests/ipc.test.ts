@@ -172,7 +172,7 @@ describe('生命周期命令', () => {
 
     const info = await ipc.newProject('测试');
     expect(info.state).toBe('unsaved');
-    expect(mockBackend.callsTo('new_project')[0].args).toEqual({ title: '测试' });
+    expect(mockBackend.callsTo('new_project')[0].args).toEqual({ title: '测试', template: null });
   });
 
   it('t10_saveProject 不传 payload（关键：防止前端快照覆盖后端）', async () => {
