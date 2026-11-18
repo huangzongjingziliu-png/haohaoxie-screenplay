@@ -1587,7 +1587,7 @@ body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark b
 .draft-badge{font-size:11px;padding:3px 7px;border:1px solid #dbe1e9;border-radius:6px;margin-left:8px;background:#f6f8fb;color:#627082;font-weight:500}
 
 /* Interactive controls have visible boundaries even before hovering. */
-:where(button){font:inherit;color:inherit;cursor:pointer;border:1px solid #d5dbe4;border-radius:7px;background:#f7f9fc;padding:6px 10px;}
+:where(button){font:inherit;color:var(--btn-text,inherit);cursor:pointer;border:1px solid var(--btn-border,#d5dbe4);border-radius:7px;background:var(--btn-bg,#f7f9fc);padding:6px 10px;}
 button:focus-visible{outline:2px solid #3977c8;outline-offset:2px;}
 button:disabled{cursor:default;opacity:.45;}
 .modal button,.series-workbench button{border:1px solid #d5dce6;border-radius:8px;padding:8px 12px;min-height:34px;cursor:pointer;}
@@ -1605,7 +1605,13 @@ button:disabled{cursor:default;opacity:.45;}
 .episode-manager form{padding:14px;background:#f4f6fa;border:1px solid #e1e6ed;border-radius:10px;flex-wrap:wrap;}
 .episode-manager form label{display:grid;gap:8px;min-width:180px;}
 .episode-return{border:1px solid #dce3ec;background:#f8fafc;border-radius:10px;padding:0 16px 16px;margin-top:20px;}
-body.dark .modal button,body.dark .toolbar button{background:#353b45!important;color:#e8edf5;border-color:#576171;}
+/* 对话框与工具栏按钮统一走主题色板，避免写死颜色。 */
+.toolbar button:not(.toolbar-save):not(.update-indicator){background:var(--control-bg);color:var(--control-text);border-color:var(--control-border);}
+.toolbar .toolbar-save{background:var(--primary-btn-bg);color:var(--primary-btn-text);border-color:var(--primary-btn-bg);}
+.toolbar button.update-indicator{background:var(--accent-weak);color:var(--accent);border-color:var(--accent-border);}
+.toolbar button:not(.toolbar-save):not(.update-indicator):hover:not(:disabled){background:var(--control-hover);}
+body.dark .modal button:not(.primary):not(.help-primary):not(.selected):not(.active):not(.harness-send):not(.recent-item):not(.model-picker-button):not(.continuity-evidence){background:var(--control-bg);color:var(--control-text);border-color:var(--control-border);}
+body.dark .modal button:not(.primary):not(.help-primary):not(.selected):not(.active):not(.harness-send):not(.recent-item):not(.model-picker-button):not(.continuity-evidence):hover:not(:disabled){background:var(--control-hover);}
 @media(max-width:700px){.episode-row{flex-wrap:wrap}.episode-row>button:first-child{flex-basis:100%}}
 
 .replace-dialog{width:min(1000px,94vw);max-height:90vh;overflow:auto}.replace-dialog p{line-height:1.6;color:#687486;margin:12px 0}.replace-inputs{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.replace-inputs label{display:grid;gap:8px;flex:1;min-width:150px}.replace-inputs input,.replace-inputs select{font:inherit;padding:9px;border:1px solid #d5dce6;border-radius:8px;width:100%}.replace-selection,.replace-pages{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}.replace-hit{display:flex;align-items:start;gap:10px;padding:12px;border:1px solid #dfe5ed;border-radius:10px;margin:8px 0;background:#fafbfd}.replace-hit>div{min-width:0;flex:1}.replace-hit input{margin-top:4px}.replace-hit small{display:block;color:#9d6814;margin:5px 0}.replace-columns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}.replace-columns pre{padding:10px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;max-height:170px;overflow:auto;border-radius:6px;background:#fff0f0}.replace-columns pre+pre{background:#effaf1}.replace-dialog .replace-error{color:#b42338;background:#fff0f2;padding:10px;border-radius:8px}.navigator-entity-heading>button{font-size:12px;padding:4px 6px;flex-shrink:0}@media(max-width:700px){.replace-columns{grid-template-columns:1fr}}
@@ -1872,3 +1878,63 @@ body.dark .agent-selection-dialog textarea { background:#1f1f24; color:#e8e8ed; 
 body.dark .update-notes { background:#26262e; color:#e0e0e8; }
 body.dark .update-error { background:#4a1f26; color:#ffc2cb; }
 body.dark .toolbar button.update-indicator { background:#22364a; border-color:#3a5f85; color:#8ab4f8; }
+
+/* ==========================================================================
+   显示模式色板
+   界面控件统一引用这些变量；正文纸面与导出排版不受影响。
+   ========================================================================== */
+:root {
+  --control-bg: #f7f9fc;
+  --control-hover: #e8e8ed;
+  --control-text: #1d1d1f;
+  --control-border: #dce1e8;
+  --primary-btn-bg: #454652;
+  --primary-btn-hover: #30313c;
+  --primary-btn-text: #ffffff;
+  --accent-weak: #eaf3ff;
+  --accent: #1675e8;
+  --accent-border: #c8ddfa;
+  --muted-text: #86868b;
+  --btn-bg: #f7f9fc;
+  --btn-border: #d5dbe4;
+  --btn-text: inherit;
+}
+
+body.dark {
+  --control-bg: #353b45;
+  --control-hover: #414a58;
+  --control-text: #e8edf5;
+  --control-border: #576171;
+  --primary-btn-bg: #d4d4dd;
+  --primary-btn-hover: #e4e4ea;
+  --primary-btn-text: #24242a;
+  --accent-weak: #22364a;
+  --accent: #8ab4f8;
+  --accent-border: #3a5f85;
+  --muted-text: #a9a9b4;
+  --btn-bg: #353b45;
+  --btn-border: #576171;
+  --btn-text: #e8edf5;
+}
+
+.toolbar .toolbar-save:hover:not(:disabled) { background: var(--primary-btn-hover); }
+
+/* 深色下写死的中性文字色改为浅色，保证对比度 */
+body.dark .navigator-tabs button { color: #b2b2ba; }
+body.dark .navigator-tabs button.active { color: #8ab4f8; border-bottom-color: #8ab4f8; }
+body.dark .status-bar .path { color: #a9a9b4; }
+body.dark .toolbar-more-menu small { color: #a9a9b4; }
+body.dark .toolbar-more-menu hr { border-top-color: #3a3a44; }
+body.dark .toolbar .zoom-label { color: #c3c3cd; }
+body.dark .toast-info { background: #3a3a44; color: #ececf2; }
+
+/* 搜索栏与欢迎页内的按钮原先沿用浅色控件底色 */
+body.dark .screenplay-search button { background: var(--control-bg); border-color: var(--control-border); color: var(--control-text); }
+body.dark .screenplay-search button:hover:not(:disabled) { background: var(--control-hover); }
+body.dark .welcome button { background: #2e2e36; border-color: #4a4a55; color: #e8e8ed; }
+body.dark .welcome button:hover { background: #3a3a44; }
+
+/* 深色下禁用态稍提亮，避免文字灰到看不清 */
+body.dark button:disabled { opacity: .6; }
+
+
