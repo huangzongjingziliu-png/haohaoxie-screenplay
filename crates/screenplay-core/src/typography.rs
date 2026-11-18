@@ -57,6 +57,13 @@ pub fn display_text_with(s: &ScreenplaySettings, t: BlockType, text: &str) -> St
 /// 中式剧本的场景头：`12-日-办公室-内`（场号-时间-地点-内外）。
 /// 中文通用剧本：`12、办公室，日，内`（场号、地点、时间、内外）。
 /// 场号开关关闭时省略场号；内外景未知时省略最后一段。
+/// 缓存的场头元数据是否仍能代表当前正文。
+/// 只检查地点与时间：场号是独立编号，改名时应保留；
+/// 内景/外景常被模板改写顺序，不作强校验。
+fn heading_matches_text(data: &crate::ast::SceneHeadingData, text: &str) -> bool {
+    let contained = |value: &str| value.trim().is_empty() || text.contains(value.trim());
+    contained(&data.location) && contained(&data.time_of_day)
+}
 pub fn scene_heading_display(doc: &crate::ast::ScreenplayDocument, b: &crate::ast::ScreenplayBlock) -> Option<String> {
     if !(production(&doc.settings) || general(&doc.settings)) || b.block_type != BlockType::SceneHeading { return None; }
     // 正文是唯一事实来源：编辑器改过场景头后，缓存的元数据可能已过期，
@@ -64,7 +71,11 @@ pub fn scene_heading_display(doc: &crate::ast::ScreenplayDocument, b: &crate::as
     let parsed = crate::heading_format::format_heading(&b.text, &doc.settings)
         .map(|(_, d)| d)
         .or_else(|| crate::parser::parse_scene_heading(&b.text).map(|(d, _)| d))
-        .or_else(|| b.scene_heading.clone());
+        .or_else(|| {
+            // 自定义模板或纯文本场头可能解析不出结构化数据，此时才退回元数据；
+            // 但若元数据里的地点/时间已不在正文中，说明它过期了，不能再用。
+            b.scene_heading.clone().filter(|d| heading_matches_text(d, &b.text))
+        });
     let Some(mut data) = parsed else {
         // 解析不了的场景头也保留场号，避免编辑器有号、导出没号。
         if !doc.settings.show_scene_numbers || b.text.trim().is_empty() { return None; }
@@ -428,6 +439,15 @@ pub fn continued_cue(text:&str)->String{
   d.settings.show_scene_numbers=true;
   d.blocks.push(ScreenplayBlock::new(BlockType::SceneHeading,"字幕：三日后"));
   assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("1、字幕：三日后"));
+ }
+ #[test] fn stale_heading_metadata_is_ignored_after_rename(){
+  let mut d=ScreenplayDocument::blank("x");
+  d.settings.typography=CHINESE_PRODUCTION.into();
+  d.settings.show_scene_numbers=true;
+  let mut b=ScreenplayBlock::new(BlockType::SceneHeading,"字幕：三日后");
+  b.scene_heading=Some(SceneHeadingData{scene_number:Some("3".into()),location:"办公室".into(),time_of_day:"日".into(),int_ext:IntExt::Int,..Default::default()});
+  d.blocks.push(b);
+  assert_eq!(scene_heading_display(&d,&d.blocks[0]).as_deref(),Some("3-字幕：三日后"));
  }
  #[test] fn cached_scene_number_survives_text_edit(){
   let mut d=ScreenplayDocument::blank("x");
