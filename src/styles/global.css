@@ -1672,3 +1672,203 @@ body.dark .model-service-card small,body.dark .model-catalogue-note { color:#bac
 .history-preview header span { color:#667085; }
 .history-preview pre { max-height:300px; overflow:auto; white-space:pre-wrap; font:inherit; line-height:1.7; padding:12px; background:white; }
 @media(max-width:600px) { .model-steps { font-size:12px; }.model-steps li { gap:4px; }.model-service-grid { grid-template-columns:1fr; } }
+
+/* ==========================================================================
+   显示模式：外观选择控件
+   ========================================================================== */
+.theme-choices { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0; }
+.theme-choices button { min-width:112px; padding:14px 18px; border:1px solid #d5dbe4; border-radius:10px; background:#f7f9fc; color:#334155; font:inherit; cursor:pointer; }
+.theme-choices button:hover { border-color:#9db4d6; }
+.theme-choices button.selected { border-color:#1675e8; background:#e7f0ff; color:#155fae; font-weight:600; }
+
+/* ==========================================================================
+   深色模式：界面表面与控件覆盖
+   只作用于应用界面；PDF / DOCX / HTML 导出由 Rust 排版，不读取这些规则。
+   ========================================================================== */
+body.dark { color-scheme:dark; --paper-ink:#e8e8ed; }
+
+/* 编辑器纸面 */
+body.dark .screenplay-editor { background:#1a1a1e; }
+body.dark .page { background:#222227; color:#e8e8ed; box-shadow:0 1px 6px #0008; }
+body.dark .pane-heading { border-bottom-color:#3a3a42; }
+body.dark .pane-heading strong { color:#e8e8ed; }
+body.dark .pane-heading button { background:#2e2e36; border-color:#4a4a55; color:#dcdce4; }
+body.dark .page-number { color:#9a9aa4; }
+body.dark .block-shot,body.dark .block-synopsis,body.dark .contd-marker,body.dark .more-marker { color:#a9a9b4; }
+body.dark .block-note { color:#9a9aa4; }
+body.dark .writing-completions { background:#30303a; color:#e8e8ed; border-color:#4a4a55; box-shadow:0 6px 20px #0008; }
+body.dark .writing-completions button { background:transparent; color:inherit; }
+body.dark .writing-completions button:hover,body.dark .writing-completions button[aria-selected="true"] { background:#2f4a6b; color:#dce9ff; }
+body.dark .writing-completions small { color:#a3a3ad; }
+body.dark .source-editor { background:#222227; color:#e8e8ed; }
+body.dark .source-font-tools { background:#25252b; border-color:#3a3a42; color:#c3c3cd; }
+body.dark .source-font-tools button,body.dark .source-font-tools select { background:#34343c; color:#e8e8ed; border-color:#51515c; }
+body.dark .screenplay-search { background:#25252b; border-color:#3a3a42; }
+body.dark .screenplay-search span { color:#a3a3ad; }
+body.dark .screenplay-search input { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .search-hit { background:#5a4d1e; color:#f3e8c2; }
+
+/* 导航列表 */
+body.dark .navigator-toggle { background:#2e2e35; border-color:#4a4a54; color:#c3c3cd; }
+body.dark .navigator-body li:hover,body.dark .nav-item:hover { background:#33333b; }
+body.dark .navigator-body li.active { background:#3c3a2a; color:#f0e6c0; box-shadow:inset 3px 0 #c8ab4d; }
+body.dark .navigator li[data-drop-target="true"] { background:#4a4326; color:#f3e8c2; }
+body.dark .navigator .outline .type { background:#3a3a43; color:#b6b6c0; }
+body.dark .navigator .outline .text { color:#c9c9d1; }
+body.dark .navigator-occurrences button { background:#2c2c33; border-color:#45454f; color:#dcdce4; }
+body.dark .navigator-occurrences button.active { background:#4a4326; border-color:#bda658; color:#f3e8c2; }
+body.dark .navigator-entity-heading button,body.dark .status-review-button { background:#2e2e36; border-color:#4a4a55; color:#dcdce4; }
+
+/* 欢迎页 */
+body.dark .welcome button { background:#2c2c33; border-color:#4a4a55; color:#e8e8ed; }
+body.dark .welcome button:hover { background:#383840; }
+body.dark .recent-item:hover { background:#33333b; }
+
+/* 设置 */
+body.dark .settings-shell .unified-settings { background:#232329; border-color:#3c3c46; }
+body.dark .settings-shell .unified-settings>h2 { border-bottom-color:#3a3a44; color:#ececf2; }
+body.dark .settings-shell .settings-tabs { background:#1f1f24; border-right-color:#3a3a44; }
+body.dark .settings-shell .settings-tabs button { background:#2b2b33; border-color:#3f3f49; color:#b9b9c3; }
+body.dark .settings-shell .settings-tabs button:hover { background:#34343e; border-color:#55555f; }
+body.dark .settings-shell .settings-tabs button.selected { background:#28405c !important; border-color:#3d6a99 !important; color:#cfe4ff !important; }
+body.dark .settings-detail { background:#232329; }
+body.dark .settings-detail .modal-actions { background:#232329; border-top-color:#3a3a44; }
+body.dark .settings-content h3 { color:#ececf2; }
+body.dark .settings-content label { color:#c8c8d2; }
+body.dark .settings-content input:not([type=checkbox]),body.dark .settings-content select,body.dark .settings-content textarea { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .settings-content button { background:#34343c; color:#e8e8ed; border-color:#51515c; }
+body.dark .settings-skill { background:#2a2a32; border-color:#3d3d47; }
+body.dark .settings-skill-library { border-color:#3d3d47; }
+body.dark .skill-drop-zone { background:#26262e; border-color:#4b4b56; }
+body.dark .memory-editor,body.dark .memory-preview { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .shortcut-settings { border-color:#3f3f49; }
+body.dark .custom-style-settings { background:#26262e; border-color:#3f3f49; }
+body.dark .style-preview { background:#1f1f24; border-color:#45454f; }
+body.dark .style-color-swatches button { border-color:#26262c; box-shadow:0 0 0 1px #5a5a64; }
+body.dark .theme-choices button { background:#2b2b33; border-color:#4a4a55; color:#dcdce4; }
+body.dark .theme-choices button:hover { border-color:#6a7f9e; }
+body.dark .theme-choices button.selected { background:#28405c !important; border-color:#3d84d6 !important; color:#cfe4ff !important; }
+body.dark .paper-choices button { background:#2b2b33 !important; border-color:#4a4a55 !important; color:#e0e0e8 !important; }
+body.dark .paper-choices button.active { background:#1d3a5c !important; border-color:#3d84d6 !important; color:#cfe4ff !important; }
+
+/* 通用对话框 */
+body.dark .modal { background:#26262c; border-color:#3a3a44; color:#e8e8ed; }
+body.dark .modal h2,body.dark .modal h3 { color:#ececf2; }
+body.dark .modal-hint { color:#a9a9b4; }
+body.dark .modal .field>span,body.dark .modal .field label { color:#a9a9b4; }
+body.dark .modal .field .checkbox { color:#dcdce4; }
+body.dark .modal input:not([type=checkbox]):not([type=radio]):not([type=color]),body.dark .modal select,body.dark .modal textarea { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .modal input::placeholder,body.dark .modal textarea::placeholder { color:#85858f; }
+body.dark .version-tabs { border-bottom-color:#3a3a44; }
+body.dark .version-tabs button { color:#a9a9b4; }
+body.dark .version-tabs button.active { color:#8ab4f8; border-bottom-color:#8ab4f8; }
+body.dark .version-item { border-bottom-color:#35353e; }
+body.dark .version-note { color:#b3b3bd; }
+body.dark .version-auto,body.dark .version-current,body.dark .audit-origin { background:#3a3a44; color:#c3c3cd; }
+body.dark .version-diff { background:#141418; color:#dcdce4; }
+body.dark .audit-item { border-bottom-color:#33333c; }
+body.dark .audit-command { color:#e4e4ea; }
+body.dark .audit-target { color:#a9a9b4; }
+body.dark .history-selected { background:#2b3547; }
+body.dark .history-preview { background:#26262e; border-color:#41414c; }
+body.dark .history-preview header span { color:#a9a9b4; }
+body.dark .history-preview pre { background:#1c1c21; color:#e4e4ea; }
+body.dark .recovery-info { background:#202026; }
+body.dark .recovery-label { color:#a9a9b4; }
+body.dark .recovery-preview { border-top-color:#4a4a55; }
+body.dark .import-review-list { border-right-color:#3f3f49; }
+body.dark .import-review-item small { color:#a9a9b4; }
+body.dark .import-review-source { border-top-color:#3f3f49; }
+body.dark .import-group button { background:#2b2b33; border-color:#4a4a55; color:#e0e0e8; }
+body.dark .import-error,body.dark .replace-dialog .replace-error { background:#4a1f26; color:#ffc2cb; }
+body.dark .empty-hint { color:#9a9aa4; }
+body.dark .replace-dialog p { color:#a9a9b4; }
+body.dark .replace-hit { background:#26262e; border-color:#3f3f49; }
+body.dark .replace-columns pre { background:#3a2024; color:#f0d8dc; }
+body.dark .replace-columns pre+pre { background:#1f3326; color:#d6efdd; }
+
+/* 模型与技能 */
+body.dark .model-picker-button { background:#22364a; color:#cfe4ff; border-color:#3a5f85; }
+body.dark .model-manager label { color:#c8c8d2; }
+body.dark .model-manager input,body.dark .model-manager select { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .model-choice { background:#2a2a32; }
+body.dark .model-choice.selected { background:#22364a; }
+body.dark .model-choice small,body.dark .model-service-card b,body.dark .model-catalogue-note,body.dark .available-models small,body.dark .model-custom-service small { color:#a9a9b4; }
+body.dark .model-setup { border-top-color:#3f3f49; }
+body.dark .model-steps { color:#9a9aa4; }
+body.dark .model-steps li span { border-color:#4a4a55; }
+body.dark .model-service-card { background:#26262e; border-color:#3f3f49; }
+body.dark .model-service-card img { background:#1f1f24; border-color:#3f3f49; }
+body.dark .model-custom-service { border-color:#4a4a55 !important; }
+body.dark .available-models button[aria-pressed=true],body.dark .model-filter-row button[aria-pressed=true] { background:#2b3550; border-color:#5c6bb5; color:#c9d2ff; }
+body.dark .model-free-notice { background:#3a321c; border-color:#6a5a2c; color:#e6d7a6; }
+body.dark .model-region-tag,body.dark .draft-badge { background:#3a3a44; color:#c3c3cd; }
+body.dark .menu-section-label { color:#9a9aa4; }
+
+/* 场景白板 */
+body.dark .scene-board { background:#232329; color:#e8e8ed; }
+body.dark .board-heading { border-bottom-color:#3a3a44; }
+body.dark .scene-board button { background:#2e2e36; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .scene-board button:hover { background:#3a3a44; }
+body.dark .board-structure-tools,body.dark .board-link-editor { border-color:#3a3a44; }
+body.dark .board-structure-tools input,body.dark .board-link-editor input,body.dark .board-create-scene input,body.dark .board-create-scene textarea,body.dark .board-note-dialog textarea,body.dark .board-color-popover input,body.dark .board-selection-actions input { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .board-group { background:#2b2636cc; border-color:#5a4d7a; }
+body.dark .board-link-label { fill:#c9bdf0; stroke:#232329; }
+body.dark .board-note-dialog,body.dark .board-color-popover,body.dark .board-selection-actions { background:#26262e; color:#e8e8ed; border-color:#41414c; }
+body.dark .board-comment { border-bottom-color:#3a3a44; }
+body.dark .board-create-scene>p { color:#a9a9b4; }
+body.dark .scene-text-status { background:#4a3f1e; color:#f0dfae; }
+body.dark .scene-summary:empty::before { color:#b7ab8c; }
+
+/* 帮助与系列工作台 */
+body.dark .help-panel { background:#232329; color:#dcdce4; }
+body.dark .help-header { background:#1f1f24; border-bottom-color:#3a3a44; }
+body.dark .help-header p,body.dark .help-footer small { color:#a0a0aa; }
+body.dark .help-panel button,body.dark .help-panel select { background:#2e2e36; border-color:#4a4a55; color:#e8e8ed; }
+body.dark .help-panel button:hover { background:#3a3a44; }
+body.dark .help-layout aside { background:#1f1f24; border-right-color:#3a3a44; }
+body.dark .help-layout input { background:#2a2a32; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .help-layout nav button { background:#2a2a32; }
+body.dark .help-layout nav button[aria-current=page] { background:#28405c; border-color:#3d6a99; color:#cfe4ff; }
+body.dark .help-card { background:#26262e; border-color:#3f3f49; }
+body.dark .help-footer { border-top-color:#3a3a44; }
+body.dark .series-workbench { background:#232329; color:#e8e8ed; }
+body.dark .series-workbench>header,body.dark .series-workbench>footer { border-color:#3a3a44; }
+body.dark .series-layout>aside { background:#1f1f24; border-right-color:#3a3a44; }
+body.dark .series-workbench textarea { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .series-layout nav button { background:#2a2a32; border-color:#41414c; color:#e0e0e8; }
+body.dark .series-layout nav .active { background:#4a4326; border-color:#b99e52; color:#f2e6bf; }
+body.dark .series-layout nav small,body.dark .series-layout nav span,body.dark .series-workbench>footer span,body.dark .series-details label { color:#a9a9b4; }
+body.dark .episode-manager h3,body.dark .episode-manager p { color:#b8b8c2; }
+body.dark .episode-manager input,body.dark .episode-manager select { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .episode-manager form,body.dark .episode-return { background:#26262e; border-color:#3f3f49; }
+body.dark .episode-row { border-color:#3f3f49; }
+body.dark .episode-row.active { background:#4a4326; border-color:#b99e52; }
+body.dark .episode-manager .episode-row>button:first-child { background:#2e2e36; }
+body.dark .episode-manager .episode-row.active>button:first-child { background:#5a4f2a; border-color:#c9ad5b; color:#f6ecc9; }
+body.dark .series-progress { background:#223043; border-color:#39506b; }
+body.dark .series-stale { background:#4a3f1e; color:#f0dfae; }
+body.dark .continuity-card { background:#26262e; border-color:#3f3f49; }
+body.dark .continuity-evidence { background:#2a2a32; border-color:#41414c; color:#e0e0e8; }
+body.dark .continuity-evidence blockquote { color:#b8b8c2; }
+body.dark .revision-comparison details { border-color:#3f3f49; }
+body.dark .revision-comparison summary span,body.dark .revision-columns small { color:#a0a0aa; }
+body.dark .revision-before { background:#3a2226; border-color:#6a3a42 !important; }
+body.dark .revision-after { background:#1f3326; border-color:#3c5f45 !important; }
+
+/* 助手面板与浮层 */
+body.dark .harness-panel { background:#232329; color:#dcdce4; }
+body.dark .harness-panel header { border-bottom-color:#3a3a44; }
+body.dark .harness-welcome,body.dark .harness-welcome h3 { color:#b0b0ba; }
+body.dark .harness-panel button { background:#2e2e36; border-color:#4a4a55; color:#e8e8ed; }
+body.dark .chat-turn.user { background:#22364a; }
+body.dark .chat-turn.assistant { background:#2a2a32; }
+body.dark .harness-composer { border-top-color:#3a3a44; }
+body.dark .harness-composer textarea { background:#1f1f24; color:#e8e8ed; border-color:#4a4a55; }
+body.dark .agent-context-menu,body.dark .agent-work-dialog { background:#26262e; border-color:#41414c; color:#dcdce4; }
+body.dark .agent-work-time { color:#a0a0aa; }
+body.dark .agent-work-spinner { border-color:#3f3f49; border-top-color:#818cf8; }
+body.dark .agent-selection-dialog textarea { background:#1f1f24; color:#e8e8ed; }
+body.dark .update-notes { background:#26262e; color:#e0e0e8; }
+body.dark .update-error { background:#4a1f26; color:#ffc2cb; }
+body.dark .toolbar button.update-indicator { background:#22364a; border-color:#3a5f85; color:#8ab4f8; }
