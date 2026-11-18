@@ -4365,7 +4365,7 @@ dependencies = [
 
 [[package]]
 name = "screenplay-desktop"
-version = "0.1.60-dev"
+version = "0.1.60"
 dependencies = [
  "anyhow",
  "chrono",
