@@ -2019,3 +2019,24 @@ body.dark .welcome button:hover { background: #3a3a44; }
 body.dark button:disabled { opacity: .6; }
 
 
+
+/* 工具栏分组：文件 / 视图 / 协作 */
+.toolbar-group-divider { align-self: center; height: 24px; margin: 0 2px; flex: 0 0 auto; }
+.toolbar-file-group, .toolbar-view-group, .toolbar-collab-group { flex-shrink: 0; }
+.toolbar-zoom-menu .toolbar-more-menu { left: 0; right: auto; min-width: 176px; }
+.toolbar-zoom-menu .toolbar-more-menu .menu-section-label { margin: 4px 11px 6px; }
+body.dark .toolbar-group-divider { background: #4a4a54; }
+
+/* 编剧助理面板：左边缘拖动改宽 */
+.agent-panel-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 30; touch-action: none; }
+.agent-panel-resizer::after { content: ''; position: absolute; left: 3px; top: 50%; width: 2px; height: 46px; margin-top: -23px; border-radius: 1px; background: transparent; transition: background .12s; }
+.agent-panel-resizer:hover::after, .agent-panel-resizer:active::after { background: #b9b9c4; }
+body.dark .agent-panel-resizer:hover::after, body.dark .agent-panel-resizer:active::after { background: #63636f; }
+body.resizing-agent-panel, body.resizing-agent-panel * { cursor: col-resize !important; user-select: none !important; }
+
+@media (max-width: 1500px) {
+  .toolbar { gap: 6px; padding-left: 12px; padding-right: 12px; }
+  .toolbar-group { gap: 3px; }
+  .toolbar button, .toolbar select { padding-left: 7px; padding-right: 7px; }
+  .toolbar-title { max-width: 190px; }
+}

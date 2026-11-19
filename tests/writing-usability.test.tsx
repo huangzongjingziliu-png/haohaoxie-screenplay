@@ -12,13 +12,18 @@ beforeEach(() => {
   useEditorStore.setState({ viewMode: 'split', previousViewMode: 'split', sourceFirst: true, zoom: 1, composing: false, activeBlockId: null });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-it('keeps page zoom visible outside disclosures and immediately changes magnification',()=>{
+it('缩放收在「缩放」菜单里，打开后立即可调且不依赖 details',()=>{
  const view=render(<Toolbar onImport={()=>undefined}/>);
+ const trigger=view.getByTitle('缩放');
+ expect(trigger.closest('details')).toBeNull();
+ expect(view.queryByTitle('放大')).toBeNull();
+ fireEvent.click(trigger);
  const zoomIn=view.getByTitle('放大'),zoomOut=view.getByTitle('缩小');
  expect(zoomIn.closest('details')).toBeNull();expect(zoomOut.closest('details')).toBeNull();
  fireEvent.click(zoomIn);expect(useEditorStore.getState().zoom).toBeCloseTo(1.1);
  fireEvent.click(zoomOut);expect(useEditorStore.getState().zoom).toBeCloseTo(1);
  fireEvent.click(view.getByTitle('适应纸宽'));expect(useEditorStore.getState().zoom).toBe(0);
+ expect(trigger.textContent).toContain('适应纸宽');
 });
 it('专注退出恢复原视图，互换不改变两种编辑器的语义', () => {
   const s = useEditorStore.getState();

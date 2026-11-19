@@ -1,5 +1,5 @@
 import {fmt, tr} from '@/i18n';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ipc } from '@/ipc/client';
 import { useEditorStore } from '@/stores/editor';
 import ModelPicker from './ModelPicker';
@@ -11,8 +11,25 @@ type ExpertInfo={id:string;name:string;description:string;dimensions:string[];bu
 type ExpertReply={expertId:string;name:string;ok:boolean;text:string;error?:string|null};
 type ExpertPanelResult={reviews:ExpertReply[];synthesis?:string|null;synthesisError?:string|null};
 
+const PANEL_WIDTH_KEY='hhx.agentPanelWidth';
+const PANEL_MIN=300,PANEL_MAX=480,PANEL_DEFAULT=340;
+const clampPanelWidth=(w:number)=>Math.min(PANEL_MAX,Math.max(PANEL_MIN,w));
+const loadPanelWidth=()=>{try{const raw=window.localStorage.getItem(PANEL_WIDTH_KEY);const n=raw?Number.parseInt(raw,10):Number.NaN;return Number.isFinite(n)?clampPanelWidth(n):PANEL_DEFAULT;}catch{return PANEL_DEFAULT;}};
+
 export default function AgentPanel({onClose}:{onClose:()=>void}) {
  const [creatingSkill,setCreatingSkill]=useState(false);
+ const [panelWidth,setPanelWidth]=useState(loadPanelWidth);
+ useEffect(()=>{try{window.localStorage.setItem(PANEL_WIDTH_KEY,String(panelWidth));}catch{/* 隐私模式下忽略 */}},[panelWidth]);
+ const startResize=(event:ReactPointerEvent<HTMLDivElement>)=>{
+  if(event.button>0)return;
+  event.preventDefault();
+  const startX=event.clientX,startWidth=panelWidth;
+  const move=(e:PointerEvent)=>setPanelWidth(clampPanelWidth(startWidth-(e.clientX-startX)));
+  const stop=()=>{document.removeEventListener('pointermove',move);document.removeEventListener('pointerup',stop);document.body.classList.remove('resizing-agent-panel');};
+  document.body.classList.add('resizing-agent-panel');
+  document.addEventListener('pointermove',move);
+  document.addEventListener('pointerup',stop);
+ };
  const doc=useEditorStore(s=>s.document),active=useEditorStore(s=>s.activeBlockId),toast=useEditorStore(s=>s.pushToast);
  const [turns,setTurns]=useState<{role:string;content:string}[]>([]),[text,setText]=useState(''),[busy,setBusy]=useState(false),[skill,setSkill]=useState('');
  const [skills,setSkills]=useState<{id:string;name:string}[]>([]);const bottom=useRef<HTMLDivElement>(null);
@@ -30,7 +47,8 @@ export default function AgentPanel({onClose}:{onClose:()=>void}) {
  const preview=async()=>{await flushPendingEdits();const current=useEditorStore.getState().document;if(!current)return;const block=current.blocks.find(b=>b.id===active);if(!block){toast('info',tr("请先在剧本中选择要修改的段落，或右键发送整个场景。"));return;}window.dispatchEvent(new CustomEvent('agent-selection',{detail:{label:'当前段落',instruction:[...turns].reverse().find(t=>t.role==='user')?.content,text:block.text,fullText:block.text,start:0,end:block.text.length,blockId:block.id,projectId:current.id,revision:current.revision}}));};
  const attach=async()=>{setBusy(true);try{const {open}=await import('@tauri-apps/plugin-dialog');const path=await open({multiple:false,filters:[{name:'剧本附件',extensions:['pdf','png','jpg','jpeg','heic','tiff','docx','txt','md','fountain']}]});if(typeof path!=='string')return;const attachment=await ipc.agentAttachmentText(path);const st=useEditorStore.getState();if(!st.document)return;window.dispatchEvent(new CustomEvent('agent-selection',{detail:{label:path.split('/').pop(),source:path,text:attachment,fullText:st.sourceText,start:0,end:st.sourceText.length,projectId:st.document.id,revision:st.document.revision}}));}catch(e){toast('error',String(e));}finally{setBusy(false);}};
  const pickedExperts=experts.filter(e=>picked.includes(e.id));
- return <aside className="agent-panel harness-panel">
+ return <aside className="agent-panel harness-panel" style={{width:panelWidth,flexBasis:panelWidth}}>
+ <div className="agent-panel-resizer" role="separator" aria-orientation="vertical" aria-label={tr("拖动调整面板宽度")} title={tr("拖动调整宽度（300–480）")} onPointerDown={startResize}/>
  <header><strong>{tr("编剧助理")}</strong><button aria-label={tr("关闭编剧助理")} onClick={onClose}>×</button></header>
  <div className="harness-conversation" aria-live="polite">{!turns.length&&!report&&<div className="harness-welcome"><h3>{tr("一起把故事写好")}</h3><p>{tr("讨论人物、梳理场景，或选中正文后预览改稿。")}</p><p>{tr("需要多人审稿时，用下方的「专家会审」一次请多位专家。")}</p><p>{tr("项目记忆会自动整理；写作偏好请在设置的“个性化”中填写。")}</p></div>}{turns.map((t,i)=><div key={i} className={'chat-turn '+t.role}>{t.content}</div>)}{busy&&<p role="status">{tr("正在阅读上下文并思考…")}</p>}{report&&<section className="expert-report" aria-label={tr("专家会审结果")}><div className="expert-report-head"><strong>{tr("专家会审")}</strong><button onClick={()=>setReport(null)}>{tr("清空")}</button></div>{report.reviews.map(r=><article key={r.expertId} className={'expert-card'+(r.ok?'':' failed')}><h4>{r.name}</h4>{r.ok?<div className="expert-body">{r.text}</div>:<p className="expert-error">{tr("本次未完成：")}{r.error||tr("未知错误")}</p>}</article>)}{report.synthesis&&<article className="expert-card synthesis"><h4>{tr("综合意见")}</h4><div className="expert-body">{report.synthesis}</div></article>}{report.synthesisError&&<p className="expert-error">{tr("汇总未完成：")}{report.synthesisError}</p>}</section>}{reviewing&&<p role="status">{tr("专家正在依次审阅，全部完成后显示结果…")}</p>}<div ref={bottom}/></div>
  <div className="expert-setup">
