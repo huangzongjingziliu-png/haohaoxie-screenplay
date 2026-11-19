@@ -10,6 +10,7 @@ fn fields(doc:&mut ScreenplayDocument,scope:&str,mut visit:impl FnMut(&str,&str,
   for b in &mut d.blocks{v(id,title,&format!("block:{}",b.id),&mut b.text);}
   for (idc,c) in &mut d.settings.scene_board.cards{v(id,title,&format!("summary:{idc}"),&mut c.summary);for (i,t) in c.comments.iter_mut().enumerate(){v(id,title,&format!("comment:{idc}:{i}"),t);}}
   for g in &mut d.settings.scene_board.groups{v(id,title,&format!("group:{}",g.id),&mut g.name);}
+  for l in &mut d.settings.scene_board.lanes{v(id,title,&format!("lane:{}",l.id),&mut l.name);v(id,title,&format!("lane-hint:{}",l.id),&mut l.hint);}
   for l in &mut d.settings.scene_board.links{v(id,title,&format!("link:{}",l.id),&mut l.label);}
  }
  let active=doc.series.as_ref().map(|s|(s.active_id.clone(),s.episodes.iter().find(|e|e.id==s.active_id).unwrap().title.clone())).unwrap_or(("single".into(),doc.metadata.title.clone()));

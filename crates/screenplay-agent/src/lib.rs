@@ -6,6 +6,7 @@ pub mod skill;
 pub mod tool;
 pub mod summary;
 pub mod expert;
+pub mod board;
 
 pub use expert::{Expert, ExpertMode, ExpertPanel, ExpertReply, builtin_experts, load_experts, parse_expert_md, run_panel};
 pub use provider::{ChatMessage, ModelProvider, ModelRouter, OpenAiProvider};

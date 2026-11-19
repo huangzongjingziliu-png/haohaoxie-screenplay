@@ -23,7 +23,20 @@ pub struct TemplateEpisode {
     pub blocks: Vec<TemplateBlock>,
 }
 
+/// 白板模板中的一个构思分区（一幕、一个节拍段或一集）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemplateLane {
+    pub name: String,
+    #[serde(default)]
+    pub hint: String,
+    #[serde(default)]
+    pub color: String,
+}
+
 /// 一套新工程模板。
+///
+/// `board` 是白板构思分区；`blocks` / `episodes` 是早期版本用来预置正文的字段，
+/// 保留以兼容既有 JSON 模板，新建工程默认使用空白起点。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectTemplate {
     pub id: String,
@@ -34,6 +47,8 @@ pub struct ProjectTemplate {
     pub blocks: Vec<TemplateBlock>,
     #[serde(default)]
     pub episodes: Option<Vec<TemplateEpisode>>,
+    #[serde(default)]
+    pub board: Vec<TemplateLane>,
 }
 
 impl ProjectTemplate {
@@ -64,6 +79,24 @@ impl ProjectTemplate {
                 if episode.title.trim().is_empty() {
                     return Err(format!("模板 {} 的第 {} 集缺少标题", self.id, i + 1));
                 }
+            }
+        }
+        if self.board.len() > 32 {
+            return Err(format!("模板 {} 的分区不能超过 32 个", self.id));
+        }
+        for lane in &self.board {
+            if lane.name.trim().is_empty() || lane.name.chars().count() > 40 {
+                return Err(format!("模板 {} 的分区名不能为空，且不超过 40 字", self.id));
+            }
+            if lane.hint.chars().count() > 2000 {
+                return Err(format!("模板 {} 的分区说明不能超过 2000 字", self.id));
+            }
+            if !lane.color.is_empty()
+                && (lane.color.len() != 7
+                    || !lane.color.starts_with('#')
+                    || !lane.color[1..].bytes().all(|b| b.is_ascii_hexdigit()))
+            {
+                return Err(format!("模板 {} 的分区颜色必须是 #RRGGBB", self.id));
             }
         }
         Ok(())
@@ -199,6 +232,33 @@ mod tests {
             assert_eq!(block.revision, 0);
         }
         assert!(doc.blocks.iter().all(|b| !b.metadata.locked));
+    }
+
+    #[test]
+    fn board_lanes_are_parsed_for_the_whiteboard() {
+        let three_act = parse(BUILTINS[1]).unwrap();
+        assert_eq!(three_act.board.len(), 3);
+        assert_eq!(three_act.board[0].name, "第一幕 · 建置");
+        assert!(three_act.board[0].hint.contains("催化剂"));
+        assert_eq!(three_act.board[0].color, "#CDE9FF");
+
+        let series = parse(BUILTINS[2]).unwrap();
+        assert_eq!(series.board.len(), 3);
+
+        let blank = parse(BUILTINS[0]).unwrap();
+        assert!(blank.board.is_empty());
+
+        let custom = parse(r#"{"id":"custom","name":"自定义","board":[{"name":"钩子","hint":"前三分钟"}]}"#).unwrap();
+        assert_eq!(custom.board.len(), 1);
+        assert!(custom.board[0].color.is_empty());
+    }
+
+    #[test]
+    fn invalid_board_lanes_are_rejected() {
+        assert!(parse(r#"{"id":"x","name":"坏","board":[{"name":""}]}"#).is_err());
+        assert!(parse(r#"{"id":"x","name":"坏","board":[{"name":"区","color":"red"}]}"#).is_err());
+        let too_many = (0..33).map(|i| format!(r#"{{"name":"区{i}"}}"#)).collect::<Vec<_>>().join(",");
+        assert!(parse(&format!(r#"{{"id":"x","name":"坏","board":[{too_many}]}}"#)).is_err());
     }
 
     #[test]
