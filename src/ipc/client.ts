@@ -337,7 +337,15 @@ export const ipc = {
   // Agent（智能编剧助理）
   agentChat: (projectId:string,instruction:string,history:{role:string;content:string}[],skillId?:string,blockId?:string,expertId?:string) => call<string>('agent_chat',{projectId,instruction,history,skillId,blockId,expertId,uiLanguage:effectiveLanguage()}),
   agentListExperts: () =>
-    call<{ experts: { id: string; name: string; description: string; dimensions: string[]; builtin: boolean }[]; issues: string[] }>('agent_list_experts'),
+    call<{ experts: { id: string; name: string; description: string; dimensions: string[]; builtin: boolean; enabled: boolean }[]; issues: string[] }>('agent_list_experts'),
+  agentSetExpertEnabled: (expertId: string, enabled: boolean) => call<void>('agent_set_expert_enabled', { expertId, enabled }),
+  agentRenameExpert: (expertId: string, name: string) => call<void>('agent_rename_expert', { expertId, name }),
+  agentOpenExpertsDir: (expertId?: string) => call<void>('agent_open_experts_dir', { expertId: expertId ?? null }),
+  agentImportExpert: (sourcePath: string) =>
+    call<{ id: string; name: string; description: string; dimensions: string[]; builtin: boolean; enabled: boolean }>('agent_import_expert', { sourcePath }),
+  agentExportExpert: (expertId: string, destPath: string) => call<void>('agent_export_expert', { expertId, destPath }),
+  agentSavePanelExpert: (name: string, expertIds: string[], mode: 'review'|'rewrite', scope: 'scene'|'whole') =>
+    call<{ id: string; name: string; description: string; dimensions: string[]; builtin: boolean; enabled: boolean }>('agent_save_panel_expert', { name, expertIds, mode, scope }),
   agentExpertPanel: (projectId:string,expertIds:string[],mode:'review'|'rewrite',scope:'scene'|'whole',blockId?:string,instruction?:string) =>
     call<{reviews:{expertId:string;name:string;ok:boolean;text:string;error?:string|null}[];synthesis?:string|null;synthesisError?:string|null}>('agent_expert_panel',{projectId,expertIds,mode,scope,blockId,instruction}),
   agentShareProject: (path:string,includeMemory:boolean)=>call<void>('agent_share_project',{path,includeMemory}),

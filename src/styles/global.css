@@ -2040,3 +2040,32 @@ body.resizing-agent-panel, body.resizing-agent-panel * { cursor: col-resize !imp
   .toolbar button, .toolbar select { padding-left: 7px; padding-right: 7px; }
   .toolbar-title { max-width: 190px; }
 }
+
+/* 设置 → 编剧助理：专家库管理 */
+.expert-admin-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.expert-admin-list{list-style:none;margin:8px 0 20px;padding:0;display:flex;flex-direction:column;gap:10px}
+.expert-admin-row{border:1px solid #e2e7ef;border-radius:10px;padding:12px 14px;background:#f7f9fc}
+.expert-admin-row.is-off{opacity:.68}
+.expert-admin-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.expert-admin-badge{font-size:12px;line-height:1.6;padding:1px 8px;border-radius:999px;background:#e7f0ff;color:#155fae;border:1px solid #b9d2f4}
+.expert-admin-badge.off{background:#f2f4f7;color:#667085;border-color:#d0d5dd}
+.expert-admin-desc{margin:6px 0 2px;color:#475467;font-size:13px}
+.expert-admin-dims{margin:0 0 8px;color:#667085;font-size:12px}
+.expert-admin-ops{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.expert-admin-ops button{font-size:12px;padding:4px 10px}
+.expert-admin-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:#475467}
+.expert-admin-rename{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.expert-admin-rename input{min-width:160px;padding:4px 8px}
+.expert-skill-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 4px}
+.expert-skill-row{border:1px solid #e2e7ef;border-radius:10px;padding:10px 12px;background:#fbfcfe;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.expert-skill-row p{margin:0;flex:1 1 100%;color:#475467;font-size:13px}
+.expert-report-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.expert-save-form{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0 2px}
+.expert-save-form input{min-width:160px;flex:1;padding:5px 9px}
+body.dark .expert-admin-row{background:#2a2a32;border-color:#3d3d47}
+body.dark .expert-admin-badge{background:#28405c;color:#cfe4ff;border-color:#3d6a99}
+body.dark .expert-admin-badge.off{background:#33333c;color:#a9a9b4;border-color:#4a4a55}
+body.dark .expert-admin-desc,body.dark .expert-admin-toggle,body.dark .expert-skill-row p{color:#c8c8d2}
+body.dark .expert-admin-dims{color:#a9a9b4}
+body.dark .expert-skill-row{background:#2a2a32;border-color:#3d3d47}
+body.dark .expert-save-form input{background:#1f1f24;color:#e8e8ed;border-color:#4a4a55}

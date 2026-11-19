@@ -70,6 +70,11 @@
 
 目录：`~/Library/Application Support/ScreenplayStudio/experts/<id>/EXPERT.md`
 
+也可以在「设置 → 编剧助理」里管理：导入/导出单个 `EXPERT.md`、改名、打开所在文件夹、
+启用或停用专家。启用状态保存在同目录的 `.disabled.json`，不修改 `EXPERT.md` 本身；
+停用的专家不会出现在助理面板的会审选择里。会审结束后可在结果上方点「存成我的专家」，
+把本次选择的专家方法论合成一位新的自定义专家。
+
 ```markdown
 ---
 id: my-expert
