@@ -162,7 +162,10 @@ fn units_per_line(doc: &ScreenplayDocument, indent_in: f64) -> f64 {
 }
 
 /// 把分页结果转成 sidecar 规格：每页若干「行」，带绝对坐标。
-fn build_spec(doc: &ScreenplayDocument) -> Result<PdfSpec, PdfError> {
+///
+/// `watermark` 为 `Some` 时，在每页页脚追加一行居中水印（免费版用）。
+/// 默认导出不传水印，直售、CLI、MCP 行为保持不变。
+fn build_spec(doc: &ScreenplayDocument, watermark: Option<&str>) -> Result<PdfSpec, PdfError> {
     // 中式剧本的「人物（情态）：台词」是呈现层合并；其余预设为原文档副本。
     let view = screenplay_core::typography::export_view(doc);
     let doc = &view;
@@ -345,6 +348,28 @@ fn build_spec(doc: &ScreenplayDocument) -> Result<PdfSpec, PdfError> {
         pages.push(PageSpec { lines: Vec::new() });
     }
 
+    // 免费版页脚水印：每页一行，居中、10pt、无衬线、50% 灰。
+    // 只加在 PDF 出口，Word / Markdown / 纯文本 / HTML 不受影响。
+    if let Some(text) = watermark.filter(|t| !t.trim().is_empty()) {
+        let size = 10.0;
+        // 半角单位 → 点：一个半角字符宽度约为字号的一半。
+        let width = pagination::text_units(text) * size / 2.0;
+        let y = paper.margin_bottom_inch * 72.0 / 2.0;
+        for page in &mut pages {
+            page.lines.push(LineSpec {
+                text: text.to_string(),
+                x: (page_w - width) / 2.0,
+                y,
+                size,
+                bold: false,
+                role: "watermark".into(),
+                font_family: None,
+                italic: false,
+                color: Some("#808080".into()),
+            });
+        }
+    }
+
     Ok(PdfSpec {
         pages,
         width: page_w,
@@ -361,7 +386,17 @@ fn build_spec(doc: &ScreenplayDocument) -> Result<PdfSpec, PdfError> {
 ///
 /// 分页复用 `screenplay_core::pagination`，与 GUI 纸面完全一致。
 pub fn export_pdf(doc: &ScreenplayDocument) -> Result<Vec<u8>, PdfError> {
-    let spec = build_spec(doc)?;
+    export_pdf_with_watermark(doc, None)
+}
+
+/// 带页脚水印的 PDF 导出（商店免费版用）。
+///
+/// 水印只是一行页脚文字，不遮挡正文；`None` 等同于 [`export_pdf`]。
+pub fn export_pdf_with_watermark(
+    doc: &ScreenplayDocument,
+    watermark: Option<&str>,
+) -> Result<Vec<u8>, PdfError> {
+    let spec = build_spec(doc, watermark)?;
     let json = serde_json::to_vec(&spec).map_err(|e| PdfError::BadSpec(e.to_string()))?;
 
     let sidecar = find_sidecar().ok_or(PdfError::SidecarNotFound)?;
@@ -428,7 +463,7 @@ mod tests {
         let mut doc = sample();
         doc.title_page.title.clear();
         let pagination = pagination::paginate(&doc);
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         let paper = &doc.settings.paper;
         for (page, rendered) in pagination.pages.iter().zip(&spec.pages) {
             for block in &page.blocks {
@@ -441,10 +476,26 @@ mod tests {
     }
 
     #[test]
+    fn watermark_is_one_footer_line_per_page_and_optional() {
+        let doc = sample();
+        let plain = build_spec(&doc, None).unwrap();
+        let marked = build_spec(&doc, Some("好好写剧本 · 免费版")).unwrap();
+        assert_eq!(plain.pages.len(), marked.pages.len());
+        for (plain_page, marked_page) in plain.pages.iter().zip(&marked.pages) {
+            assert_eq!(plain_page.lines.len() + 1, marked_page.lines.len());
+            let footer = marked_page.lines.last().unwrap();
+            assert_eq!(footer.text, "好好写剧本 · 免费版");
+            assert_eq!(footer.size, 10.0);
+            assert_eq!(footer.color.as_deref(), Some("#808080"));
+            assert!(footer.y < doc.settings.font_size, "水印必须在页脚");
+        }
+    }
+
+    #[test]
     fn long_dialogue_and_more_stay_inside_bottom_margin() {
         let mut doc = sample();
         doc.blocks.last_mut().unwrap().text = "很长的台词，需要跨页。".repeat(2000);
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         let minimum = doc.settings.paper.margin_bottom_inch * 72.0 + doc.settings.font_size * 0.25;
         for page in spec.pages {
             for line in page.lines {
@@ -528,7 +579,7 @@ mod tests {
                 let mut doc = sample();
                 doc.settings.font_size = font_size;
                 doc.settings.line_height = line_height;
-                let spec = build_spec(&doc).unwrap();
+                let spec = build_spec(&doc, None).unwrap();
 
                 let usable = pagination::usable_lines(&doc.settings);
                 let line_h_pt = (font_size / 72.0) * line_height * 72.0;
@@ -570,7 +621,7 @@ mod tests {
             "风从荒原吹来，卷起漫天的黄沙，遮蔽了远处镇北堡的城门，\
              只留下一道模糊的轮廓，老板娘站在城门下，望着天边的落日发呆。",
         ));
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         let paper = &doc.settings.paper;
         let right = (paper.page_width_inch - paper.margin_right_inch) * 72.0;
 
@@ -613,7 +664,7 @@ mod tests {
         doc.blocks.push(ScreenplayBlock::new(BlockType::Character, "老板娘"));
         doc.blocks.push(ScreenplayBlock::new(BlockType::Dialogue, &long));
 
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
 
         // 对白缩进 x = margin_left + INDENT_DIALOGUE * 72
         let dialogue_x = doc.settings.paper.margin_left_inch * 72.0
@@ -674,7 +725,7 @@ mod tests {
         // 旧实现把 y 设成 margin_top * 0.5 —— PDF 原点在左下，
         // 那是「距页面底部 0.5 英寸」，等于把页码画到了页脚位置。
         let doc = sample();
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         let paper = &doc.settings.paper;
         let margin_top_pt = paper.margin_top_inch * 72.0;
         let page_h_pt = paper.page_height_inch * 72.0;
@@ -712,7 +763,7 @@ mod tests {
         doc.settings.paper.template = "a4".into();
         doc.settings.paper.page_width_inch = 8.27;
         doc.settings.paper.page_height_inch = 11.69;
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         assert!((spec.width - 8.27 * 72.0).abs() < 0.01);
         assert!((spec.height - 11.69 * 72.0).abs() < 0.01);
     }
@@ -722,7 +773,7 @@ mod tests {
         // 关键：PDF 页数必须与 Rust pagination 一致（D-08 统一分页）
         let doc = sample();
         let pag = pagination::paginate(&doc);
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         // spec = 标题页（若有）+ 正文页
         let expected = pag.pages.len() + if pag.has_title_page { 1 } else { 0 };
         assert_eq!(
@@ -766,7 +817,7 @@ mod tests {
         let mut doc=ScreenplayDocument::blank("括注验收");doc.settings.include_title_page=false;
         doc.settings.element_styles.insert("parenthetical".into(),ElementStyle{font_family:"Songti SC".into(),font_size:12.0,bold:true,italic:false,color:"#000000".into()});
         doc.blocks=vec![ScreenplayBlock::new(BlockType::Character,"小林"),ScreenplayBlock::new(BlockType::Parenthetical,"轻声"),ScreenplayBlock::new(BlockType::Dialogue,"等等。")];
-        let spec=build_spec(&doc).unwrap();let lines=&spec.pages[0].lines;
+        let spec=build_spec(&doc, None).unwrap();let lines=&spec.pages[0].lines;
         let cue=lines.iter().find(|l|l.text=="小林").unwrap();let note=lines.iter().find(|l|l.text.contains("轻声")).unwrap();
         assert!(cue.bold);assert!(!note.bold);assert!(cue.y>note.y);
     }
@@ -776,7 +827,7 @@ mod tests {
         doc.settings.element_styles.insert("action".into(), ElementStyle { font_family: "PingFang SC".into(), font_size: 24.0, bold: true, italic: true, color: "#2355aa".into() });
         doc.blocks.push(ScreenplayBlock::new(BlockType::Action, "字号测试"));
         doc.blocks.push(ScreenplayBlock::new(BlockType::Action, "第二行"));
-        let spec = build_spec(&doc).unwrap();
+        let spec = build_spec(&doc, None).unwrap();
         let lines = &spec.pages[0].lines;
         assert_eq!(lines[0].size, 24.0); assert!(lines[0].italic); assert_eq!(lines[0].font_family.as_deref(), Some("PingFang SC")); assert_eq!(lines[0].color.as_deref(), Some("#2355aa"));
         let pagination = pagination::paginate(&doc);

@@ -6,6 +6,7 @@ import {tr,fmt} from '@/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipc, ScreenplayError } from '@/ipc/client';
 import { useEditorStore } from '@/stores/editor';
+import { useEntitlementStore, usePro } from '@/stores/entitlement';
 import type { VersionRecord, AuditEntry, Branch } from '@/ipc/types';
 
 /**
@@ -53,6 +54,8 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   const [diffText, setDiffText] = useState<string>('');
   const [comparison,setComparison]=useState<RevisionComparison|null>(null);
   const draftLabel=useEditorStore(s=>s.document?.draft_label);
+  const pro=usePro();
+  const openPro=useEntitlementStore(s=>s.openDialog);
 
   const reload = useCallback(async () => {
     try {
@@ -75,6 +78,11 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
   }, [reload]);
 
   const createVersion = async () => {
+    // 命名稿号属于专业版交付能力（自动检查点不受影响）。
+    if (!pro) {
+      openPro();
+      return;
+    }
     const name = newName.trim();
     if (!name) {
       pushToast('error', tr("请输入版本名称"));
@@ -139,6 +147,31 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const exportComparison = async () => {
+    if (!pro) {
+      openPro();
+      return;
+    }
+    if (!comparison || !compareA) {
+      pushToast('error', tr("请先比较两个版本"));
+      return;
+    }
+    setBusy(true);
+    try {
+      await flushPendingEdits();
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const path = await save({ defaultPath: '版本对比.md', filters: [{ name: 'Markdown', extensions: ['md'] }] });
+      if (path) {
+        await ipc.exportVersionComparison(path, compareA, compareB || undefined);
+        pushToast('success', fmt('对比已导出到 {0}', path));
+      }
+    } catch (e) {
+      pushToast('error', e instanceof ScreenplayError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const switchBranch = async (name: string) => {
     setBusy(true);
     try {
@@ -195,7 +228,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
                 value={newNote}
                 onChange={(e) => setNewNote(e.target.value)}
               />
-              <button disabled={busy} onClick={() => void createVersion()}>{tr(" 创建版本 ")}</button>
+              <button disabled={busy} onClick={() => void createVersion()}>{tr(" 创建版本 ")}{!pro ? ` · ${tr("专业版")}` : ''}</button>
             </div>
 
             <div className="version-compare">
@@ -217,6 +250,7 @@ export default function VersionPanel({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
               <button disabled={busy || !compareA} onClick={() => void compare()}>{tr(" 比较 ")}</button>
+              <button disabled={busy || !comparison} onClick={() => void exportComparison()}>{tr("导出对比")}{!pro ? ` · ${tr("专业版")}` : ''}</button>
             </div>
 
             {comparison&&<RevisionDiffView comparison={comparison}/>}

@@ -25,6 +25,8 @@ import SearchBar from '@/components/SearchBar';
 import Toasts from '@/components/Toasts';
 import RecoveryPrompt from '@/components/RecoveryPrompt';
 import VersionPanel from '@/components/VersionPanel';
+import ProPurchase from '@/components/ProPurchase';
+import { useEntitlementStore } from '@/stores/entitlement';
 import AgentPanel from '@/components/AgentPanel';
 import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
@@ -36,6 +38,10 @@ export default function App() {
   useUpdateScheduler();
   useSplitSync();
   useProjectMemory();
+  // 商店渠道：启动时查询一次权益，决定导出菜单的锁定状态（直售构建为空操作）。
+  useEffect(() => {
+    void useEntitlementStore.getState().refresh();
+  }, []);
   const project = useEditorStore((s) => s.project);
   const viewMode = useEditorStore((s) => s.viewMode);
   const pushToast = useEditorStore((s) => s.pushToast);
@@ -239,7 +245,7 @@ export default function App() {
       </div>
     ) : renderEditor();
 
-  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}</>;
+  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}<ProPurchase /></>;
 
   function renderEditor() {
 

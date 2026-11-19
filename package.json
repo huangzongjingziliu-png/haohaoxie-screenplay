@@ -15,7 +15,7 @@
     "tauri:build": "tauri build",
     "test:coverage": "vitest run --coverage",
     "build:desktop": "bash scripts/build_sidecars.sh --release && node scripts/prepare-agent-tools.mjs && npm run build",
-    "build:store": "bash scripts/build_sidecars.sh --release && VITE_BUILD_CHANNEL=app-store npm run build",
+    "build:store": "bash scripts/build_sidecars.sh --release && node scripts/prepare-agent-tools.mjs && VITE_BUILD_CHANNEL=app-store npm run build",
     "tauri:build:store": "bash scripts/build-store.sh"
   },
   "dependencies": {

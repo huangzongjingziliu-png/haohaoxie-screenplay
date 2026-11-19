@@ -1190,6 +1190,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .template-hint { color: #86868b; font-size: 11px; line-height: 1.5; word-break: break-all; }
 .modal-actions button, .version-create button, .version-compare button { padding: 7px 12px; border: 1px solid #d2d2d7; background: #f8f8fa; border-radius: 6px; }
 .modal-actions .primary { background: #007aff; color: white; border-color: #007aff; }
+/* 专业版购买面板 */
+.pro-purchase .pro-features { margin: 12px 0 16px; padding-left: 18px; line-height: 1.9; color: #3a3a3c; }
+.pro-purchase .pro-price { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 12px; }
+.pro-purchase .pro-price strong { font-size: 26px; }
+.pro-purchase .pro-price small { color: #6e6e73; }
+.pro-purchase .pro-owned { color: #1d7a3c; font-weight: 600; }
+.pro-purchase .pro-error { color: #c0392b; }
+body.dark .pro-purchase .pro-features { color: #d8d8dd; }
+body.dark .pro-purchase .pro-owned { color: #4cd964; }
 .toasts { z-index: 3000; }
 .toasts .toast { position: static; color: white; }
 .recovery-backdrop { z-index: 2000; }
