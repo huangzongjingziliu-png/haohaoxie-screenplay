@@ -182,7 +182,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  newProject: async (title, templateId) => {
+  newProject: async (title, templateId = 'blank') => {
     try {
       const info = await ipc.newProject(title, templateId);
       const doc = await ipc.getDocument();

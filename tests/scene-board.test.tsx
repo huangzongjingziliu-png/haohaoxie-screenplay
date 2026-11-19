@@ -43,7 +43,7 @@ it('便签改色保存到工程，不同工程的排队修改不会串写',async
 });
 
 it('开启后只概括未缓存场景，结果只保存到便签，不改正文',async()=>{
-  const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],summary_manual:false,summary:'缓存A',summary_source:'INT. A - DAY\nA动作'};
+  const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],lane:'',summary_manual:false,summary:'缓存A',summary_source:'INT. A - DAY\nA动作'};
   useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
   mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));
   mockBackend.on('agent_summarize_scene',()=>({summary:'B概括',source:'EXT. B - NIGHT\nB对白',projectId:'board-qa'}));
@@ -147,7 +147,7 @@ it('组成组是连续场景并可整体移动，评论和连线保存在工程'
 it('移动组不打散成员，拖动便签进入组时调整连续顺序',async()=>{
  const {moveBoardUnit}=await import('@/utils/scenes');
  const extra=[{id:'c',block_type:'scene_heading',text:'INT. C - DAY'},{id:'cc',block_type:'action',text:'C动作'}];
- const board=defaultBoard();board.groups=[{id:'g',name:'一组',scene_ids:['a','b']}];
+ const board=defaultBoard();board.groups=[{id:'g',name:'一组',scene_ids:['a','b'],collapsed:false}];
  useEditorStore.setState({document:{...doc() as object,blocks:[...blocks,...extra],settings:{scene_board:board}} as never});
  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,settings:{scene_board:args.board}},revision:2}));
  await moveBoardUnit('board-qa','group:g','a','after');expect(mockBackend.callsTo('update_scene_board')).toHaveLength(0);
@@ -178,7 +178,7 @@ it('手写概括无需模型，保存在工程中并保持自动概括关闭',as
  await waitFor(()=>expect(view.getByText('手写人物出场')).toBeTruthy());expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.summary_manual).toBe(true);expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
 });
 it('手写概括即使正文已变也不被自动重写',async()=>{
- const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],summary:'我的概括',summary_source:'旧正文',summary_manual:true};board.cards.b={color:'',width:0,height:0,comments:[],summary:'已缓存',summary_source:'EXT. B - NIGHT\nB对白',summary_manual:false};
+ const board=defaultBoard();board.summaries_enabled=true;board.cards.a={color:'',width:0,height:0,comments:[],lane:'',summary:'我的概括',summary_source:'旧正文',summary_manual:true};board.cards.b={color:'',width:0,height:0,comments:[],lane:'',summary:'已缓存',summary_source:'EXT. B - NIGHT\nB对白',summary_manual:false};
  useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);await waitFor(()=>expect(screen.getByLabelText('自动概括场景')).toHaveProperty('disabled',false));await act(async()=>{await new Promise(resolve=>setTimeout(resolve,800));});expect(screen.getByText('我的概括')).toBeTruthy();expect(mockBackend.callsTo('agent_summarize_scene')).toHaveLength(0);
 });
 
@@ -239,3 +239,69 @@ it('关闭白板前提交便签标题，不会把失焦中正在保存的草稿�
  await waitFor(()=>expect(close).toHaveBeenCalledOnce());
  expect(useEditorStore.getState().document?.blocks[1].text).toBe('INT. NEW ROOM - NIGHT');
 });
+
+it('新增分区后把便签拖进分区即归属，分区可收起',async()=>{
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  fireEvent.click(view.getByRole('button',{name:'新增分区'}));
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.lanes).toHaveLength(1));
+  const lane=useEditorStore.getState().document!.settings.scene_board.lanes[0];
+  expect(lane.name).toBe('新分区 1');
+  expect(view.getByText('未分区')).toBeTruthy();
+  const transfer={setData:vi.fn(),getData:()=> 'a',effectAllowed:'move'};
+  fireEvent.dragStart(view.container.querySelector('[data-scene-id="a"]')!,{dataTransfer:transfer});
+  const band=view.container.querySelector('.board-lane:not(.board-lane-unassigned)')!;
+  fireEvent.dragOver(band,{dataTransfer:transfer});
+  fireEvent.drop(band,{dataTransfer:transfer});
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.lane).toBe(lane.id));
+  await waitFor(()=>expect(band.querySelectorAll('.scene-card')).toHaveLength(1));
+  fireEvent.click(view.getByLabelText('收起分区 新分区 1'));
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.lanes[0].collapsed).toBe(true));
+  expect(view.getByText('1 项已收起')).toBeTruthy();
+  expect(view.container.querySelectorAll('.scene-card')).toHaveLength(1);
+});
+
+it('套用白板模板生成分区并清空旧归属，未配置模型时不提供自动划分入口',async()=>{
+  mockBackend.on('list_project_templates',()=>({dir:'/tmp/templates',templates:[{id:'three-act-beats',name:'三幕电影节拍表',description:'',builtin:true,lanes:[{name:'第一幕 · 建置',hint:'建置',color:'#CDE9FF'},{name:'第二幕 · 对抗',hint:'',color:''},{name:'第三幕 · 结局',hint:'',color:''}]}]}));
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  await waitFor(()=>expect(view.getByRole('option',{name:'三幕电影节拍表'})).toBeTruthy());
+  fireEvent.change(view.getByLabelText('构思模板'),{target:{value:'three-act-beats'}});
+  fireEvent.click(view.getByRole('button',{name:'套用模板'}));
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.lanes).toHaveLength(3));
+  expect(useEditorStore.getState().document?.settings.scene_board.lanes.map(l=>l.name)).toEqual(['第一幕 · 建置','第二幕 · 对抗','第三幕 · 结局']);
+  expect(view.queryByRole('button',{name:'用模型自动划分'})).toBeNull();
+});
+
+it('配置模型后可让模型通读剧本自动划分，结果落到普通白板数据',async()=>{
+  mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  mockBackend.on('agent_classify_board',()=>({projectId:'board-qa',assignments:[{sceneId:'a',laneId:'lane-1',reason:'开场建置'},{sceneId:'b',laneId:'lane-2',reason:'冲突升级'}]}));
+  const board=defaultBoard();board.lanes=[{id:'lane-1',name:'第一幕',hint:'',color:'',collapsed:false},{id:'lane-2',name:'第二幕',hint:'',color:'',collapsed:false}];
+  useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  await waitFor(()=>expect(view.getByRole('button',{name:'用模型自动划分'})).toBeTruthy());
+  fireEvent.click(view.getByRole('button',{name:'用模型自动划分'}));
+  await waitFor(()=>expect(mockBackend.callsTo('agent_classify_board')).toHaveLength(1));
+  expect(mockBackend.callsTo('agent_classify_board')[0].args?.lanes).toEqual([{id:'lane-1',name:'第一幕',hint:''},{id:'lane-2',name:'第二幕',hint:''}]);
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.lane).toBe('lane-1'));
+  expect(useEditorStore.getState().document?.settings.scene_board.cards.b?.lane).toBe('lane-2');
+  expect(view.getAllByText(/把 2 个场景划分到分区/).length).toBeGreaterThan(0);
+});
+
+it('场景组可整体收起展开，收起时仍保留在分区里',async()=>{
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  const board=defaultBoard();board.lanes=[{id:'lane-1',name:'第一幕',hint:'',color:'',collapsed:false}];
+  board.groups=[{id:'g',name:'一组',scene_ids:['a','b'],collapsed:false}];
+  board.cards.a={color:'',width:0,height:0,summary:'',summary_source:'',summary_manual:false,comments:[],lane:'lane-1'};
+  board.cards.b={color:'',width:0,height:0,summary:'',summary_source:'',summary_manual:false,comments:[],lane:'lane-1'};
+  useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  const lane=view.container.querySelector('.board-lane:not(.board-lane-unassigned)')!;
+  expect(lane.querySelectorAll('.scene-card')).toHaveLength(2);
+  fireEvent.click(view.getByLabelText('收起场景组 一组'));
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.groups[0].collapsed).toBe(true));
+  expect(view.getByText('2 场')).toBeTruthy();
+  expect(view.container.querySelectorAll('.scene-card')).toHaveLength(0);
+});
+

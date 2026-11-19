@@ -118,12 +118,21 @@ export interface RecentEntry {
   openedAt: string;
 }
 
-/** 新建工程可选模板 */
+/** 白板构思分区模板 */
+export interface TemplateLane {
+  name: string;
+  hint: string;
+  color: string;
+}
+
+/** 白板可选模板 */
 export interface TemplateSummary {
   id: string;
   name: string;
   description: string;
   builtin: boolean;
+  /** 预置的构思分区；空数组表示不预置分区 */
+  lanes: TemplateLane[];
 }
 
 export interface TemplatesPayload {
@@ -214,9 +223,11 @@ export const ipc = {
     call<SearchHit[]>('search', { query, caseSensitive }),
 
   reorderScenes: (sceneIds: string[], expectedRevision: number) => call<CommandResult>('reorder_scenes', {sceneIds, expectedRevision}),
-  createBoardScene: (title: string, summary: string, expectedRevision: number) => call<CommandResult>('create_board_scene', {title, summary, expectedRevision}),
+  createBoardScene: (title: string, summary: string, expectedRevision: number, lane?: string | null) => call<CommandResult>('create_board_scene', {title, summary, expectedRevision, lane: lane ?? null}),
   updateSceneBoard: (board: import('./types/SceneBoard').SceneBoard, expectedRevision: number,sceneIds?:string[]) => call<CommandResult>('update_scene_board', {board, expectedRevision,sceneIds}),
   summarizeScene: (sceneId: string) => call<{summary: string; source: string; projectId: string}>('agent_summarize_scene', {sceneId}),
+  classifyBoard: (lanes: {id: string; name: string; hint: string}[]) =>
+    call<{projectId: string; assignments: {sceneId: string; laneId: string; reason: string}[]}>('agent_classify_board', {lanes}),
   // 修改（全部经 CommandService）
   replaceBlock: (blockId: string, text: string, expectedRevision?: number) =>
     call<CommandResult>('replace_block', { blockId, text, expectedRevision }),
