@@ -1186,14 +1186,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .modal-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0,0,0,.32); z-index: 1000; }
 .modal { width: min(600px, 100%); min-width: 0; max-height: calc(100vh - 48px); box-shadow: 0 16px 64px rgba(0,0,0,.2); }
 .modal-hint { color: #6e6e73; line-height: 1.65; }
-.template-options { border: 0; padding: 0; margin: 16px 0 4px; display: flex; flex-direction: column; gap: 8px; }
-.template-options legend { padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
-.template-option { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #d2d2d7; border-radius: 10px; cursor: pointer; }
-.template-option:hover { border-color: #b9b9c0; }
-.template-option.selected { border-color: #007aff; background: rgba(0, 122, 255, .06); }
-.template-option input { margin-top: 2px; }
-.template-option strong { display: block; font-size: 13px; font-weight: 600; }
-.template-option small { display: block; margin-top: 2px; color: #86868b; font-size: 12px; line-height: 1.45; }
+.new-project-hint { margin-top: 10px; display: grid; gap: 6px; color: #6e6e73; font-size: 13px; line-height: 1.6; }
+body.dark .new-project-hint { color: #a9a9b4; }
 .template-hint { color: #86868b; font-size: 11px; line-height: 1.5; word-break: break-all; }
 .modal-actions button, .version-create button, .version-compare button { padding: 7px 12px; border: 1px solid #d2d2d7; background: #f8f8fa; border-radius: 6px; }
 .modal-actions .primary { background: #007aff; color: white; border-color: #007aff; }
