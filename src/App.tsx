@@ -311,7 +311,7 @@ function Welcome({
   return (
     <div className="welcome">
       <h1>{tr("好好写剧本")}</h1>
-      <p style={{ color: '#86868b' }}>{tr("让作者用最舒服的方法写，让软件负责把它变成专业剧本")}</p>
+      <p style={{ color: 'var(--muted-text)' }}>{tr("让作者用最舒服的方法写，让软件负责把它变成专业剧本")}</p>
       <div className="welcome-actions">
         <button onClick={()=>window.dispatchEvent(new CustomEvent('open-help',{detail:'start'}))}>{tr("帮助与教程")}</button>
         {onConnections && <button onClick={onConnections}>{tr("连接外部 Agent，让它操作好好写剧本")}</button>}
@@ -324,7 +324,7 @@ function Welcome({
       </div>
       {(
         <div className="recent-list">
-          <h3 style={{ marginBottom: 8, fontSize: 13, color: '#86868b' }}>{tr("最近项目")}</h3>
+          <h3 style={{ marginBottom: 8, fontSize: 13, color: 'var(--muted-text)' }}>{tr("最近项目")}</h3>
           {recent.map((r) => (
             <button
               type="button" title={r.path}
@@ -336,7 +336,7 @@ function Welcome({
               }}
             >
               <span>{r.title || tr("未命名剧本")}</span>
-              <span style={{ color: '#86868b', fontSize: 11 }}>
+              <span style={{ color: 'var(--muted-text)', fontSize: 11 }}>
                 {r.path.split('/').pop()}
               </span>
             </button>

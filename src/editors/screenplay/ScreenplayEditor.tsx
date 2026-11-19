@@ -6,6 +6,7 @@ import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { ELEMENT_TYPES, readShortcuts, keyCombo, shortcutLabel } from '@/utils/elementShortcuts';
 import { defaultElementStyle } from '@/utils/appearance';
+import { paperInkColor } from '@/utils/theme';
 import { flushPendingEdits, registerPendingEditor } from '@/utils/pendingEdits';
 import type { BlockType, Page, PageBlock, Pagination } from '@/ipc/types';
 
@@ -649,7 +650,7 @@ function BlockView({
   const customStyle = settings?.element_styles?.[pb.block_type];
   const resolvedStyle = customStyle ?? defaultElementStyle(pb.block_type, settings?.typography ?? 'hollywood');
   const gridSize = Math.max(settings?.font_size ?? 12, ...Object.values(settings?.element_styles ?? {}).map(s => s?.font_size ?? 0));
-  const customCss = customStyle ? { fontFamily: resolvedStyle.font_family, fontSize: `${resolvedStyle.font_size}pt`, fontWeight: pb.block_type !== 'parenthetical' && resolvedStyle.bold ? 700 : 400, fontStyle: resolvedStyle.italic ? 'italic' : 'normal', color: resolvedStyle.color } : {};
+  const customCss = customStyle ? { fontFamily: resolvedStyle.font_family, fontSize: `${resolvedStyle.font_size}pt`, fontWeight: pb.block_type !== 'parenthetical' && resolvedStyle.bold ? 700 : 400, fontStyle: resolvedStyle.italic ? 'italic' : 'normal', color: paperInkColor(resolvedStyle.color) } : {};
   const indent = (production || general) ? 0 : chinese ? (['dialogue', 'parenthetical'].includes(pb.block_type) ? 1 : 0) : (INDENT_INCHES[pb.block_type] ?? 0);
   // 中式剧本：人物（情态）后接冒号，动作行补 △。都是装饰，不写入正文。
   const docIndex = screenplayDoc ? screenplayDoc.blocks.findIndex(b => b.id === sourceId) : -1;

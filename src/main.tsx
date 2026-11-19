@@ -4,7 +4,9 @@ import App from './App';
 import { maybeAutoStart } from './ipc/selftest';
 import './styles/global.css';
 import { applyUiSize, readUiSize } from './utils/appearance';
+import { initTheme } from './utils/theme';
 applyUiSize(readUiSize());
+initTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
