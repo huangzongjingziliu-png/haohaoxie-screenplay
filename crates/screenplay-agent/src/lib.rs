@@ -5,7 +5,9 @@ pub mod runner;
 pub mod skill;
 pub mod tool;
 pub mod summary;
+pub mod expert;
 
+pub use expert::{Expert, ExpertMode, ExpertPanel, ExpertReply, builtin_experts, load_experts, parse_expert_md, run_panel};
 pub use provider::{ChatMessage, ModelProvider, ModelRouter, OpenAiProvider};
 pub use runner::{AgentError, AgentMode, AgentRunner, AgentToolOutcome};
 pub use skill::{Skill, SkillRegistry, builtin_skills, parse_skill_md};

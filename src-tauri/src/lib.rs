@@ -17,6 +17,7 @@ mod agent_config;
 mod model_profiles;
 mod agent_text;
 mod agent_harness;
+mod agent_experts;
 mod credentials;
 mod entitlement;
 mod mcp_http;
@@ -1975,6 +1976,8 @@ pub fn run() {
             agent_harness::agent_create_skill,
             agent_harness::agent_memory,
             agent_harness::agent_save_memory,
+            agent_experts::agent_list_experts,
+            agent_experts::agent_expert_panel,
             agent_list_skills,
             agent_apply_skill,
             agent_freeform_edit,
