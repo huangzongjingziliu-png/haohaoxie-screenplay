@@ -118,6 +118,20 @@ export interface RecentEntry {
   openedAt: string;
 }
 
+/** 新建工程可选模板 */
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+}
+
+export interface TemplatesPayload {
+  /** 用户模板目录，放入 JSON 文件即可新增模板 */
+  dir: string;
+  templates: TemplateSummary[];
+}
+
 export interface Bootstrap {
   project: ProjectInfo;
   document: ScreenplayDocument | null;
@@ -168,7 +182,9 @@ export const ipc = {
   openHelpLink: (url:string) => call<void>('open_help_link', {url}),
   // 生命周期
   bootstrap: () => call<Bootstrap>('bootstrap'),
-  newProject: (title: string) => call<ProjectInfo>('new_project', { title }),
+  listProjectTemplates: () => call<TemplatesPayload>('list_project_templates'),
+  newProject: (title: string, templateId?: string) =>
+    call<ProjectInfo>('new_project', { title, template: templateId ?? null }),
   takeFileOpenRequests: () => call<string[]>('take_file_open_requests'),
   openProject: (path: string) => call<Bootstrap>('open_project', { path }),
   closeProject: (discardChanges = false) => call<ProjectInfo>('close_project', { discardChanges }),

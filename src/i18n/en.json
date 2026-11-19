@@ -807,5 +807,8 @@
   "显示模式": "Appearance",
   "浅色": "Light",
   "深色": "Dark",
-  "选择应用界面的外观。跟随系统会随 macOS 外观即时切换；导出的 PDF、Word、HTML 始终使用浅色纸面。": "Choose how the app looks. Follow system switches instantly with macOS appearance; exported PDF, Word, and HTML always use a light page."
+  "选择应用界面的外观。跟随系统会随 macOS 外观即时切换；导出的 PDF、Word、HTML 始终使用浅色纸面。": "Choose how the app looks. Follow system switches instantly with macOS appearance; exported PDF, Word, and HTML always use a light page.",
+  "从模板开始": "Start from a template",
+  "正在读取模板…": "Loading templates…",
+  "把 JSON 模板文件放进 {0}，即可新增模板。": "Add new templates by dropping JSON files into {0}."
 }

@@ -55,7 +55,7 @@ interface EditorState {
 
   // ---- 动作 ----
   bootstrap: () => Promise<void>;
-  newProject: (title: string) => Promise<void>;
+  newProject: (title: string, templateId?: string) => Promise<void>;
   openProject: (path: string) => Promise<void>;
   closeProject: () => Promise<void>;
   save: (path?: string) => Promise<SaveOutcome | null>;
@@ -182,9 +182,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  newProject: async (title) => {
+  newProject: async (title, templateId) => {
     try {
-      const info = await ipc.newProject(title);
+      const info = await ipc.newProject(title, templateId);
       const doc = await ipc.getDocument();
       set({
         document: doc,

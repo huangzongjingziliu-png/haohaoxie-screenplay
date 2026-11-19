@@ -25,4 +25,6 @@ pub mod series;
 pub mod series_planning;
 pub mod revision_compare;
 
+pub mod templates;
+
 pub mod text_replace;

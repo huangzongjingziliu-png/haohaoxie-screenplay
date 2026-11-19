@@ -1,0 +1,46 @@
+{
+  "id": "short-drama-series",
+  "name": "短剧分集骨架",
+  "description": "按集生成竖屏短剧结构，每集预置开场钩子、冲突升级、反转与结尾钩。",
+  "episodes": [
+    {
+      "title": "第 1 集",
+      "blocks": [
+        {"type": "scene_heading", "text": "内景。开场钩子 · 地点待定——日"},
+        {"type": "synopsis", "text": "【开场钩子】前 3 秒抛出冲突或悬念，立刻抓住观众。"},
+        {"type": "scene_heading", "text": "内景。冲突升级 · 地点待定——日"},
+        {"type": "synopsis", "text": "【冲突升级】矛盾加深，主角被迫做出行动。"},
+        {"type": "scene_heading", "text": "内景。反转 · 地点待定——日"},
+        {"type": "synopsis", "text": "【反转】信息或立场翻转，打破观众预期。"},
+        {"type": "scene_heading", "text": "内景。结尾钩子 · 地点待定——日"},
+        {"type": "synopsis", "text": "【结尾钩子】留下悬念，引导观众点开下一集。"}
+      ]
+    },
+    {
+      "title": "第 2 集",
+      "blocks": [
+        {"type": "scene_heading", "text": "内景。承接悬念 · 地点待定——日"},
+        {"type": "synopsis", "text": "【承接悬念】接着上集钩子开场，给出第一层答案。"},
+        {"type": "scene_heading", "text": "内景。新阻力 · 地点待定——日"},
+        {"type": "synopsis", "text": "【新阻力】引入新的对手或代价，抬高主角的处境。"},
+        {"type": "scene_heading", "text": "内景。情绪爆点 · 地点待定——日"},
+        {"type": "synopsis", "text": "【情绪爆点】把压抑的情绪推到位，给一个强冲突场面。"},
+        {"type": "scene_heading", "text": "内景。结尾钩子 · 地点待定——日"},
+        {"type": "synopsis", "text": "【结尾钩子】制造新的未解问题，驱动下一集。"}
+      ]
+    },
+    {
+      "title": "第 3 集",
+      "blocks": [
+        {"type": "scene_heading", "text": "内景。局势失控 · 地点待定——日"},
+        {"type": "synopsis", "text": "【局势失控】主角的选择带来更坏的结果。"},
+        {"type": "scene_heading", "text": "内景。关键抉择 · 地点待定——日"},
+        {"type": "synopsis", "text": "【关键抉择】主角在两难之间做出推动结局的决定。"},
+        {"type": "scene_heading", "text": "内景。正面对决 · 地点待定——日"},
+        {"type": "synopsis", "text": "【正面对决】矛盾集中爆发，给本阶段一个交代。"},
+        {"type": "scene_heading", "text": "内景。结尾钩子 · 地点待定——日"},
+        {"type": "synopsis", "text": "【结尾钩子】阶段收束，同时为后续剧情留口子。"}
+      ]
+    }
+  ]
+}

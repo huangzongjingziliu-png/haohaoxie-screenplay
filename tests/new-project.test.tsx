@@ -3,11 +3,23 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NewProjectDialog from '@/components/NewProjectDialog';
 import { useEditorStore } from '@/stores/editor';
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn() }));
+vi.mock('@/ipc/client', () => ({
+  ScreenplayError: class extends Error {},
+  ipc: { listProjectTemplates: vi.fn() },
+}));
 import { save } from '@tauri-apps/plugin-dialog';
+import { ipc } from '@/ipc/client';
 const newProject = vi.fn(async () => { useEditorStore.setState({ document: { id: 'new' } as never }); });
 const persist = vi.fn().mockResolvedValue({ path: '/tmp/选定.screenplay' });
 beforeEach(() => {
   vi.mocked(save).mockReset(); newProject.mockClear(); persist.mockClear();
+  vi.mocked(ipc.listProjectTemplates).mockResolvedValue({
+    dir: '/tmp/templates',
+    templates: [
+      { id: 'blank', name: '空白标准剧本', description: '', builtin: true },
+      { id: 'three-act-beats', name: '三幕电影节拍表', description: '按三幕预置场景', builtin: true },
+    ],
+  });
   useEditorStore.setState({ document: null, newProject, save: persist });
 });
 afterEach(cleanup);
@@ -26,5 +38,12 @@ it('暂不保存可创建试写项目，不弹文件对话框也不保存', asyn
   const { getByRole } = render(<NewProjectDialog onClose={() => undefined} onCreated={() => undefined} />);
   fireEvent.click(getByRole('button', { name: '暂不保存，开始写作' }));
   await waitFor(() => expect(newProject).toHaveBeenCalledTimes(1));
+  expect(newProject).toHaveBeenCalledWith('未命名剧本', 'blank');
   expect(save).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
+});
+it('选择模板后按模板 id 创建新工程', async () => {
+  const { findByText, getByRole } = render(<NewProjectDialog onClose={() => undefined} onCreated={() => undefined} />);
+  fireEvent.click(await findByText('三幕电影节拍表'));
+  fireEvent.click(getByRole('button', { name: '暂不保存，开始写作' }));
+  await waitFor(() => expect(newProject).toHaveBeenCalledWith('未命名剧本', 'three-act-beats'));
 });
