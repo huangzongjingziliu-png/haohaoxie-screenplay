@@ -887,8 +887,8 @@ fn reorder_scenes(app: AppHandle, state: State<'_, AppState>, scene_ids: Vec<Str
 }
 
 #[tauri::command]
-fn create_board_scene(app: AppHandle, state: State<'_, AppState>, title: String, summary: String, expected_revision: u64) -> IpcResult<CommandResult> {
-    let r = state.project.run(|svc| svc.create_board_scene(Origin::GuiLeft, &title, &summary, expected_revision))?;
+fn create_board_scene(app: AppHandle, state: State<'_, AppState>, title: String, summary: String, expected_revision: u64, lane: Option<String>) -> IpcResult<CommandResult> {
+    let r = state.project.run(|svc| svc.create_board_scene(Origin::GuiLeft, &title, &summary, expected_revision, lane))?;
     broadcast(&app, "gui-left", &r);
     Ok(r)
 }
@@ -900,6 +900,13 @@ fn update_scene_board(app: AppHandle, state: State<'_, AppState>, board: screenp
         return Err(IpcError::InvalidArgument { message: "便签设置无效".into() });
     }
     if board.groups.len()>10000 || board.links.len()>20000 || board.groups.iter().any(|g|g.id.is_empty()||g.name.chars().count()>200||g.scene_ids.len()>10000) || board.links.iter().any(|l|l.id.is_empty()||l.label.chars().count()>1000||!matches!(l.arrow.as_str(),"end"|"start"|"both"|"none")) {return Err(IpcError::InvalidArgument{message:"成组或连线设置无效".into()});}
+    let lane_ids: std::collections::HashSet<&str> = board.lanes.iter().map(|l|l.id.as_str()).collect();
+    if board.lanes.len()>32 || lane_ids.len()!=board.lanes.len() || board.lanes.iter().any(|l|l.id.is_empty()||l.name.chars().count()>200||l.hint.chars().count()>2000||(!l.color.is_empty()&&!color(&l.color))) {
+        return Err(IpcError::InvalidArgument{message:"构思分区设置无效".into()});
+    }
+    if board.cards.values().any(|c|!c.lane.is_empty() && !lane_ids.contains(c.lane.as_str())) {
+        return Err(IpcError::InvalidArgument{message:"便签所属分区不存在".into()});
+    }
     let r = state.project.run(|svc| {
         svc.check_revision(Some(expected_revision))?;
         let current=svc.get_document().document;
@@ -1676,6 +1683,20 @@ async fn agent_summarize_scene(state: State<'_, AppState>, scene_id: String) -> 
     serde_json::to_value(result).map_err(|e| IpcError::Internal { message: e.to_string() })
 }
 
+/// Read-only model call: board classification cannot invoke editing tools.
+#[tauri::command]
+async fn agent_classify_board(state: State<'_, AppState>, lanes: Vec<screenplay_agent::board::LaneSpec>) -> IpcResult<serde_json::Value> {
+    agent_text::ready(&state).await?;
+    prepare_agent_credential(&state).await?;
+    let cfg = state.agent.lock().unwrap().clone();
+    if cfg.provider_kind != "ollama" && !cfg.cloud_ai_enabled { return Err(IpcError::InvalidArgument { message: "请先在编剧助理中启用云 AI".into() }); }
+    let doc = state.project.document()?;
+    let agent = build_agent(&state)?;
+    let result = screenplay_agent::board::classify_board(&agent.router, &doc, &lanes).await
+        .map_err(|e| IpcError::Internal { message: e.to_string() })?;
+    serde_json::to_value(result).map_err(|e| IpcError::Internal { message: e.to_string() })
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfigDto {
@@ -1916,6 +1937,7 @@ pub fn run() {
             update_scene_board,
             create_board_scene,
             agent_summarize_scene,
+            agent_classify_board,
             agent_text::agent_transform_text,
             agent_text::agent_attachment_text,
             agent_text::agent_apply_selection,

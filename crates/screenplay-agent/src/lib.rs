@@ -5,6 +5,7 @@ pub mod runner;
 pub mod skill;
 pub mod tool;
 pub mod summary;
+pub mod board;
 
 pub use provider::{ChatMessage, ModelProvider, ModelRouter, OpenAiProvider};
 pub use runner::{AgentError, AgentMode, AgentRunner, AgentToolOutcome};

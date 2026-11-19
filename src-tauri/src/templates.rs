@@ -6,7 +6,7 @@
 use screenplay_core::templates::{self, ProjectTemplate};
 use std::path::{Path, PathBuf};
 
-/// 内置模板。顺序即新建对话框中的展示顺序。
+/// 内置模板。顺序即白板模板菜单中的展示顺序。
 const BUILTIN: &[&str] = &[
     include_str!("../templates/blank.json"),
     include_str!("../templates/three-act-beats.json"),
@@ -22,6 +22,8 @@ pub struct TemplateSummary {
     pub name: String,
     pub description: String,
     pub builtin: bool,
+    /// 白板构思分区模板；空数组表示不预置分区。
+    pub lanes: Vec<screenplay_core::templates::TemplateLane>,
 }
 
 #[derive(serde::Serialize)]
@@ -126,6 +128,7 @@ pub fn list_project_templates() -> TemplatesPayload {
             name: template.name,
             description: template.description,
             builtin,
+            lanes: template.board,
         })
         .collect();
     TemplatesPayload {
