@@ -1049,10 +1049,17 @@ body.dark ::-webkit-scrollbar-thumb {
 .version-create input,
 .version-compare select {
   flex: 1;
+  min-width: 0;
   padding: 5px 8px;
   border: 1px solid #d1d1d6;
   border-radius: 6px;
   font-size: 12px;
+}
+
+/* 版本名较长时，下拉框的最小内容宽度会挤压按钮，导致「对比 / 导出对比」竖排。 */
+.version-compare button {
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .version-compare .vs {
@@ -1787,6 +1794,8 @@ body.dark .version-tabs { border-bottom-color:#3a3a44; }
 body.dark .version-tabs button { color:#a9a9b4; }
 body.dark .version-tabs button.active { color:#8ab4f8; border-bottom-color:#8ab4f8; }
 body.dark .version-item { border-bottom-color:#35353e; }
+body.dark .history-timeline { border-left-color:#3a3a44; }
+body.dark .history-timeline .version-item { border-color:#3a3a44; }
 body.dark .version-note { color:#b3b3bd; }
 body.dark .version-auto,body.dark .version-current,body.dark .audit-origin { background:#3a3a44; color:#c3c3cd; }
 body.dark .version-diff { background:#141418; color:#dcdce4; }
