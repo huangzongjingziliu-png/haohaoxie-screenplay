@@ -11,7 +11,7 @@ import type { Series } from "./Series";
 import type { StoryBible } from "./StoryBible";
 import type { TitlePage } from "./TitlePage";
 
-export type ScreenplayDocument = { draft_label?: string, series?: Series, id: string, format_version: number,
+export type ScreenplayDocument = { draft_label?: string, series?: Series, id: string, format_version: number, 
 /**
  * 单调递增修订号，用于 Revision Conflict 检测
  */

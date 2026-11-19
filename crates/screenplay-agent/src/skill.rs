@@ -248,7 +248,7 @@ pub fn parse_skill_md(content: &str) -> Result<Skill, SkillLoadError> {
 }
 
 /// 分离 frontmatter（`---` 之间）和 body
-fn split_frontmatter(content: &str) -> Result<(String, String), SkillLoadError> {
+pub(crate) fn split_frontmatter(content: &str) -> Result<(String, String), SkillLoadError> {
     let content = content.trim_start();
     let rest = content
         .strip_prefix("---")

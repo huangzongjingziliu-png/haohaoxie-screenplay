@@ -13,6 +13,9 @@ import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { defaultBoard, defaultCard, scenesOf, moveScene, moveBoardUnit, updateBoard, useSceneHeadingDisplays } from '@/utils/scenes';
 import type { SceneCard } from '@/ipc/types/SceneCard';
+import type { BoardLane } from '@/ipc/types/BoardLane';
+import type { SceneGroup } from '@/ipc/types/SceneGroup';
+import type { TemplateSummary } from '@/ipc/client';
 
 export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>void; onConfigure:()=>void; onJump?:(id:string)=>void}) {
   const {canvasRef,zoom,changeZoom}=useBoardZoom();
@@ -23,7 +26,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const cardsRef=useRef<HTMLDivElement>(null);
   const [checked,setChecked]=useState<string[]>([]);
   const [groupName,setGroupName]=useState('');
-  const [adding,setAdding]=useState(false),[newTitle,setNewTitle]=useState(''),[newSummary,setNewSummary]=useState(''),[creating,setCreating]=useState(false),[createError,setCreateError]=useState('');
+  const [adding,setAdding]=useState(false),[addingLane,setAddingLane]=useState(''),[newTitle,setNewTitle]=useState(''),[newSummary,setNewSummary]=useState(''),[creating,setCreating]=useState(false),[createError,setCreateError]=useState('');
 
   const [selectionBox,setSelectionBox]=useState<{left:number;top:number;width:number;height:number}|null>(null);
   const stopSelection=useRef<(()=>void)|null>(null);
@@ -35,8 +38,13 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const dialogRef = useRef<HTMLElement>(null);
   const doc = useEditorStore(s=>s.document);
   const [selected, setSelected] = useState<string | null>(null);
-  const [dragged, setDragged] = useState<string | null>(null);
+  const [draggedUnit, setDraggedUnit] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropLane, setDropLane] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [templateId, setTemplateId] = useState('');
+  const [classifying, setClassifying] = useState(false);
+  const [laneMessage, setLaneMessage] = useState('');
   const [preview, setPreview] = useState<{id:string;width:number;height:number} | null>(null);
   const [generating, setGenerating] = useState('');
   const [stoppingSummary,setStoppingSummary]=useState(false);
@@ -72,6 +80,80 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const closeBoard=async()=>{if(closingBoard.current)return;closingBoard.current=true;try{await flushPendingEdits();onClose();}catch(e){report(e);}finally{closingBoard.current=false;}};
   const edit = (change: Parameters<typeof updateBoard>[1]) => { if (doc) void updateBoard(doc.id, change).catch(report); };
   const cardEdit = (id:string, patch:Partial<SceneCard>) => edit(b=>({...b,cards:{...b.cards,[id]:{...(b.cards[id] ?? defaultCard()),...patch}}}));
+  const lanes = board.lanes ?? [];
+
+  useEffect(()=> {
+    let disposed = false;
+    void ipc.listProjectTemplates().then(payload => { if (!disposed) setTemplates(payload?.templates ?? []); }).catch(() => {});
+    return () => { disposed = true; };
+  }, []);
+
+  const laneEdit = (id:string, patch:Partial<BoardLane>) => edit(b=>({...b,lanes:b.lanes.map(l=>l.id===id?{...l,...patch}:l)}));
+  const addLane = () => { setLaneMessage(''); edit(b=>({...b,lanes:[...b.lanes,{id:crypto.randomUUID(),name:fmt("新分区 {0}",b.lanes.length+1),hint:'',color:'',collapsed:false}]})); };
+  const moveLane = (id:string, step:number) => edit(b=> {
+    const from = b.lanes.findIndex(l=>l.id===id), to = from+step;
+    if (from < 0 || to < 0 || to >= b.lanes.length) return b;
+    const next = [...b.lanes];[next[from],next[to]]=[next[to],next[from]];
+    return {...b,lanes:next};
+  });
+  const removeLane = (id:string) => { setLaneMessage(tr("已删除分区，原本的便签留在“未分区”。")); edit(b=>({...b,
+    lanes:b.lanes.filter(l=>l.id!==id),
+    cards:Object.fromEntries(Object.entries(b.cards).map(([cardId,card])=>[cardId, card?.lane===id ? {...card,lane:''} : card])),
+  })); };
+  const setLaneForScenes = (ids:string[], lane:string, detach:boolean) => { if (!ids.length) return; edit(b=> {
+    const cards = {...b.cards};
+    for (const sceneId of ids) cards[sceneId] = {...(cards[sceneId] ?? defaultCard()), lane};
+    const groups = detach ? b.groups.map(g=>g.scene_ids.some(s=>ids.includes(s)) ? {...g,scene_ids:g.scene_ids.filter(s=>!ids.includes(s))} : g).filter(g=>g.scene_ids.length>0) : b.groups;
+    return {...b,cards,groups};
+  }); };
+  const groupLane = (group:SceneGroup) => { const first = scenes.find(s=>group.scene_ids.includes(s.id)); return first ? board.cards[first.id]?.lane ?? '' : ''; };
+  const dropInto = (lane:string) => {
+    const unit = draggedUnit; setDraggedUnit(null); setDropLane(null); setDropTarget(null);
+    if (!unit) return;
+    if (unit.startsWith('lane:')) {
+      const from = unit.slice(5);
+      if (!lane || from===lane) return;
+      edit(b=> {
+        const next = [...b.lanes], fromIndex = next.findIndex(l=>l.id===from), toIndex = next.findIndex(l=>l.id===lane);
+        if (fromIndex < 0 || toIndex < 0) return b;
+        const [moved] = next.splice(fromIndex,1); next.splice(toIndex,0,moved);
+        return {...b,lanes:next};
+      });
+      return;
+    }
+    if (unit.startsWith('group:')) { const group = board.groups.find(g=>g.id===unit.slice(6)); if (group && groupLane(group)!==lane) setLaneForScenes(group.scene_ids,lane,false); return; }
+    const sceneId = unit.slice(6); if ((board.cards[sceneId]?.lane ?? '')!==lane) setLaneForScenes([sceneId],lane,true);
+  };
+  const applyTemplate = async () => {
+    if (!doc || !templateId) return;
+    const template = templates.find(t=>t.id===templateId);
+    if (!template) return;
+    setLaneMessage('');
+    try {
+      const next = template.lanes.map(lane=>({id:crypto.randomUUID(),name:lane.name,hint:lane.hint,color:lane.color,collapsed:false}));
+      await updateBoard(doc.id,b=>({...b,lanes:next,cards:Object.fromEntries(Object.entries(b.cards).map(([cardId,card])=>[cardId, card ? {...card,lane:''} : card]))}));
+      setLaneMessage(fmt("已套用「{0}」{1} 个分区；原有便签保留在“未分区”，可撤销。",template.name,next.length));
+    } catch(e) { setLaneMessage(String(e)); }
+  };
+  const classifyLanes = async () => {
+    if (!doc || classifying || !lanes.length) return;
+    setClassifying(true); setLaneMessage('');
+    try {
+      const result = await ipc.classifyBoard(lanes.map(l=>({id:l.id,name:l.name,hint:l.hint})));
+      if (useEditorStore.getState().document?.id !== doc.id) return;
+      const assignments = new Map(result.assignments.map(a=>[a.sceneId,a.laneId]));
+      await updateBoard(doc.id,b=> {
+        const cards = {...b.cards};
+        for (const [sceneId,laneId] of assignments) {
+          if (!b.lanes.some(l=>l.id===laneId)) continue;
+          cards[sceneId] = {...(cards[sceneId] ?? defaultCard()), lane:laneId};
+        }
+        return {...b,cards};
+      });
+      setLaneMessage(fmt("模型已通读剧本，把 {0} 个场景划分到分区；可以手动拖动调整或撤销。",assignments.size));
+    } catch(e) { setLaneMessage(String(e)); }
+    finally { setClassifying(false); }
+  };
 
   useEffect(()=> {
     if (!doc || !enabled || running.current || paused.current || configured !== true) return;
@@ -100,10 +182,10 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       await flushPendingEdits();
       const state=useEditorStore.getState(),current=state.document;
       if(current?.id!==doc.id)throw new Error(tr("项目已切换"));
-      const result=await ipc.createBoardScene(newTitle.trim(),newSummary,current.revision);
+      const result=await ipc.createBoardScene(newTitle.trim(),newSummary,current.revision,addingLane||null);
       if(useEditorStore.getState().document?.id!==doc.id)throw new Error(tr("项目已切换"));
       await state.applyResult(result);
-      const id=result.affected[0];setSelected(id);setChecked([id]);setAdding(false);setNewTitle('');setNewSummary('');
+      const id=result.affected[0];setSelected(id);setChecked([id]);setAdding(false);setAddingLane('');setNewTitle('');setNewSummary('');
       requestAnimationFrame(()=>cardsRef.current?.querySelector(`[data-scene-id="${id}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}));
     }catch(e){setCreateError(String(e));}finally{setCreating(false);}
   };
@@ -121,11 +203,11 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const reorder=(from:string,to:string)=>void moveScene(from,to).catch(report);
   const selectNode=(id:string)=>{setSelectedNode(id);if(linkFrom&&linkFrom!==id){edit(b=>({...b,links:[...b.links,{id:crypto.randomUUID(),from:linkFrom,to:id,label:'',arrow:'end'}]}));setLinkFrom(null);}};
   const createGroup=()=>{const ids=scenes.filter(s=>checked.includes(s.id)).map(s=>s.id);if(ids.length<2)return;
-    const name=groupName.trim() || fmt("场景组 {0}",board.groups.length+1),id=crypto.randomUUID();void updateBoard(doc.id,b=>({...b,groups:[...b.groups.map(g=>({...g,scene_ids:g.scene_ids.filter(s=>!ids.includes(s))})).filter(g=>g.scene_ids.length),{id,name,scene_ids:ids}]}),(order)=>{const at=order.indexOf(ids[0]),rest=order.filter(s=>!ids.includes(s));rest.splice(at,0,...ids);return rest;}).catch(report);setChecked([]);setGroupName('');};
+    const name=groupName.trim() || fmt("场景组 {0}",board.groups.length+1),id=crypto.randomUUID();void updateBoard(doc.id,b=>({...b,groups:[...b.groups.map(g=>({...g,scene_ids:g.scene_ids.filter(s=>!ids.includes(s))})).filter(g=>g.scene_ids.length),{id,name,scene_ids:ids,collapsed:false}]}),(order)=>{const at=order.indexOf(ids[0]),rest=order.filter(s=>!ids.includes(s));rest.splice(at,0,...ids);return rest;}).catch(report);setChecked([]);setGroupName('');};
   const groupByScene=new Map<string,string>();(board.groups??[]).forEach(g=>g.scene_ids.forEach(id=>groupByScene.set(id,g.id)));
   const units:{kind:'scene'|'group';id:string}[]=[];const emitted=new Set<string>();scenes.forEach(scene=>{const group=groupByScene.get(scene.id);if(group){if(!emitted.has(group)){units.push({kind:'group',id:group});emitted.add(group);}}else units.push({kind:'scene',id:scene.id});});
-  const renderCard=(s:typeof scenes[number],i:number)=> { const c=board.cards[s.id] ?? defaultCard(), size=preview?.id===s.id ? preview : {width:c.width||240,height:c.height||240}; return <article onDoubleClick={e=>{if(!(e.target as HTMLElement).closest("header,button,textarea,input"))e.currentTarget.querySelector(".scene-summary-inline")?.dispatchEvent(new MouseEvent("dblclick",{bubbles:true}));}} key={s.id} data-scene-id={s.id} data-board-node={s.id} data-insertion={insertion?.id===s.id?insertion.side:undefined} onPointerDown={e=>startDrag(e,s.id)} draggable onDragStart={e=>{setDragged(s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDragged(null);setDropTarget(null);}} className={`scene-card ${checked.includes(s.id)||selected===s.id?'selected':''} ${(dropTarget===s.id || pointerTarget===s.id)?'drop-target':''}`} style={{background:c.color||shownColor,width:size.width,height:size.height}} tabIndex={0} aria-label={fmt("场景 {0}：{1}",i+1,headingDisplays[s.id]??s.title)} onClick={e=>{setSelected(s.id);selectNode(s.id);setChecked(ids=>e.metaKey||e.ctrlKey ? ids.includes(s.id)?ids.filter(id=>id!==s.id):[...ids,s.id] : [s.id]);}} onFocus={()=>setSelected(s.id)} onKeyDown={e=> {if(e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const next=scenes[i+(['ArrowLeft','ArrowUp'].includes(e.key)?-1:1)];if(next)reorder(s.id,next.id);}}} onDragOver={e=>{if(dragged){e.preventDefault();setDropTarget(s.id);}}} onDrop={e=>{e.preventDefault();const from=e.dataTransfer.getData('application/x-muben-scene')||dragged;setDragged(null);setDropTarget(null);if(from)reorder(from,s.id);}}>
-        <header draggable title={tr("拖动场景标题以调整顺序；Option + 方向键也可排序")} onDragStart={e=>{setDragged(s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDragged(null);setDropTarget(null);}}><span className="scene-card-number">{i+1}</span><InlineSceneText title value={headingDisplays[s.id]??s.title} baseline={s.title} label={fmt("编辑场景 {0} 标题",i+1)} onSave={async(text,original)=>{const state=useEditorStore.getState(),current=state.document;if(current?.id!==doc.id)throw new Error(tr("项目已切换"));const block=current.blocks.find(b=>b.id===s.id);if(!block)throw new Error(tr("场景已删除"));if(block.text!==original)throw new Error(tr("场景标题已被修改，请重新打开编辑"));await state.applyResult(await ipc.replaceBlock(s.id,text,current.revision));}}/></header>
+  const renderCard=(s:typeof scenes[number],i:number)=> { const c=board.cards[s.id] ?? defaultCard(), size=preview?.id===s.id ? preview : {width:c.width||240,height:c.height||240}; return <article onDoubleClick={e=>{if(!(e.target as HTMLElement).closest("header,button,textarea,input"))e.currentTarget.querySelector(".scene-summary-inline")?.dispatchEvent(new MouseEvent("dblclick",{bubbles:true}));}} key={s.id} data-scene-id={s.id} data-board-node={s.id} data-insertion={insertion?.id===s.id?insertion.side:undefined} onPointerDown={e=>startDrag(e,s.id)} draggable onDragStart={e=>{setDraggedUnit('scene:'+s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDraggedUnit(null);setDropTarget(null);setDropLane(null);}} className={`scene-card ${checked.includes(s.id)||selected===s.id?'selected':''} ${(dropTarget===s.id || pointerTarget===s.id)?'drop-target':''}`} style={{background:c.color||shownColor,width:size.width,height:size.height}} tabIndex={0} aria-label={fmt("场景 {0}：{1}",i+1,headingDisplays[s.id]??s.title)} onClick={e=>{setSelected(s.id);selectNode(s.id);setChecked(ids=>e.metaKey||e.ctrlKey ? ids.includes(s.id)?ids.filter(id=>id!==s.id):[...ids,s.id] : [s.id]);}} onFocus={()=>setSelected(s.id)} onKeyDown={e=> {if(e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const next=scenes[i+(['ArrowLeft','ArrowUp'].includes(e.key)?-1:1)];if(next)reorder(s.id,next.id);}}} onDragOver={e=>{if(draggedUnit?.startsWith('scene:')){e.preventDefault();e.stopPropagation();setDropTarget(s.id);setDropLane(null);}}} onDrop={e=>{if(!draggedUnit?.startsWith('scene:'))return;e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData('application/x-muben-scene')||draggedUnit.slice(6);setDraggedUnit(null);setDropTarget(null);if(!from)return;const targetLane=laneOfScene(s.id);if(targetLane!==laneOfScene(from))setLaneForScenes([from],targetLane,true);else reorder(from,s.id);}}>
+        <header draggable title={tr("拖动场景标题以调整顺序；Option + 方向键也可排序")} onDragStart={e=>{setDraggedUnit('scene:'+s.id);e.dataTransfer.setData('application/x-muben-scene',s.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDraggedUnit(null);setDropTarget(null);setDropLane(null);}}><span className="scene-card-number">{i+1}</span><InlineSceneText title value={headingDisplays[s.id]??s.title} baseline={s.title} label={fmt("编辑场景 {0} 标题",i+1)} onSave={async(text,original)=>{const state=useEditorStore.getState(),current=state.document;if(current?.id!==doc.id)throw new Error(tr("项目已切换"));const block=current.blocks.find(b=>b.id===s.id);if(!block)throw new Error(tr("场景已删除"));if(block.text!==original)throw new Error(tr("场景标题已被修改，请重新打开编辑"));await state.applyResult(await ipc.replaceBlock(s.id,text,current.revision));}}/></header>
 
         <button className="card-jump" title={tr("跳转到此场景的标准剧本")} aria-label={fmt("跳转到场景 {0} 的标准剧本",i+1)} onClick={e=>{e.stopPropagation();onJump?.(s.id);}}>↗</button>
         <InlineSceneText value={c.summary_manual||c.summary_source===s.source?c.summary:''} label={fmt("编辑场景 {0} 概括",i+1)} onSave={async(text)=>{if(useEditorStore.getState().document?.id!==doc.id)throw new Error(tr("项目已切换"));await updateBoard(doc.id,b=>{const scene=scenesOf(useEditorStore.getState().document).find(scene=>scene.id===s.id);if(!scene)throw new Error(tr("场景已删除"));return {...b,cards:{...b.cards,[s.id]:{...(b.cards[s.id]??defaultCard()),summary:text,summary_source:scene.source,summary_manual:!!text.trim()}}};},undefined,false);}}/>
@@ -133,11 +215,51 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
         <button draggable={false} className="card-resize" title={tr("拖动调整便签宽高")} aria-label={fmt("调整场景 {0} 便签大小",i+1)} onPointerDown={e=>resize(e,s.id,size.width,size.height)}>◢</button>
       </article>;}
 
+  const laneOfScene=(id:string)=>board.cards[id]?.lane ?? '';
+  const unitsInLane=(lane:string)=>units.filter(unit=> unit.kind==='scene' ? laneOfScene(unit.id)===lane : groupLane(board.groups.find(g=>g.id===unit.id)! )===lane);
+  const renderUnit=(unit:{kind:'scene'|'group';id:string})=> {
+    if (unit.kind==='scene') return renderCard(scenes.find(s=>s.id===unit.id)!,scenes.findIndex(s=>s.id===unit.id));
+    const group=board.groups.find(g=>g.id===unit.id)!;const id='group:'+group.id;
+    return <section className={`board-group ${selectedNode===id?'selected':''} ${group.collapsed?'folded':''}`} key={id} data-board-node={id} data-scene-id={id} data-insertion={insertion?.id===id?insertion.side:undefined}>
+      <header draggable onDragStart={e=>{setDraggedUnit(id);e.dataTransfer.setData('application/x-muben-group',group.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDraggedUnit(null);setDropLane(null);setDropTarget(null);}} onPointerDown={e=>{e.stopPropagation();startDrag(e,id);}} onClick={()=>selectNode(id)} tabIndex={0}>
+        <button className="lane-toggle" aria-label={group.collapsed?fmt("展开场景组 {0}",group.name):fmt("收起场景组 {0}",group.name)} title={group.collapsed?tr("展开"):tr("收起")} onClick={e=>{e.stopPropagation();edit(b=>({...b,groups:b.groups.map(g=>g.id===group.id?{...g,collapsed:!g.collapsed}:g)}));}}>{group.collapsed?'▸':'▾'}</button>
+        <strong>{group.name}</strong><span>{group.scene_ids.length}{tr(" 场")}</span><input aria-label={fmt("组名 {0}",group.name)} value={group.name} maxLength={200} onChange={e=>{const name=e.currentTarget.value;edit(b=>({...b,groups:b.groups.map(g=>g.id===group.id?{...g,name}:g)}));}}/><button onClick={()=>{edit(b=>({...b,groups:b.groups.filter(g=>g.id!==group.id),links:b.links.filter(l=>l.from!==id&&l.to!==id)}));}}>{tr("取消成组")}</button>
+      </header>
+      {!group.collapsed && <div className="board-group-cards">{scenes.filter(s=>group.scene_ids.includes(s.id)).map(s=>renderCard(s,scenes.findIndex(x=>x.id===s.id)))}</div>}
+    </section>;
+  };
+  const renderLane=(lane:BoardLane|null)=> {
+    const laneId=lane?.id ?? '', key=lane?lane.id:'__unassigned__', collapsed=lane?.collapsed ?? false, items=unitsInLane(laneId);
+    return <section key={key} className={`board-lane${lane?'':' board-lane-unassigned'}${dropLane===key?' drop-lane':''}${collapsed?' folded':''}`} style={lane?.color?{borderColor:lane.color,background:`${lane.color}26`}:undefined}
+      onDragOver={e=>{if(draggedUnit){e.preventDefault();e.stopPropagation();setDropLane(key);}}}
+      onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDropLane(current=>current===key?null:current);}}
+      onDrop={e=>{e.preventDefault();e.stopPropagation();dropInto(laneId);}}>
+      <header className="board-lane-head" draggable={!!lane} onDragStart={e=>{if(!lane||(e.target as HTMLElement).closest('input,button')){e.preventDefault();return;}setDraggedUnit('lane:'+lane.id);e.dataTransfer.setData('application/x-muben-lane',lane.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDraggedUnit(null);setDropLane(null);}}>
+        {lane ? <>
+          <button className="lane-toggle" aria-label={collapsed?fmt("展开分区 {0}",lane.name):fmt("收起分区 {0}",lane.name)} title={collapsed?tr("展开"):tr("收起")} onClick={()=>laneEdit(lane.id,{collapsed:!lane.collapsed})}>{collapsed?'▸':'▾'}</button>
+          <input className="lane-name" aria-label={tr("分区名称")} value={lane.name} maxLength={200} onChange={e=>laneEdit(lane.id,{name:e.currentTarget.value})}/>
+          <span className="lane-count">{items.length}{tr(" 张便签")}</span>
+          <button aria-label={fmt("上移分区 {0}",lane.name)} title={tr("上移分区")} onClick={()=>moveLane(lane.id,-1)}>↑</button>
+          <button aria-label={fmt("下移分区 {0}",lane.name)} title={tr("下移分区")} onClick={()=>moveLane(lane.id,1)}>↓</button>
+          <BoardColorPicker label={tr("分区颜色")} value={lane.color||'#F5F1FB'} onChange={color=>laneEdit(lane.id,{color})}/>
+          <button onClick={()=>{setCreateError('');setAddingLane(lane.id);setAdding(true);}}>{tr("＋ 便签")}</button>
+          <button onClick={()=>removeLane(lane.id)}>{tr("删除分区")}</button>
+        </> : <>
+          <strong>{tr("未分区")}</strong>
+          <span className="lane-count">{items.length}{tr(" 张便签")}</span>
+          <span className="lane-hint-text">{tr("从分区拖出的便签会留在这里")}</span>
+        </>}
+      </header>
+      {lane && !collapsed && <input className="lane-note" aria-label={fmt("分区说明 {0}",lane.name)} placeholder={tr("分区说明：这一幕或这一拍要完成什么")} value={lane.hint} maxLength={2000} onChange={e=>laneEdit(lane.id,{hint:e.currentTarget.value})}/>}
+      {collapsed ? <p className="lane-folded">{items.length}{tr(" 项已收起")}</p> : <div className="board-lane-cards">{items.map(renderUnit)}</div>}
+    </section>;
+  };
+
 
   return <ModalBackdrop className="scene-board-backdrop" onDismiss={()=>void closeBoard()} message={tr("关闭白板？已经应用的场景与便签修改会保留，尚未提交的输入会放弃。")}><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
     <header className="board-heading"><div><h2>{tr("场景白板")}</h2><span>{scenes.length}{tr(" 个场景 · 拖动标题调整顺序，与剧本和场景列表同步")}</span></div><button onClick={()=>void closeBoard()}>{tr("返回写作 ×")}</button></header>
     <div className="board-tools">
-      <button className="primary" onClick={()=>{setCreateError('');setAdding(true);}}>{tr("新增便签")}</button>
+      <button className="primary" onClick={()=>{setCreateError('');setAddingLane('');setAdding(true);}}>{tr("新增便签")}</button>
       <details className="board-appearance"><summary>{tr("便签外观")} ▾</summary><div className="board-appearance-content">
       <div className="board-color-field">{tr("默认颜色 ")}<BoardColorPicker label={tr("默认便签颜色")} value={shownColor} onChange={changeDefaultColor}/></div>
       <button onClick={()=>edit(b=>({...b,cards:Object.fromEntries(Object.entries(b.cards).filter((entry): entry is [string,SceneCard]=>!!entry[1]).map(([id,c])=>[id,{...c,color:''}]))}))}>{tr("应用到全部便签")}</button>
@@ -150,6 +272,18 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       <label className="board-ai-toggle"><input type="checkbox" checked={enabled} onChange={e=> {const checked=e.currentTarget.checked;if(checked&&configured!==true){window.dispatchEvent(new CustomEvent('model-required',{detail:tr("请先配置模型，才能开启场景概括。")}));return;}paused.current=false;edit(b=>({...b,summaries_enabled:checked}));}}/>{tr("自动概括场景")}</label>
       <button onClick={onConfigure}>{tr("配置模型…")}</button>
     </div>
+    <div className="board-lane-bar" role="toolbar" aria-label={tr("构思分区工具")}>
+      <strong>{tr("构思分区")}</strong>
+      <button onClick={addLane}>{tr("新增分区")}</button>
+      <select aria-label={tr("构思模板")} value={templateId} onChange={e=>setTemplateId(e.target.value)}>
+        <option value="">{tr("选择构思模板…")}</option>
+        {templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+      </select>
+      <button disabled={!templateId} onClick={()=>void applyTemplate()}>{tr("套用模板")}</button>
+      {configured===true && lanes.length>0 && <button disabled={classifying} onClick={()=>void classifyLanes()}>{classifying?tr("正在通读剧本…"):tr("用模型自动划分")}</button>}
+      <span className="lane-hint-text">{tr("把便签拖进分区即自动归属；拖动分区标题可整体移动。")}</span>
+    </div>
+    {laneMessage&&<p className="board-progress" role="status">{laneMessage}</p>}
     {checked.length>=2 && <div className="board-selection-actions" role="toolbar" aria-label={tr("所选场景操作")}>
       <span>{tr("已选 ")}{checked.length}{tr(" 个场景")}</span>
       <input aria-label={tr("组名")} placeholder={tr("组名（可选）")} value={groupName} maxLength={200} onChange={e=>setGroupName(e.target.value)}/>
@@ -181,10 +315,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
     }}><div className="board-cards" ref={cardsRef} style={{zoom,width:`${100/zoom}%`}}>
       {!scenes.length && <p>{tr("还没有场景。点击“新增便签”，从第一场戏开始构思。")}</p>}
       <BoardConnections root={cardsRef} board={board} zoom={zoom} onEdit={setEditingLink}/>
-      {units.map(unit=>unit.kind==='scene'?renderCard(scenes.find(s=>s.id===unit.id)!,scenes.findIndex(s=>s.id===unit.id)):(()=>{const group=board.groups.find(g=>g.id===unit.id)!;const id='group:'+group.id;return <section className={`board-group ${selectedNode===id?'selected':''}`} key={id} data-board-node={id} data-scene-id={id} data-insertion={insertion?.id===id?insertion.side:undefined}>
-        <header onPointerDown={e=>{e.stopPropagation();startDrag(e,id);}} onClick={()=>selectNode(id)} tabIndex={0}><strong>{group.name}</strong><span>{group.scene_ids.length}{tr(" 场")}</span><input aria-label={fmt("组名 {0}",group.name)} value={group.name} maxLength={200} onChange={e=>{const name=e.currentTarget.value;edit(b=>({...b,groups:b.groups.map(g=>g.id===group.id?{...g,name}:g)}));}}/><button onClick={()=>{edit(b=>({...b,groups:b.groups.filter(g=>g.id!==group.id),links:b.links.filter(l=>l.from!==id&&l.to!==id)}));}}>{tr("取消成组")}</button></header>
-        <div className="board-group-cards">{scenes.filter(s=>group.scene_ids.includes(s.id)).map(s=>renderCard(s,scenes.findIndex(x=>x.id===s.id)))}</div>
-      </section>;})())}
+      {lanes.length===0 ? units.map(renderUnit) : <>{renderLane(null)}{lanes.map(lane=>renderLane(lane))}</>}
     </div></div>
     {selectionBox&&<div className="board-selection-box" style={selectionBox}/> }
     <button className="board-hide-links" onClick={()=>edit(b=>({...b,hide_links:!b.hide_links}))}>{board.hide_links?tr("显示连线"):tr("隐藏连线")}</button>

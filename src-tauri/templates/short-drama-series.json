@@ -2,6 +2,11 @@
   "id": "short-drama-series",
   "name": "短剧分集骨架",
   "description": "按集生成竖屏短剧结构，每集预置开场钩子、冲突升级、反转与结尾钩。",
+  "board": [
+    {"name": "第 1 集", "hint": "开场钩子 → 冲突升级 → 反转 → 结尾钩子。", "color": "#CDE9FF"},
+    {"name": "第 2 集", "hint": "承接悬念 → 新阻力 → 情绪爆点 → 结尾钩子。", "color": "#FFD7DE"},
+    {"name": "第 3 集", "hint": "局势失控 → 关键抉择 → 正面对决 → 结尾钩子。", "color": "#D7F0D2"}
+  ],
   "episodes": [
     {
       "title": "第 1 集",

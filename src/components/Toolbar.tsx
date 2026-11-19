@@ -27,6 +27,7 @@ export default function Toolbar({
   onSearch,
   onVersions,
   onAgent,
+  agentOpen,
   onConnections,
   onBoard,
 }: {
@@ -38,6 +39,7 @@ export default function Toolbar({
   onSearch?: () => void;
   onVersions?: () => void;
   onAgent?: () => void;
+  agentOpen?: boolean;
   onConnections?: () => void;
   onBoard?: () => void;
 }) {
@@ -190,7 +192,7 @@ export default function Toolbar({
           ))}
         </select>
         {onBoard && <button onClick={onBoard} disabled={project.state === 'empty'} title={tr("场景白板：拖动便签同步调整剧本顺序")}>{tr("白板")}</button>}
-        {onAgent && <button onClick={onAgent} title={tr("编剧助理")}>{tr("编剧助理")}</button>}
+        {onAgent && <button className={agentOpen ? 'active' : undefined} aria-pressed={agentOpen} onClick={onAgent} title={tr(agentOpen ? "关闭编剧助理" : "编剧助理")}>{tr("编剧助理")}</button>}
         {onSearch && <button onClick={onSearch} title={tr("搜索剧本 · ⌘F")}>{tr("⌕ 搜索")}</button>}
         <UpdateButton/><UpdateDialog/><div className="toolbar-more" ref={moreRef}>
           <button aria-expanded={moreOpen} aria-haspopup="true" onClick={() => setMoreOpen(!moreOpen)}>{tr("更多 ▾")}</button>
