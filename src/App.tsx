@@ -264,7 +264,8 @@ export default function App() {
           onSearch={()=>setShowSearch(true)}
           onVersions={() => setShowVersions(true)}
           onBoard={() => setShowBoard(true)}
-          onAgent={() => setShowAgent(true)}
+          onAgent={() => setShowAgent(v => !v)}
+          agentOpen={showAgent}
           onConnections={() => setShowConnections(true)}
         />
       )}
