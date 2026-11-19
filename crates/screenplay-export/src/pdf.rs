@@ -487,7 +487,13 @@ mod tests {
             assert_eq!(footer.text, "好好写剧本 · 免费版");
             assert_eq!(footer.size, 10.0);
             assert_eq!(footer.color.as_deref(), Some("#808080"));
-            assert!(footer.y < doc.settings.font_size, "水印必须在页脚");
+            let bottom_margin = doc.settings.paper.margin_bottom_inch * 72.0;
+            assert!(
+                footer.y > 0.0 && footer.y < bottom_margin,
+                "水印必须落在下边距带内：y={} margin={}",
+                footer.y,
+                bottom_margin
+            );
         }
     }
 
