@@ -124,6 +124,13 @@ trait EntitlementProvider {
 3. Rust 侧目前只覆盖「framework 可加载、无权益时返回未购买」；未购买/已购买/离线/撤销/恢复失败的单测待补。
 4. 前端用 mock 状态验证 UI：锁定态、购买中、成功、失败、恢复中。
 
+### 6.1.1 已跑通的边界（2026-11-19 实测）
+
+- **真实 StoreKit 交易**：`XcodeHost` + `Pro.storekit` 的 3 条 XCTest 全部通过（查商品 / 购买→权益 / 恢复购买），framework 用真实 StoreKit 2 接口。
+- **应用内闭环**：在真实商店包（1.0.0 build 1，`com.screenplay.studio.store`）里跑通「未购 → 点购买 → 权益立即生效 → 导出菜单解锁 → PDF 水印消失 → 重启仍已购 → 恢复购买」。该轮交易的成败由 `SCREENPLAY_ENTITLEMENT_SOURCE=fake` 提供，**不是**真实 StoreKit 交易。
+- **无法合并的一步**：本地 `.storekit` 配置只能经 `SKTestSession` 注入 XCTest 宿主，普通进程创建会 abort（崩溃栈落在 XCTestLibrary）。因此「真实交易 + 应用 UI」无法在同一进程内同时演示；需要沙盒账号后在 MAS 构建上做。
+- 截图证据：`docs/app-store/evidence/`。
+
 ### 6.2 沙盒测试（需要开发者账号与商品配置）
 
 - 在 App Store Connect 创建商品并进入「准备提交」，用沙盒 Apple ID 在 MAS 构建上购买。
