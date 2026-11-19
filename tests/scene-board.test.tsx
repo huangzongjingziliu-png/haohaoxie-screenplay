@@ -289,6 +289,37 @@ it('配置模型后可让模型通读剧本自动划分，结果落到普通白�
   expect(view.getAllByText(/把 2 个场景划分到分区/).length).toBeGreaterThan(0);
 });
 
+it('从组里拖走便签后剩余不足两张时自动解散分组',async()=>{
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  const board=defaultBoard();board.lanes=[{id:'lane-1',name:'第一幕',hint:'',color:'',collapsed:false}];
+  board.groups=[{id:'g',name:'一组',scene_ids:['a','b'],collapsed:false}];
+  useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  const transfer={setData:vi.fn(),getData:()=> 'b',effectAllowed:'move'};
+  fireEvent.dragStart(view.container.querySelector('[data-scene-id="b"]')!,{dataTransfer:transfer});
+  const band=view.container.querySelector('.board-lane:not(.board-lane-unassigned)')!;
+  fireEvent.dragOver(band,{dataTransfer:transfer});
+  fireEvent.drop(band,{dataTransfer:transfer});
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.cards.b?.lane).toBe('lane-1'));
+  expect(useEditorStore.getState().document?.settings.scene_board.groups).toEqual([]);
+});
+
+it('自动划分把同组场景归到同一分区，计数只算有效归属',async()=>{
+  mockBackend.on('agent_get_config',()=>({providerKind:'ollama',model:'local',baseUrl:''}));
+  mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
+  mockBackend.on('agent_classify_board',()=>({projectId:'board-qa',assignments:[{sceneId:'a',laneId:'lane-1',reason:''},{sceneId:'b',laneId:'lane-2',reason:''},{sceneId:'c',laneId:'missing-lane',reason:''}]}));
+  const board=defaultBoard();board.lanes=[{id:'lane-1',name:'第一幕',hint:'',color:'',collapsed:false},{id:'lane-2',name:'第二幕',hint:'',color:'',collapsed:false}];
+  board.groups=[{id:'g',name:'一组',scene_ids:['a','b'],collapsed:false}];
+  useEditorStore.setState({document:{...doc() as object,settings:{scene_board:board}} as never});
+  const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+  await waitFor(()=>expect(view.getByRole('button',{name:'用模型自动划分'})).toBeTruthy());
+  fireEvent.click(view.getByRole('button',{name:'用模型自动划分'}));
+  await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.cards.a?.lane).toBe('lane-1'));
+  const cards=useEditorStore.getState().document!.settings.scene_board.cards;
+  expect(cards.b?.lane).toBe('lane-1');
+  expect(view.getAllByText(/把 2 个场景划分到分区/).length).toBeGreaterThan(0);
+});
+
 it('场景组可整体收起展开，收起时仍保留在分区里',async()=>{
   mockBackend.on('update_scene_board',args=>({document:{...useEditorStore.getState().document,revision:(useEditorStore.getState().document?.revision??0)+1,settings:{scene_board:args.board}},revision:2}));
   const board=defaultBoard();board.lanes=[{id:'lane-1',name:'第一幕',hint:'',color:'',collapsed:false}];

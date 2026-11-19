@@ -20,6 +20,17 @@ pub trait ModelProvider: Send + Sync {
     fn cache_identity(&self) -> Option<String> { None }
     /// 发起聊天补全请求
     async fn chat(&self, messages: &[ChatMessage], temperature: f32) -> Result<String>;
+
+    /// 带输出上限的聊天请求；默认实现忽略上限，由具体 provider 覆盖。
+    async fn chat_limited(
+        &self,
+        messages: &[ChatMessage],
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<String> {
+        let _ = max_tokens;
+        self.chat(messages, temperature).await
+    }
 }
 
 /// OpenAI 兼容 Provider
@@ -67,9 +78,9 @@ impl OpenAiProvider {
         format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
 
-    fn request_body<'a>(&'a self, messages: &'a [ChatMessage], temperature: f32) -> ChatRequest<'a> {
+    fn request_body<'a>(&'a self, messages: &'a [ChatMessage], temperature: f32, max_tokens: u32) -> ChatRequest<'a> {
         let anthropic = reqwest::Url::parse(&self.base_url).ok().and_then(|address|address.host_str().map(str::to_owned)).as_deref()==Some("api.anthropic.com");
-        ChatRequest { model: &self.model, messages, temperature: if anthropic {None} else {Some(temperature)}, max_tokens:4096 }
+        ChatRequest { model: &self.model, messages, temperature: if anthropic {None} else {Some(temperature)}, max_tokens }
     }
 }
 
@@ -110,8 +121,11 @@ impl ModelProvider for OpenAiProvider {
         Some(format!("{:x}",Sha256::digest(format!("{}\n{}\n{}",self.base_url,self.model,self.api_key).as_bytes())))
     }
     async fn chat(&self, messages: &[ChatMessage], temperature: f32) -> Result<String> {
+        self.chat_limited(messages, temperature, 4096).await
+    }
+    async fn chat_limited(&self, messages: &[ChatMessage], temperature: f32, max_tokens: u32) -> Result<String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let body = self.request_body(messages, temperature);
+        let body = self.request_body(messages, temperature, max_tokens);
         let resp = self
             .client
             .post(&url)
@@ -177,6 +191,20 @@ impl ModelRouter {
             .ok_or_else(|| anyhow::anyhow!("没有可用的模型 provider"))?;
         p.chat(messages, temperature).await
     }
+
+    /// 带输出上限的调用，供专家会审按各自 `max_tokens` 控制篇幅。
+    pub async fn chat_with_max_tokens(
+        &self,
+        model: Option<&str>,
+        messages: &[ChatMessage],
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<String> {
+        let p = self
+            .select(model)
+            .ok_or_else(|| anyhow::anyhow!("没有可用的模型 provider"))?;
+        p.chat_limited(messages, temperature, max_tokens).await
+    }
 }
 
 #[cfg(test)]
@@ -187,12 +215,14 @@ mod tests {
     fn anthropic_compatibility_omits_unsupported_sampling_override() {
         let messages = vec![ChatMessage {role:"user".into(),content:"Hello".into()}];
         let provider = OpenAiProvider::compatible("https://api.anthropic.com/v1", "test-key", "claude-model");
-        let body = serde_json::to_value(provider.request_body(&messages,0.2)).unwrap();
+        let body = serde_json::to_value(provider.request_body(&messages,0.2,2400)).unwrap();
         assert!(body.get("temperature").is_none());
         assert_eq!(body["model"],"claude-model");
         assert_eq!(body["messages"][0]["content"],"Hello");
         let provider = OpenAiProvider::compatible("https://api.deepseek.com", "test-key", "chat-model");
-        assert!(serde_json::to_value(provider.request_body(&messages,0.2)).unwrap().get("temperature").is_some());
+        let body = serde_json::to_value(provider.request_body(&messages,0.2,2400)).unwrap();
+        assert!(body.get("temperature").is_some());
+        assert_eq!(body["max_tokens"],2400);
     }
 
     #[test]

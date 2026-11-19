@@ -22,7 +22,7 @@ pub(crate) fn experts_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn load_all_experts() -> Vec<Expert> {
-    screenplay_agent::load_experts(experts_dir().as_deref())
+    screenplay_agent::load_experts_detailed(experts_dir().as_deref()).0
 }
 
 #[derive(Serialize)]
@@ -34,18 +34,29 @@ pub struct ExpertInfo {
     pub builtin: bool,
 }
 
+/// 专家列表 + 自定义文件被跳过时的原因（路径与错误），供界面提示用户修正。
+#[derive(Serialize)]
+pub struct ExpertCatalog {
+    pub experts: Vec<ExpertInfo>,
+    pub issues: Vec<String>,
+}
+
 #[tauri::command]
-pub fn agent_list_experts() -> IpcResult<Vec<ExpertInfo>> {
-    Ok(load_all_experts()
-        .into_iter()
-        .map(|e| ExpertInfo {
-            id: e.id,
-            name: e.name,
-            description: e.description,
-            dimensions: e.dimensions,
-            builtin: e.builtin,
-        })
-        .collect())
+pub fn agent_list_experts() -> IpcResult<ExpertCatalog> {
+    let (experts, issues) = screenplay_agent::load_experts_detailed(experts_dir().as_deref());
+    Ok(ExpertCatalog {
+        experts: experts
+            .into_iter()
+            .map(|e| ExpertInfo {
+                id: e.id,
+                name: e.name,
+                description: e.description,
+                dimensions: e.dimensions,
+                builtin: e.builtin,
+            })
+            .collect(),
+        issues,
+    })
 }
 
 /// 当前场景附近的正文（与对话上下文保持同一取法）。

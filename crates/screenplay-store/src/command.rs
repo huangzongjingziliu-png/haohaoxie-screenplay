@@ -485,16 +485,27 @@ impl CommandService {
         for id in scene_ids { doc.blocks.extend(chunks.remove(id).unwrap()); }
         if let Some(board)=board {doc.settings.scene_board=board;}
         // A container always occupies one uninterrupted range in screenplay order.
+        // When membership is no longer contiguous (a card was dragged out of the
+        // middle), split it into separate groups instead of silently dropping the tail.
         let mut used=std::collections::BTreeSet::new();
-        for group in &mut doc.settings.scene_board.groups {
+        let mut split=Vec::new();
+        for group in &doc.settings.scene_board.groups {
             let candidates:std::collections::BTreeSet<_>=group.scene_ids.iter().cloned().collect();
-            let mut started=false;let mut ended=false;
-            group.scene_ids=scene_ids.iter().filter(|id|{
-                let belongs=candidates.contains(*id)&&!used.contains(*id);
-                if started&&!belongs{ended=true;}
-                if belongs&&!ended{started=true;used.insert((*id).clone());true}else{false}
-            }).cloned().collect();
+            let mut runs:Vec<Vec<String>>=Vec::new();
+            let mut run:Vec<String>=Vec::new();
+            for id in scene_ids {
+                if candidates.contains(id)&&!used.contains(id) {used.insert(id.clone());run.push(id.clone());}
+                else if !run.is_empty() {runs.push(std::mem::take(&mut run));}
+            }
+            if !run.is_empty() {runs.push(run);}
+            for (n,run) in runs.into_iter().enumerate() {
+                let mut piece=group.clone();
+                if n>0 {piece.id=format!("{}-split{}",group.id,n+1);}
+                piece.scene_ids=run;
+                split.push(piece);
+            }
         }
+        doc.settings.scene_board.groups=split;
         doc.settings.scene_board.groups.retain(|g|!g.scene_ids.is_empty());
         self.store.log_operation(origin, "reorder_scenes", "document", &old.join(","), &scene_ids.join(","), None);
         let affected = doc.blocks.iter().map(|b|b.id.clone()).collect();
@@ -1322,6 +1333,27 @@ mod tests {
         let current=svc.get_document().document;let source=serializer::to_compact_source(&current);
         let result=svc.replace_source_text(Origin::GuiRight,&source,None).unwrap();
         assert_eq!(result.document.blocks.iter().map(|b|&b.id).collect::<Vec<_>>(),current.blocks.iter().map(|b|&b.id).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn groups_split_instead_of_dropping_tail_when_membership_gaps(){
+        let svc=make_service_with_blocks();
+        svc.insert_block(Origin::GuiLeft,None,BlockType::SceneHeading,"EXT. TWO - NIGHT",None).unwrap();
+        svc.insert_block(Origin::GuiLeft,None,BlockType::Action,"第二场动作",None).unwrap();
+        svc.insert_block(Origin::GuiLeft,None,BlockType::SceneHeading,"EXT. THREE - NIGHT",None).unwrap();
+        let before=svc.get_document().document;
+        let ids:Vec<_>=before.blocks.iter().filter(|b|b.block_type==BlockType::SceneHeading).map(|b|b.id.clone()).collect();
+        assert_eq!(ids.len(),3);
+        let mut board=before.settings.scene_board.clone();
+        board.groups.push(screenplay_core::ast::SceneGroup{id:"g".into(),name:"第一幕".into(),scene_ids:ids.clone(),collapsed:false});
+        let mut after=board.clone();
+        // 模拟从组中间拖走一张：组内只剩首尾，不再连续
+        after.groups[0].scene_ids=vec![ids[0].clone(),ids[2].clone()];
+        let r=svc.reorder_scenes_with_board(Origin::GuiLeft,&ids,Some(before.revision),Some(after)).unwrap();
+        let groups=&r.document.settings.scene_board.groups;
+        let members:Vec<_>=groups.iter().flat_map(|g|g.scene_ids.clone()).collect();
+        assert_eq!(members,vec![ids[0].clone(),ids[2].clone()],"成员不能被静默丢弃");
+        assert_eq!(groups.len(),2,"断点应拆成两个组");
     }
 
     #[test]

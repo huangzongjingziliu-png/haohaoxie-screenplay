@@ -89,6 +89,15 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   }, []);
 
   const laneEdit = (id:string, patch:Partial<BoardLane>) => edit(b=>({...b,lanes:b.lanes.map(l=>l.id===id?{...l,...patch}:l)}));
+  // 分区名称与说明先留在本地，失焦或回车再提交，避免逐字写盘、逐字产生历史记录。
+  const [laneDraft,setLaneDraft]=useState<Record<string,{name?:string;hint?:string}>>({});
+  const draftLane = (id:string,field:'name'|'hint',value:string) => setLaneDraft(d=>({...d,[id]:{...d[id],[field]:value}}));
+  const commitLane = (id:string,field:'name'|'hint') => {
+    const value = laneDraft[id]?.[field];
+    if (value===undefined) return;
+    setLaneDraft(d=>{const next={...d};const entry={...next[id]};delete entry[field];if(Object.keys(entry).length)next[id]=entry;else delete next[id];return next;});
+    if (field==='name') laneEdit(id,{name:value}); else laneEdit(id,{hint:value});
+  };
   const addLane = () => { setLaneMessage(''); edit(b=>({...b,lanes:[...b.lanes,{id:crypto.randomUUID(),name:fmt("新分区 {0}",b.lanes.length+1),hint:'',color:'',collapsed:false}]})); };
   const moveLane = (id:string, step:number) => edit(b=> {
     const from = b.lanes.findIndex(l=>l.id===id), to = from+step;
@@ -103,7 +112,10 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   const setLaneForScenes = (ids:string[], lane:string, detach:boolean) => { if (!ids.length) return; edit(b=> {
     const cards = {...b.cards};
     for (const sceneId of ids) cards[sceneId] = {...(cards[sceneId] ?? defaultCard()), lane};
-    const groups = detach ? b.groups.map(g=>g.scene_ids.some(s=>ids.includes(s)) ? {...g,scene_ids:g.scene_ids.filter(s=>!ids.includes(s))} : g).filter(g=>g.scene_ids.length>0) : b.groups;
+    // 从组里拖走便签：剩余不足 2 场时解散该组，避免留下单卡分组。
+    const groups = detach ? b.groups
+      .map(g=>g.scene_ids.some(s=>ids.includes(s)) ? {...g,scene_ids:g.scene_ids.filter(s=>!ids.includes(s))} : g)
+      .filter(g=>g.scene_ids.length>1) : b.groups;
     return {...b,cards,groups};
   }); };
   const groupLane = (group:SceneGroup) => { const first = scenes.find(s=>group.scene_ids.includes(s.id)); return first ? board.cards[first.id]?.lane ?? '' : ''; };
@@ -137,20 +149,47 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   };
   const classifyLanes = async () => {
     if (!doc || classifying || !lanes.length) return;
+    if (Object.values(board.cards).some(card=>!!card?.lane)
+      && !window.confirm(tr("自动划分会覆盖当前的分区归属，继续？"))) return;
     setClassifying(true); setLaneMessage('');
     try {
       const result = await ipc.classifyBoard(lanes.map(l=>({id:l.id,name:l.name,hint:l.hint})));
       if (useEditorStore.getState().document?.id !== doc.id) return;
       const assignments = new Map(result.assignments.map(a=>[a.sceneId,a.laneId]));
+      let applied = 0;
       await updateBoard(doc.id,b=> {
-        const cards = {...b.cards};
-        for (const [sceneId,laneId] of assignments) {
-          if (!b.lanes.some(l=>l.id===laneId)) continue;
-          cards[sceneId] = {...(cards[sceneId] ?? defaultCard()), lane:laneId};
+        const valid = new Set(b.lanes.map(l=>l.id));
+        // 同组场景统一落一个分区（取组内多数），避免组显示在首成员分区、成员却散在别处。
+        const groupLane = new Map<string,string>();
+        for (const group of b.groups) {
+          const tally = new Map<string,number>();
+          for (const sceneId of group.scene_ids) {
+            const lane = assignments.get(sceneId);
+            if (lane && valid.has(lane)) tally.set(lane,(tally.get(lane) ?? 0) + 1);
+          }
+          let best = '', bestCount = 0;
+          for (const [lane,count] of tally) if (count > bestCount) { best = lane; bestCount = count; }
+          if (best) groupLane.set(group.id,best);
         }
+        const grouped = new Map<string,string>();
+        for (const group of b.groups) {
+          const lane = groupLane.get(group.id);
+          if (lane) for (const sceneId of group.scene_ids) grouped.set(sceneId,lane);
+        }
+        const cards = {...b.cards};
+        let count = 0;
+        for (const [sceneId,rawLane] of assignments) {
+          const lane = grouped.get(sceneId) ?? rawLane;
+          if (!valid.has(lane)) continue;
+          cards[sceneId] = {...(cards[sceneId] ?? defaultCard()), lane};
+          count++;
+        }
+        applied = count;
         return {...b,cards};
       });
-      setLaneMessage(fmt("模型已通读剧本，把 {0} 个场景划分到分区；可以手动拖动调整或撤销。",assignments.size));
+      setLaneMessage(applied
+        ? fmt("模型已通读剧本，把 {0} 个场景划分到分区；可以手动拖动调整或撤销。",applied)
+        : tr("模型没有给出有效的分区结果，请重试或手动拖动。"));
     } catch(e) { setLaneMessage(String(e)); }
     finally { setClassifying(false); }
   };
@@ -237,7 +276,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       <header className="board-lane-head" draggable={!!lane} onDragStart={e=>{if(!lane||(e.target as HTMLElement).closest('input,button')){e.preventDefault();return;}setDraggedUnit('lane:'+lane.id);e.dataTransfer.setData('application/x-muben-lane',lane.id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{setDraggedUnit(null);setDropLane(null);}}>
         {lane ? <>
           <button className="lane-toggle" aria-label={collapsed?fmt("展开分区 {0}",lane.name):fmt("收起分区 {0}",lane.name)} title={collapsed?tr("展开"):tr("收起")} onClick={()=>laneEdit(lane.id,{collapsed:!lane.collapsed})}>{collapsed?'▸':'▾'}</button>
-          <input className="lane-name" aria-label={tr("分区名称")} value={lane.name} maxLength={200} onChange={e=>laneEdit(lane.id,{name:e.currentTarget.value})}/>
+          <input className="lane-name" aria-label={tr("分区名称")} value={laneDraft[lane.id]?.name ?? lane.name} maxLength={200} onChange={e=>draftLane(lane.id,'name',e.currentTarget.value)} onBlur={()=>commitLane(lane.id,'name')} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/>
           <span className="lane-count">{items.length}{tr(" 张便签")}</span>
           <button aria-label={fmt("上移分区 {0}",lane.name)} title={tr("上移分区")} onClick={()=>moveLane(lane.id,-1)}>↑</button>
           <button aria-label={fmt("下移分区 {0}",lane.name)} title={tr("下移分区")} onClick={()=>moveLane(lane.id,1)}>↓</button>
@@ -250,7 +289,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
           <span className="lane-hint-text">{tr("从分区拖出的便签会留在这里")}</span>
         </>}
       </header>
-      {lane && !collapsed && <input className="lane-note" aria-label={fmt("分区说明 {0}",lane.name)} placeholder={tr("分区说明：这一幕或这一拍要完成什么")} value={lane.hint} maxLength={2000} onChange={e=>laneEdit(lane.id,{hint:e.currentTarget.value})}/>}
+      {lane && !collapsed && <input className="lane-note" aria-label={fmt("分区说明 {0}",lane.name)} placeholder={tr("分区说明：这一幕或这一拍要完成什么")} value={laneDraft[lane.id]?.hint ?? lane.hint} maxLength={2000} onChange={e=>draftLane(lane.id,'hint',e.currentTarget.value)} onBlur={()=>commitLane(lane.id,'hint')} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/>}
       {collapsed ? <p className="lane-folded">{items.length}{tr(" 项已收起")}</p> : <div className="board-lane-cards">{items.map(renderUnit)}</div>}
     </section>;
   };

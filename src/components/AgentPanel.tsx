@@ -16,13 +16,13 @@ export default function AgentPanel({onClose}:{onClose:()=>void}) {
  const doc=useEditorStore(s=>s.document),active=useEditorStore(s=>s.activeBlockId),toast=useEditorStore(s=>s.pushToast);
  const [turns,setTurns]=useState<{role:string;content:string}[]>([]),[text,setText]=useState(''),[busy,setBusy]=useState(false),[skill,setSkill]=useState('');
  const [skills,setSkills]=useState<{id:string;name:string}[]>([]);const bottom=useRef<HTMLDivElement>(null);
- const [experts,setExperts]=useState<ExpertInfo[]>([]),[expertForChat,setExpertForChat]=useState('');
+ const [experts,setExperts]=useState<ExpertInfo[]>([]),[expertIssues,setExpertIssues]=useState<string[]>([]),[expertForChat,setExpertForChat]=useState('');
  const [showExperts,setShowExperts]=useState(true),[picked,setPicked]=useState<string[]>([]);
  const [reviewMode,setReviewMode]=useState<'review'|'rewrite'>('review'),[scope,setScope]=useState<'scene'|'whole'>('scene');
  const [reviewing,setReviewing]=useState(false),[report,setReport]=useState<ExpertPanelResult|null>(null);
  useEffect(()=>{setTurns([]);setText('');setReport(null);},[doc?.id]);
  useEffect(()=>{const reload=()=>{void ipc.agentListSkills().then(setSkills).catch(e=>toast('error',String(e)));};reload();window.addEventListener('skills-changed',reload);return()=>window.removeEventListener('skills-changed',reload);},[]);
- useEffect(()=>{void ipc.agentListExperts().then(setExperts).catch(e=>toast('error',String(e)));},[]);
+ useEffect(()=>{void ipc.agentListExperts().then(r=>{setExperts(r.experts);setExpertIssues(r.issues);}).catch(e=>toast('error',String(e)));},[]);
  useEffect(()=>{bottom.current?.scrollIntoView({block:'nearest'});},[turns,busy,report]);
  const send=async()=>{if(!doc||busy||!text.trim())return;const request=text.trim(),id=doc.id,history=turns.slice(-12);setText('');setTurns(t=>[...t,{role:'user',content:request}]);setBusy(true);try {await flushPendingEdits();const answer=await ipc.agentChat(id,request,history,skill||undefined,active||undefined,expertForChat||undefined);if(useEditorStore.getState().document?.id===id){setTurns(t=>[...t,{role:'assistant',content:answer}]);window.dispatchEvent(new CustomEvent('project-memory-discussion',{detail:'作者：'+request+'\n助理建议（未确认）：'+answer}));}}catch(e){if(useEditorStore.getState().document?.id===id){setTurns(t=>[...t,{role:'assistant',content:tr("本次未完成：")+String(e)}]);setText(request);}}finally{setBusy(false);}};
  const toggleExpert=(id:string)=>setPicked(list=>list.includes(id)?list.filter(x=>x!==id):list.length>=4?list:[...list,id]);
@@ -44,6 +44,7 @@ export default function AgentPanel({onClose}:{onClose:()=>void}) {
    </div>
    <div className="expert-actions"><button className="expert-run" disabled={reviewing||!picked.length||!doc} onClick={()=>void runPanel()}>{reviewing?tr("会审中…"):tr("开始会审")}</button><small>{picked.length?fmt("{0} 位专家依次执行，再做一次汇总",picked.length):tr("最多四位；整稿会审耗时更长")}</small></div>
    <p className="expert-hint">{tr("自定义专家：把 EXPERT.md 放进应用数据目录的 experts 文件夹，重启后出现在这里。")}</p>
+   {!!expertIssues.length&&<div className="expert-error"><p>{tr("以下自定义专家未能载入：")}</p>{expertIssues.map(issue=><p key={issue}>{issue}</p>)}</div>}
   </div>}
  </div>
  <div className="harness-composer"><div className="harness-tools"><button disabled={busy} onClick={()=>setCreatingSkill(true)}>{tr("创建技能")}</button><button disabled={busy} onClick={()=>void attach()}>{tr("＋ 附件")}</button><button disabled={busy} onClick={()=>void preview().catch(e=>toast('error',String(e)))}>{tr("预览改稿")}</button><button onClick={()=>window.dispatchEvent(new Event('open-settings'))}>{tr("设置")}</button></div><textarea aria-label={tr("与编剧助理对话")} placeholder={tr("输入想法或要求…（⌘ Enter 发送）")} value={text} disabled={busy} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();void send();}}}/><div className="harness-send-row"><select aria-label={tr("选择专家")} value={expertForChat} onChange={e=>setExpertForChat(e.target.value)}><option value="">{tr("专家：通用")}</option>{experts.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select><select aria-label={tr("选择技能")} value={skill} onChange={e=>setSkill(e.target.value)}><option value="">{tr("通用编剧")}</option>{skills.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><ModelPicker/><button className="harness-send" aria-label={tr("发送")} title={tr("发送 · ⌘ Enter")} disabled={busy||!text.trim()||!doc} onClick={()=>void send()}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 3 18 9-18 9 4-9-4-9Z M7 12h14"/></svg></button></div></div>

@@ -864,5 +864,8 @@
   "展开场景组 {0}": "Expand group {0}",
   "收起场景组 {0}": "Collapse group {0}",
   "已套用「{0}」{1} 个分区；原有便签保留在“未分区”，可撤销。": "Applied “{0}” with {1} lanes; existing cards moved to Unassigned. You can undo.",
-  "模型已通读剧本，把 {0} 个场景划分到分区；可以手动拖动调整或撤销。": "The model read the script and assigned {0} scenes to lanes. Drag to adjust or undo."
+  "模型已通读剧本，把 {0} 个场景划分到分区；可以手动拖动调整或撤销。": "The model read the script and assigned {0} scenes to lanes. Drag to adjust or undo.",
+  "自动划分会覆盖当前的分区归属，继续？": "Auto-split will overwrite current lane assignments. Continue?",
+  "模型没有给出有效的分区结果，请重试或手动拖动。": "The model returned no valid lanes. Try again or drag cards manually.",
+  "以下自定义专家未能载入：": "These custom experts could not be loaded:"
 }

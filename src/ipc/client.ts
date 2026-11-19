@@ -337,7 +337,7 @@ export const ipc = {
   // Agent（智能编剧助理）
   agentChat: (projectId:string,instruction:string,history:{role:string;content:string}[],skillId?:string,blockId?:string,expertId?:string) => call<string>('agent_chat',{projectId,instruction,history,skillId,blockId,expertId,uiLanguage:effectiveLanguage()}),
   agentListExperts: () =>
-    call<{ id: string; name: string; description: string; dimensions: string[]; builtin: boolean }[]>('agent_list_experts'),
+    call<{ experts: { id: string; name: string; description: string; dimensions: string[]; builtin: boolean }[]; issues: string[] }>('agent_list_experts'),
   agentExpertPanel: (projectId:string,expertIds:string[],mode:'review'|'rewrite',scope:'scene'|'whole',blockId?:string,instruction?:string) =>
     call<{reviews:{expertId:string;name:string;ok:boolean;text:string;error?:string|null}[];synthesis?:string|null;synthesisError?:string|null}>('agent_expert_panel',{projectId,expertIds,mode,scope,blockId,instruction}),
   agentShareProject: (path:string,includeMemory:boolean)=>call<void>('agent_share_project',{path,includeMemory}),

@@ -319,33 +319,47 @@ pub async fn run_panel(
     let mut reviews = Vec::new();
     for expert in experts.iter().take(4) {
         let messages = review_messages(expert, context, memory, mode, instruction);
-        match router.chat(None, &messages, expert.temperature).await {
-            Ok(text) if !text.trim().is_empty() => reviews.push(ExpertReply {
+        let reply = match router
+            .chat_with_max_tokens(None, &messages, expert.temperature, expert.max_tokens)
+            .await
+        {
+            Ok(text) if !text.trim().is_empty() => ExpertReply {
                 expert_id: expert.id.clone(),
                 name: expert.name.clone(),
                 ok: true,
                 text,
                 error: None,
-            }),
-            Ok(_) => reviews.push(ExpertReply {
+            },
+            Ok(_) => ExpertReply {
                 expert_id: expert.id.clone(),
                 name: expert.name.clone(),
                 ok: false,
                 text: String::new(),
                 error: Some("模型返回空结果".into()),
-            }),
-            Err(error) => reviews.push(ExpertReply {
+            },
+            Err(error) => ExpertReply {
                 expert_id: expert.id.clone(),
                 name: expert.name.clone(),
                 ok: false,
                 text: String::new(),
-                error: Some(error.to_string()),
-            }),
-        }
+                error: Some(friendly_error(&error.to_string())),
+            },
+        };
+        reviews.push(reply);
     }
     let successes: Vec<&ExpertReply> = reviews.iter().filter(|r| r.ok).collect();
     if successes.len() < 2 {
-        return ExpertPanel { reviews, synthesis: None, synthesis_error: None };
+        // 选了多位专家却没能凑够两位时，说清为什么没有综合意见。
+        let synthesis_error = if experts.len() > 1 {
+            Some(if successes.is_empty() {
+                "没有专家成功返回结果，因此没有综合意见。请检查模型设置后重试。".into()
+            } else {
+                "只有 1 位专家成功返回，至少需要 2 位才能比较汇总，因此没有综合意见。".into()
+            })
+        } else {
+            None
+        };
+        return ExpertPanel { reviews, synthesis: None, synthesis_error };
     }
     let messages = synthesis_messages(&reviews, mode);
     match router.chat(None, &messages, 0.3).await {
@@ -360,8 +374,24 @@ pub async fn run_panel(
         Err(error) => ExpertPanel {
             reviews,
             synthesis: None,
-            synthesis_error: Some(error.to_string()),
+            synthesis_error: Some(friendly_error(&error.to_string())),
         },
+    }
+}
+
+/// 把 provider 原始错误收敛成用户可读的提示，避免把端点、模型名带进界面。
+fn friendly_error(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if lower.contains("timeout") || lower.contains("timed out") {
+        "请求超时，请稍后重试。".into()
+    } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") || lower.contains("api key") {
+        "鉴权失败，请检查设置里的 API Key。".into()
+    } else if lower.contains("404") {
+        "接口地址或模型名不可用，请检查模型设置。".into()
+    } else if lower.contains("429") {
+        "请求过于频繁或额度不足，请稍后再试。".into()
+    } else {
+        "模型调用失败，请检查模型设置后重试。".into()
     }
 }
 
@@ -442,23 +472,38 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
 
 /// 内置专家 + 用户目录专家（同名时保留内置）。
 pub fn load_experts(dir: Option<&Path>) -> Vec<Expert> {
+    load_experts_detailed(dir).0
+}
+
+/// 同 [`load_experts`]，同时返回被跳过的文件及原因，供界面提示用户修正。
+pub fn load_experts_detailed(dir: Option<&Path>) -> (Vec<Expert>, Vec<String>) {
     let mut experts = builtin_experts();
-    let Some(dir) = dir else { return experts };
-    let Ok(entries) = std::fs::read_dir(dir) else { return experts };
+    let mut issues = Vec::new();
+    let Some(dir) = dir else { return (experts, issues) };
+    let Ok(entries) = std::fs::read_dir(dir) else { return (experts, issues) };
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
         let file = path.join("EXPERT.md");
-        let Ok(content) = std::fs::read_to_string(file) else { continue };
-        let Ok(expert) = parse_expert_md(&content) else { continue };
-        if experts.iter().any(|e| e.id == expert.id) {
-            continue;
+        let Ok(content) = std::fs::read_to_string(&file) else { continue };
+        match parse_expert_md(&content) {
+            Ok(expert) => {
+                if experts.iter().any(|e| e.id == expert.id) {
+                    issues.push(format!(
+                        "{}：id「{}」与已有专家重复，已忽略。",
+                        path.display(),
+                        expert.id
+                    ));
+                } else {
+                    experts.push(expert);
+                }
+            }
+            Err(error) => issues.push(format!("{}：{error}", file.display())),
         }
-        experts.push(expert);
     }
-    experts
+    (experts, issues)
 }
 
 #[derive(Debug, Error)]
@@ -591,5 +636,35 @@ mod tests {
         assert_eq!(panel.reviews.iter().filter(|r| r.ok).count(), 1);
         assert_eq!(panel.reviews.iter().filter(|r| !r.ok).count(), 1);
         assert!(panel.synthesis.is_none());
+        let reason = panel.synthesis_error.expect("应说明为何没有综合意见");
+        assert!(reason.contains("至少需要 2 位"), "实际: {reason}");
+        // 失败信息不应带出 provider 原始错误（可能含端点或模型名）
+        assert_eq!(panel.reviews.iter().filter(|r| !r.ok).next().unwrap().error.as_deref(), Some("模型调用失败，请检查模型设置后重试。"));
+    }
+
+    #[tokio::test]
+    async fn expert_max_tokens_reaches_provider() {
+        struct LimitProvider(std::sync::Arc<Mutex<Vec<u32>>>);
+        #[async_trait]
+        impl crate::provider::ModelProvider for LimitProvider {
+            fn name(&self) -> &str { "limit" }
+            async fn chat(&self, _messages: &[ChatMessage], _temperature: f32) -> Result<String> {
+                Ok("## 共识\nok".into())
+            }
+            async fn chat_limited(&self, _messages: &[ChatMessage], _temperature: f32, max_tokens: u32) -> Result<String> {
+                self.0.lock().unwrap().push(max_tokens);
+                Ok("## 总体判断\nok".into())
+            }
+        }
+        let limits = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let mut router = ModelRouter::new("limit");
+        router.register(Box::new(LimitProvider(limits.clone())));
+        let experts = builtin_experts().into_iter().take(2).collect::<Vec<_>>();
+        let panel = run_panel(&router, &experts, "正文", "", ExpertMode::Review, None).await;
+        assert!(panel.synthesis.is_some());
+        let seen = limits.lock().unwrap();
+        assert_eq!(seen.len(), 2, "汇总走普通 chat，不占用专家上限");
+        assert!(seen.contains(&experts[0].max_tokens));
+        assert!(seen.contains(&experts[1].max_tokens));
     }
 }
