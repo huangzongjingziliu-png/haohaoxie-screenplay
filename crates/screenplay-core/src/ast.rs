@@ -342,13 +342,31 @@ pub struct SceneCard {
     pub summary_manual: bool,
     #[serde(default)]
     pub comments: Vec<String>,
+    /// 便签所属的构思分区；空字符串表示尚未分区。
+    #[serde(default)]
+    pub lane: String,
 }
 impl Default for SceneCard {
-    fn default() -> Self { Self { color: String::new(), width: 0.0, height: 0.0, summary: String::new(), summary_source: String::new(), summary_manual: false, comments: Vec::new() } }
+    fn default() -> Self { Self { color: String::new(), width: 0.0, height: 0.0, summary: String::new(), summary_source: String::new(), summary_manual: false, comments: Vec::new(), lane: String::new() } }
+}
+/// 白板上的构思分区（三幕、节拍、分集等），便签通过 `SceneCard::lane` 归属。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../../src/ipc/types/")]
+pub struct BoardLane {
+    pub id: String,
+    pub name: String,
+    /// 分区说明，例如该幕或该节拍的写作提示。
+    #[serde(default)]
+    pub hint: String,
+    /// 分区带颜色；空字符串表示使用默认色。
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub collapsed: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]
-pub struct SceneGroup { pub id:String, pub name:String, pub scene_ids:Vec<String> }
+pub struct SceneGroup { pub id:String, pub name:String, pub scene_ids:Vec<String>, #[serde(default)] pub collapsed:bool }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../../src/ipc/types/")]
 pub struct BoardLink { pub id:String, pub from:String, pub to:String, pub label:String, pub arrow:String }
@@ -363,10 +381,13 @@ pub struct SceneBoard {
     pub links: Vec<BoardLink>,
     #[serde(default)]
     pub hide_links: bool,
+    /// 构思分区，按数组顺序自上而下排布。
+    #[serde(default)]
+    pub lanes: Vec<BoardLane>,
     pub cards: BTreeMap<String, SceneCard>,
 }
 impl Default for SceneBoard {
-    fn default() -> Self { Self { color: "#FFF2A8".into(), summaries_enabled: false, groups: Vec::new(), links: Vec::new(), hide_links: false, cards: BTreeMap::new() } }
+    fn default() -> Self { Self { color: "#FFF2A8".into(), summaries_enabled: false, groups: Vec::new(), links: Vec::new(), hide_links: false, lanes: Vec::new(), cards: BTreeMap::new() } }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, Default)]

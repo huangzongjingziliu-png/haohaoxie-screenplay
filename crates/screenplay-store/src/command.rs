@@ -421,11 +421,15 @@ impl CommandService {
     }
 
     /// Create a heading and its manual planning summary as one undoable edit.
-    pub fn create_board_scene(&self, origin: Origin, title: &str, summary: &str, expected_revision: u64) -> Result<CommandResult, CommandError> {
+    pub fn create_board_scene(&self, origin: Origin, title: &str, summary: &str, expected_revision: u64, lane: Option<String>) -> Result<CommandResult, CommandError> {
         self.check_revision(Some(expected_revision))?;
         let title = title.trim();
         if title.is_empty() || title.chars().count() > 1000 || title.contains(['\n', '\r']) || summary.chars().count() > 1000 {
             return Err(CommandError::InvalidArgument { message: "场景标题不能为空，标题和梗概各不能超过1000字".into() });
+        }
+        let lane = lane.unwrap_or_default();
+        if !lane.is_empty() && !self.store.snapshot().settings.scene_board.lanes.iter().any(|l| l.id == lane) {
+            return Err(CommandError::InvalidArgument { message: "所选构思分区不存在".into() });
         }
         let before = self.store.snapshot();
         let mut doc = before.clone();
@@ -433,7 +437,7 @@ impl CommandService {
         heading.revision = doc.revision + 1;
         let id = heading.id.clone();
         doc.blocks.push(heading);
-        doc.settings.scene_board.cards.insert(id.clone(), SceneCard { summary: summary.into(), summary_source: title.into(), summary_manual: !summary.trim().is_empty(), ..SceneCard::default() });
+        doc.settings.scene_board.cards.insert(id.clone(), SceneCard { summary: summary.into(), summary_source: title.into(), summary_manual: !summary.trim().is_empty(), lane, ..SceneCard::default() });
         self.store.log_operation(origin, "create_board_scene", &id, "", title, None);
         self.commit_with_history(before, doc, origin, "create_board_scene", None, false, true);
         Ok(self.result(vec![id], None))
@@ -1212,7 +1216,7 @@ mod tests {
     #[test]
     fn scene_formats_keep_board_identity_across_source_settings_and_undo() {
         let svc=make_service();let rev=svc.get_document().revision;
-        let r=svc.create_board_scene(Origin::GuiLeft,"内，咖啡馆 白天","两人见面",rev).unwrap();let id=r.affected[0].clone();
+        let r=svc.create_board_scene(Origin::GuiLeft,"内，咖啡馆 白天","两人见面",rev,None).unwrap();let id=r.affected[0].clone();
         assert_eq!(r.document.blocks.last().unwrap().text,"内景。咖啡馆——白天");
         assert!(r.source_text.contains("内景。咖啡馆——白天"));
         svc.mutate_document(Origin::GuiLeft,|d| { d.settings.scene_heading_template="{location} / {type} / {time}".into(); }).unwrap();
@@ -1229,19 +1233,33 @@ mod tests {
     fn board_scene_is_heading_only_atomic_and_revision_guarded() {
         let svc = make_service();
         let before = svc.get_document().document;
-        let r = svc.create_board_scene(Origin::GuiLeft, "INT. CAFE - DAY", "They finally meet", before.revision).unwrap();
+        let r = svc.create_board_scene(Origin::GuiLeft, "INT. CAFE - DAY", "They finally meet", before.revision, None).unwrap();
         let id = &r.affected[0];
         assert_eq!(r.document.blocks.len(), before.blocks.len() + 1);
         assert_eq!(r.document.blocks.last().unwrap().block_type, BlockType::SceneHeading);
         assert!(!r.source_text.contains("They finally meet"));
         assert!(r.document.settings.scene_board.cards[id].summary_manual);
-        assert!(svc.create_board_scene(Origin::GuiLeft,"EXT. ROAD - NIGHT","",before.revision).is_err());
-        assert!(svc.create_board_scene(Origin::GuiLeft," ","",r.revision).is_err());
+        assert!(svc.create_board_scene(Origin::GuiLeft,"EXT. ROAD - NIGHT","",before.revision,None).is_err());
+        assert!(svc.create_board_scene(Origin::GuiLeft," ","",r.revision,None).is_err());
         let undone = svc.undo(Origin::GuiLeft).unwrap();
         assert_eq!(undone.document.blocks, before.blocks);
         assert!(!undone.document.settings.scene_board.cards.contains_key(id));
         let redone = svc.redo(Origin::GuiLeft).unwrap();
         assert_eq!(redone.document.settings.scene_board.cards[id].summary,"They finally meet");
+    }
+
+    #[test]
+    fn board_scene_created_into_lane_and_rejects_unknown_lane() {
+        let svc = make_service();
+        svc.mutate_document(Origin::GuiLeft, |d| {
+            d.settings.scene_board.lanes.push(screenplay_core::ast::BoardLane {
+                id: "act-1".into(), name: "第一幕".into(), hint: String::new(), color: String::new(), collapsed: false,
+            });
+        }).unwrap();
+        let rev = svc.get_document().revision;
+        let r = svc.create_board_scene(Origin::GuiLeft, "内景。办公室——日", "开场", rev, Some("act-1".into())).unwrap();
+        assert_eq!(r.document.settings.scene_board.cards[&r.affected[0]].lane, "act-1");
+        assert!(svc.create_board_scene(Origin::GuiLeft, "内景。走廊——日", "", r.revision, Some("missing".into())).is_err());
     }
 
     #[test]
@@ -1297,7 +1315,7 @@ mod tests {
         svc.insert_block(Origin::GuiLeft,None,BlockType::SceneHeading,"EXT. TWO - NIGHT",None).unwrap();
         svc.insert_block(Origin::GuiLeft,None,BlockType::Action,"第二场动作",None).unwrap();
         let before=svc.get_document().document;let ids:Vec<_>=before.blocks.iter().filter(|b|b.block_type==BlockType::SceneHeading).map(|b|b.id.clone()).collect();
-        let mut board=before.settings.scene_board.clone();board.groups.push(screenplay_core::ast::SceneGroup{id:"g".into(),name:"第一幕".into(),scene_ids:ids.clone()});
+        let mut board=before.settings.scene_board.clone();board.groups.push(screenplay_core::ast::SceneGroup{id:"g".into(),name:"第一幕".into(),scene_ids:ids.clone(),collapsed:false});
         let reversed:Vec<_>=ids.iter().rev().cloned().collect();
         let result=svc.reorder_scenes_with_board(Origin::GuiLeft,&reversed,Some(before.revision),Some(board)).unwrap();assert_eq!(result.document.settings.scene_board.groups[0].scene_ids,reversed);
         svc.undo(Origin::GuiLeft).unwrap();assert_eq!(svc.get_document().document.blocks,before.blocks);assert!(svc.get_document().document.settings.scene_board.groups.is_empty());
@@ -2095,7 +2113,7 @@ mod custom_scene_source_health {
  fn template_order_and_numbers_keep_card_identity_in_free_text() {
   let store=std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("test")));
   let svc=CommandService::new(store);
-  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","别丢这段梗概",0).unwrap();let id=r.affected[0].clone();
+  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","别丢这段梗概",0,None).unwrap();let id=r.affected[0].clone();
   svc.mutate_document(Origin::GuiLeft,|d|d.blocks[0].scene_heading.as_mut().unwrap().scene_number=Some("12A".into())).unwrap();
   for template in ["{type} {time} {location}","{location} / {type} / {time}","{type} | {location} | {time}"] {
    svc.mutate_document(Origin::GuiLeft,|d|d.settings.scene_heading_template=template.into()).unwrap();
@@ -2110,7 +2128,7 @@ mod custom_scene_source_health {
  use super::*;
  #[test] fn one_heading_rename_keeps_manual_summary_and_locked_agent_guard() {
   let store=std::sync::Arc::new(Store::new(crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),ScreenplayDocument::blank("test")));let svc=CommandService::new(store);
-  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","保留我的梗概",0).unwrap();let id=r.affected[0].clone();
+  let r=svc.create_board_scene(Origin::GuiLeft,"内景。咖啡馆——白天","保留我的梗概",0,None).unwrap();let id=r.affected[0].clone();
   let r=svc.replace_source_text(Origin::GuiRight,"外景。城堡——夜",Some(r.revision)).unwrap();
   assert_eq!(r.document.blocks[0].id,id);assert_eq!(r.document.settings.scene_board.cards[&id].summary,"保留我的梗概");
   svc.mutate_document(Origin::GuiLeft,|d|d.blocks[0].metadata.locked=true).unwrap();

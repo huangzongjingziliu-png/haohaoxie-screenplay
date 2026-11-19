@@ -2,7 +2,7 @@
 import type { EpisodePlanning } from "./EpisodePlanning";
 import type { ScreenplayDocument } from "./ScreenplayDocument";
 
-export type Episode = { planning: EpisodePlanning, id: string, title: string,
+export type Episode = { planning: EpisodePlanning, id: string, title: string, 
 /**
  * The active episode lives in the parent document; inactive drafts have no nested series.
  */
