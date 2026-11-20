@@ -254,9 +254,14 @@ export default function ScreenplayEditor() {
         const end = el.dataset.sourceEnd === undefined ? undefined : Number(el.dataset.sourceEnd);
         const context = getFragmentDraft(el) ?? fragmentContext(cur.text, start, end);
         const full = context.prefix + local + context.suffix;
-        const caret = context.prefix.length + Math.min(getCaretOffset(el) ?? local.length, local.length);
+        // 有选区时先把选区算进去：删除选中文字后按光标位置拆分，
+        // 不能让被选中的文字继续留在原块里。
+        const selection = getSelectionOffsets(el);
+        const caretLocal = Math.min(selection ? selection.start : getCaretOffset(el) ?? local.length, local.length);
+        const tailLocal = Math.min(selection ? selection.end : caretLocal, local.length);
+        const caret = context.prefix.length + caretLocal;
         const head = full.slice(0, caret);
-        const tail = full.slice(caret);
+        const tail = full.slice(context.prefix.length + tailLocal);
         const nextType = nextTypeFor(cur.block_type);
 
         // 当前块保留光标前的文字，新块承载光标后的文字
@@ -308,8 +313,12 @@ export default function ScreenplayEditor() {
           e.preventDefault();
           const prev = blocks[idx - 1];
           const prevLen = prev.text.length;
-          void mergeBlock(prev.id, blockId);
-          requestFocus(prev.id, prevLen);
+          // 先提交防抖中的草稿，否则刚输入还没上送的文字会在合并时丢失
+          void (async () => {
+            await flushPendingEdits();
+            await mergeBlock(prev.id, blockId);
+            requestFocus(prev.id, prevLen);
+          })().catch((error) => useEditorStore.getState().pushToast('error', String(error)));
           return;
         }
 
@@ -696,15 +705,18 @@ function BlockView({
     );
     const caret = context.prefix.length + Math.min(getCaretOffset(el) ?? local.length, local.length);
     const full = context.prefix + local + context.suffix;
-    const first = full.slice(0, caret) + lines[0] + full.slice(caret);
+    const first = full.slice(0, caret) + lines[0];
+    // 原段落光标后的文字属于「最后一行」，不能留在第一行里
+    const tailRest = full.slice(caret);
     if (!await onChangeText(sourceId, first)) return;
     userEdited.current = false;
     setCompletionInput(null);
     let afterId = sourceId;
     let prevType: BlockType = pb.block_type;
-    for (const line of lines.slice(1)) {
+    const rest = lines.slice(1);
+    for (const [i, line] of rest.entries()) {
       const type = nextTypeFor(prevType);
-      await onInsertAfter(afterId, type, line);
+      await onInsertAfter(afterId, type, i === rest.length - 1 ? line + tailRest : line);
       const inserted = useEditorStore.getState().activeBlockId;
       if (!inserted || inserted === afterId) return;
       afterId = inserted;
@@ -912,6 +924,23 @@ function getCaretOffset(el: HTMLElement): number | null {
   pre.selectNodeContents(el);
   pre.setEnd(range.startContainer, range.startOffset);
   return pre.toString().length;
+}
+
+/** 非折叠选区在可编辑元素内的起止偏移；选区不在元素内时返回 null。 */
+function getSelectionOffsets(el: HTMLElement): { start: number; end: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return null;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const start = pre.toString().length;
+  const post = range.cloneRange();
+  post.selectNodeContents(el);
+  post.setStart(range.endContainer, range.endOffset);
+  const end = (el.textContent ?? '').length - post.toString().length;
+  return { start, end: Math.max(start, end) };
 }
 
 function cssEscape(s: string): string {
