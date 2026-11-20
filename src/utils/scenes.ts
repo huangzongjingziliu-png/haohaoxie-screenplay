@@ -43,6 +43,24 @@ export async function moveScene(from: string, to: string, side?: 'before' | 'aft
   if (next === ids) return;
   await store.applyResult(await ipc.reorderScenes(next,doc.revision));
 }
+/** 同组场景必须落在同一分区：以组内第一个有分区的成员为准，其余成员跟随。
+ *  成组、整组拖动、自动划分最终都经过 `updateBoard`，在落盘前统一校正，
+ *  避免组头显示在 A 分区、成员却散在别处。 */
+export function normalizeGroupLanes(board: SceneBoard) {
+  for (const group of board.groups ?? []) {
+    let lane = '';
+    for (const id of group.scene_ids) {
+      const current = board.cards[id]?.lane ?? '';
+      if (current) { lane = current; break; }
+    }
+    for (const id of group.scene_ids) {
+      const card = board.cards[id];
+      if (!card) { if (lane) board.cards[id] = {...defaultCard(), lane}; continue; }
+      if (card.lane !== lane) board.cards[id] = {...card, lane};
+    }
+  }
+}
+
 // Queue presentation updates and merge each edit with the latest authoritative document.
 let boardQueue: Promise<unknown> = Promise.resolve();
 export async function updateBoard(projectId: string, change: (board: SceneBoard) => SceneBoard, order?: (ids:string[],board:SceneBoard)=>string[], flushDrafts=true) {
@@ -53,6 +71,7 @@ export async function updateBoard(projectId: string, change: (board: SceneBoard)
     const store = useEditorStore.getState(), doc = store.document;
     if (!doc || doc.id !== projectId) return;
     const board = change(structuredClone(doc.settings.scene_board ?? defaultBoard()));
+    normalizeGroupLanes(board);
     if (!order && JSON.stringify(board) === JSON.stringify(doc.settings.scene_board ?? defaultBoard())) return;
     await store.applyResult(await ipc.updateSceneBoard(board,doc.revision,order?.(scenesOf(doc).map(s=>s.id),board)));
   });
