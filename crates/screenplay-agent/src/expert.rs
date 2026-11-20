@@ -12,12 +12,37 @@
 //! 汇总一次，避免并发把费用放大到不可预期。调用次数 = 专家数 + 1。
 //!
 //! 自定义专家放在 `~/Library/Application Support/ScreenplayStudio/experts/<id>/EXPERT.md`，
-//! frontmatter 支持 id / name / description / dimensions / temperature / max_tokens。
+//! frontmatter 支持 id / name / description / kind / dimensions / temperature / max_tokens。
+//! kind 取 review（审稿型，默认）或 writing（写作型）。
 
 use crate::provider::{ChatMessage, ModelRouter};
 use serde::Serialize;
 use std::path::Path;
 use thiserror::Error;
+
+/// 专家类型：审稿型参与会审；写作型用于单步写作或改写。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExpertKind {
+    Review,
+    Writing,
+}
+
+impl ExpertKind {
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_lowercase().as_str() {
+            "writing" | "write" | "写作" => Self::Writing,
+            _ => Self::Review,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Review => "review",
+            Self::Writing => "writing",
+        }
+    }
+}
 
 /// 一个专家定义。
 #[derive(Debug, Clone)]
@@ -33,6 +58,8 @@ pub struct Expert {
     pub system_prompt: String,
     pub temperature: f32,
     pub max_tokens: u32,
+    /// 审稿型参与会审；写作型用于单步写作/改写
+    pub kind: ExpertKind,
     /// 内置专家不可被同名自定义专家覆盖
     pub builtin: bool,
 }
@@ -54,6 +81,7 @@ impl Expert {
             system_prompt: system_prompt.into(),
             temperature: 0.4,
             max_tokens: 2400,
+            kind: ExpertKind::Review,
             builtin: false,
         }
     }
@@ -405,6 +433,7 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
     let mut dimensions = Vec::new();
     let mut temperature = 0.4f32;
     let mut max_tokens = 2400u32;
+    let mut kind = ExpertKind::Review;
     for line in frontmatter.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -416,6 +445,7 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
             "id" => id = value.to_string(),
             "name" => name = value.to_string(),
             "description" => description = value.to_string(),
+            "kind" | "type" => kind = ExpertKind::parse(value),
             "dimensions" => {
                 dimensions = value
                     .split([',', '，', '、'])
@@ -465,6 +495,7 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
         system_prompt: prompt.to_string(),
         temperature,
         max_tokens,
+        kind,
         builtin: false,
         id,
     })
@@ -550,9 +581,19 @@ mod tests {
         assert_eq!(ids.len(), experts.len());
         for expert in &experts {
             assert!(expert.builtin);
+            assert_eq!(expert.kind, ExpertKind::Review);
             assert!(!expert.dimensions.is_empty());
             assert!(!expert.system_prompt.is_empty());
         }
+    }
+
+    #[test]
+    fn custom_expert_kind_defaults_to_review_and_accepts_writing() {
+        let review = parse_expert_md("---\nid: a\nname: 甲\n---\n人格").unwrap();
+        assert_eq!(review.kind, ExpertKind::Review);
+        let writing = parse_expert_md("---\nid: b\nname: 乙\nkind: writing\n---\n人格").unwrap();
+        assert_eq!(writing.kind, ExpertKind::Writing);
+        assert_eq!(ExpertKind::parse("写作").as_str(), "writing");
     }
 
     #[test]

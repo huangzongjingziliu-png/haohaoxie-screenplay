@@ -3,20 +3,18 @@ import {ipc} from '@/ipc/client';
 import {tr} from '@/i18n';
 import {useEditorStore} from '@/stores/editor';
 
-type ExpertInfo={id:string;name:string;description:string;dimensions:string[];builtin:boolean;enabled:boolean};
-type SkillInfo={id:string;name:string;description:string;builtin:boolean};
+type ExpertInfo={id:string;name:string;description:string;dimensions:string[];kind:'review'|'writing';builtin:boolean;enabled:boolean};
 
-/** 设置 → 编剧助理：专家库的启用/停用、改名、导入导出，以及技能的只读展示。 */
+/** 设置 → 编剧助理：专家库的启用/停用、改名、导入导出。 */
 export default function AssistantSettings(){
  const toast=useEditorStore(s=>s.pushToast);
  const [experts,setExperts]=useState<ExpertInfo[]>([]);
  const [issues,setIssues]=useState<string[]>([]);
- const [skills,setSkills]=useState<SkillInfo[]>([]);
  const [busy,setBusy]=useState('');
  const [renaming,setRenaming]=useState('');
  const [renameText,setRenameText]=useState('');
  const reload=()=>void ipc.agentListExperts().then(r=>{setExperts(r.experts);setIssues(r.issues);}).catch(e=>toast('error',String(e)));
- useEffect(()=>{reload();void ipc.agentListSkills().then(setSkills).catch(()=>{});},[]);
+ useEffect(()=>{reload();},[]);
  const run=async(key:string,fn:()=>Promise<unknown>,success?:string)=>{setBusy(key);try{await fn();if(success)toast('success',success);reload();window.dispatchEvent(new Event('experts-changed'));}catch(e){toast('error',String(e));}finally{setBusy('');}};
  const openDir=async(id?:string)=>{try{await ipc.agentOpenExpertsDir(id);}catch(e){toast('error',String(e));}};
  const importExpert=async()=>{try{const {open}=await import('@tauri-apps/plugin-dialog');const path=await open({multiple:false,title:tr("选择 EXPERT.md 或包含它的文件夹"),filters:[{name:'EXPERT.md',extensions:['md']}]});if(typeof path!=='string')return;await run('import',()=>ipc.agentImportExpert(path),tr("专家已导入，已出现在助理面板中"));}catch(e){toast('error',String(e));}};
@@ -26,6 +24,7 @@ export default function AssistantSettings(){
   <div className="expert-admin-head">
    <strong>{e.name}</strong>
    <span className="expert-admin-badge">{e.builtin?tr("内置"):tr("自定义")}</span>
+   <span className={'expert-admin-badge kind'+(e.kind==='writing'?' writing':'')}>{e.kind==='writing'?tr("写作型"):tr("审稿型")}</span>
    {!e.enabled&&<span className="expert-admin-badge off">{tr("已停用")}</span>}
   </div>
   <p className="expert-admin-desc">{e.description||tr("（未填写说明）")}</p>
@@ -41,6 +40,7 @@ export default function AssistantSettings(){
  return <div className="assistant-settings">
   <h3>{tr("编剧助理")}</h3>
   <p className="modal-hint">{tr("专家在设置里管理，在助理面板里使用。内置专家随版本提供；自定义专家以 EXPERT.md 单文件保存，导入导出都沿用这个格式。")}</p>
+  <p className="modal-hint">{tr("类型：审稿型参加「专家会审」，对文本提判断与修改建议；写作型出现在助理对话里，做单步写作或改写。")}</p>
   <div className="expert-admin-toolbar">
    <button disabled={!!busy} onClick={()=>void openDir()}>{tr("打开专家文件夹")}</button>
    <button disabled={!!busy} onClick={()=>void importExpert()}>{tr("导入专家…")}</button>
@@ -50,8 +50,5 @@ export default function AssistantSettings(){
   <ul className="expert-admin-list">{builtin.map(row)}</ul>
   <h4>{tr("自定义专家")} · {custom.length}</h4>
   {custom.length?<ul className="expert-admin-list">{custom.map(row)}</ul>:<p className="modal-hint">{tr("还没有自定义专家。可以在会审结束后点「存成我的专家」，或导入一个 EXPERT.md。")}</p>}
-  <h4>{tr("技能（只读）")}</h4>
-  <p className="modal-hint">{tr("技能负责片段级的写作动作。这里只读展示已安装技能；当前不支持在本页编辑或新建，安装与管理仍在「模型与技能」中。")}</p>
-  <div className="expert-skill-list">{skills.map(s=><div className="expert-skill-row" key={s.id}><strong>{s.name}</strong><span className="expert-admin-badge">{s.builtin?tr("内置"):tr("自定义")}</span><p>{s.description}</p></div>)}</div>
  </div>;
 }

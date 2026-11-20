@@ -7,24 +7,24 @@ beforeEach(() => {
   mockBackend.reset();
   mockBackend.on('agent_list_experts', () => ({
     experts: [
-      {id: 'beat-sheet', name: '节拍表专家', description: '检查节拍', dimensions: ['开场', '中点'], builtin: true, enabled: true},
-      {id: 'my-expert', name: '我的专家', description: '只看代价', dimensions: ['代价'], builtin: false, enabled: false},
+      {id: 'beat-sheet', name: '节拍表专家', description: '检查节拍', dimensions: ['开场', '中点'], kind: 'review', builtin: true, enabled: true},
+      {id: 'my-expert', name: '我的专家', description: '只看代价', dimensions: ['代价'], kind: 'writing', builtin: false, enabled: false},
     ],
     issues: [],
   }));
-  mockBackend.on('agent_list_skills', () => [{id: 'continue', name: '续写', description: '续写片段', builtin: true}]);
   mockBackend.on('agent_set_expert_enabled', () => null);
   mockBackend.on('agent_rename_expert', () => null);
 });
 afterEach(() => cleanup());
 
-it('列出内置与自定义专家，停用状态可见，勾选会写回启用状态', async () => {
+it('列出内置与自定义专家，显示类型与停用状态，勾选会写回启用状态', async () => {
   render(<AssistantSettings />);
   await waitFor(() => expect(screen.getByText('节拍表专家')).toBeTruthy());
   expect(screen.getByText('我的专家')).toBeTruthy();
+  expect(screen.getByText('审稿型')).toBeTruthy();
+  expect(screen.getByText('写作型')).toBeTruthy();
   expect(screen.getByText('已停用')).toBeTruthy();
-  expect(screen.getByText('技能（只读）')).toBeTruthy();
-  expect(screen.getByText('续写')).toBeTruthy();
+  expect(screen.queryByText(/技能/)).toBeNull();
 
   const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
   act(() => { boxes[1].click(); });

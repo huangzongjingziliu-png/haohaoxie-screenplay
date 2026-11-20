@@ -58,6 +58,7 @@ pub struct ExpertInfo {
     pub name: String,
     pub description: String,
     pub dimensions: Vec<String>,
+    pub kind: String,
     pub builtin: bool,
     pub enabled: bool,
 }
@@ -68,6 +69,7 @@ fn expert_info(expert: &Expert, enabled: bool) -> ExpertInfo {
         name: expert.name.clone(),
         description: expert.description.clone(),
         dimensions: expert.dimensions.clone(),
+        kind: expert.kind.as_str().to_string(),
         builtin: expert.builtin,
         enabled,
     }
@@ -222,6 +224,7 @@ pub fn agent_save_panel_expert(
     expert_ids: Vec<String>,
     mode: String,
     scope: String,
+    kind: String,
 ) -> IpcResult<ExpertInfo> {
     let name = name.trim();
     if name.is_empty() {
@@ -278,8 +281,10 @@ pub fn agent_save_panel_expert(
         "由会审保存：{}",
         picked.iter().map(|e| e.name.as_str()).collect::<Vec<_>>().join("、")
     );
+    let kind = screenplay_agent::ExpertKind::parse(&kind);
     let text = format!(
-        "---\nid: {id}\nname: {name}\ndescription: {description}\ndimensions: {}\ntemperature: 0.4\nmax_tokens: {max_tokens}\n---\n{body}\n",
+        "---\nid: {id}\nname: {name}\ndescription: {description}\nkind: {}\ndimensions: {}\ntemperature: 0.4\nmax_tokens: {max_tokens}\n---\n{body}\n",
+        kind.as_str(),
         dimensions.join("、")
     );
     std::fs::write(dest_dir.join("EXPERT.md"), text)
@@ -299,6 +304,7 @@ pub fn agent_save_panel_expert(
             system_prompt: body,
             temperature: 0.4,
             max_tokens,
+            kind,
             builtin: false,
         },
         true,
@@ -391,6 +397,9 @@ pub async fn agent_expert_panel(
             .iter()
             .find(|e| &e.id == id)
             .ok_or_else(|| error(format!("专家不存在：{id}")))?;
+        if expert.kind != screenplay_agent::ExpertKind::Review {
+            return Err(error(format!("「{}」是写作型专家，不参加会审", expert.name)));
+        }
         picked.push(expert.clone());
     }
 
