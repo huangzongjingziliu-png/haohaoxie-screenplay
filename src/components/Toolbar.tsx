@@ -30,6 +30,8 @@ export default function Toolbar({
   agentOpen,
   onConnections,
   onBoard,
+  onToggleNavigator,
+  navigatorOpen,
 }: {
   onHelp?: () => void;
   onNew?: () => void;
@@ -42,6 +44,8 @@ export default function Toolbar({
   agentOpen?: boolean;
   onConnections?: () => void;
   onBoard?: () => void;
+  onToggleNavigator?: () => void;
+  navigatorOpen?: boolean;
 }) {
   const draftLabel=useEditorStore(s=>s.document?.draft_label);
   const project = useEditorStore((s) => s.project);
@@ -124,6 +128,22 @@ export default function Toolbar({
 
   return (
     <div className="toolbar" role="toolbar" aria-label={tr("剧本工具栏")}>
+      {onToggleNavigator && (
+        <button
+          className="navigator-toggle"
+          aria-label={tr(navigatorOpen ? "折叠导航" : "展开导航")}
+          title={tr(navigatorOpen ? "折叠导航" : "展开导航")}
+          aria-expanded={navigatorOpen}
+          onClick={onToggleNavigator}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+        </button>
+      )}
+      <div className="toolbar-title" title={project.path ?? tr("未保存")}>
+        {project.title || tr("未命名剧本")}
+        {draftLabel&&<small className="draft-badge" title={tr("当前稿号")}>{draftLabel}</small>}
+        {project.dirty && <span className="dirty-dot" title={tr("有未保存的修改")} />}
+      </div>
       <div className="toolbar-group toolbar-file-group" aria-label={tr("文件")}>
         <button
           onClick={() => void undo()}
@@ -216,12 +236,6 @@ export default function Toolbar({
       <div className="toolbar-group toolbar-collab-group" aria-label={tr("协作")}>
         {onConnections && <button onClick={onConnections} title={tr("连接外部 Agent（MCP / CLI）")}>{tr("连接 Agent…")}</button>}
         {onAgent && <button className={agentOpen ? 'active' : undefined} aria-pressed={agentOpen} onClick={onAgent} title={tr(agentOpen ? "关闭编剧助理" : "编剧助理")}>{tr("编剧助理")}</button>}
-      </div>
-
-      <div className="toolbar-title" title={project.path ?? tr("未保存")}>
-        {project.title || tr("未命名剧本")}
-        {draftLabel&&<small className="draft-badge" title={tr("当前稿号")}>{draftLabel}</small>}
-        {project.dirty && <span className="dirty-dot" title={tr("有未保存的修改")} />}
       </div>
 
       <EpisodeControls/>

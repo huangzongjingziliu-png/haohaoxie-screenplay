@@ -271,11 +271,13 @@ export default function App() {
           onAgent={() => setShowAgent(v => !v)}
           agentOpen={showAgent}
           onConnections={() => setShowConnections(true)}
+          onToggleNavigator={() => setShowNavigator(!showNavigator)}
+          navigatorOpen={showNavigator}
         />
       )}
       {showSearch && <SearchBar onClose={()=>setShowSearch(false)}/>}
       <div className="main">
-        {viewMode !== 'focus' && <button className="navigator-toggle" aria-label={tr(showNav?"折叠导航":"展开导航")} title={tr(showNav?"折叠导航":"展开导航")} aria-expanded={showNav} onClick={()=>setShowNavigator(!showNavigator)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>}{showNav && <Navigator />}
+        {showNav && <Navigator />}
         <div className="editors" ref={resizerRef}>
           {showLeft && (
             <div className="editor-pane" style={{ flex: showRight ? leftSplitRatio : 1, order: sourceFirst ? 2 : 0 }}>

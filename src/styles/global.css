@@ -1639,9 +1639,9 @@ body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark b
 /* Side panels participate in layout so the paper centers in the available space. */
 .main { position: relative; min-height: 0; }
 .main > .harness-panel { position: relative; top: auto; right: auto; bottom: auto; width: clamp(300px, 30vw, 440px); flex: 0 0 clamp(300px, 30vw, 440px); min-height: 0; z-index: 10; box-shadow: none; border-left: 1px solid #e0e0e6; }
-.navigator-toggle { position: absolute; top: 5px; left: 5px; z-index: 20; display: grid; place-items: center; width: 28px; height: 28px; padding: 3px; border: 1px solid #dce2ea; border-radius: 7px; background: #f8f9fb; color: #667085; cursor: pointer; }
-.main > .navigator .navigator-tabs { padding-top: 38px; }
-.main > .navigator-toggle + .editors .pane-heading { padding-left: 40px; }
+.toolbar .navigator-toggle { position: static; z-index: auto; flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 32px; padding: 5px; border: 1px solid var(--control-border); border-radius: 8px; background: var(--control-bg); color: #667085; cursor: pointer; }
+.toolbar .navigator-toggle:hover { background: var(--control-hover); color: var(--control-text); }
+.toolbar .navigator-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-border); background: var(--accent-weak); }
 .main > .editors { min-width: 0; }
 .dismiss-confirm-backdrop { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 24px; background: #18233345; }
 .dismiss-confirm { width: min(420px, 90vw); }
@@ -1805,7 +1805,6 @@ body.dark .screenplay-search input { background:#1f1f24; color:#e8e8ed; border-c
 body.dark .search-hit { background:#5a4d1e; color:#f3e8c2; }
 
 /* 导航列表 */
-body.dark .navigator-toggle { background:#2e2e35; border-color:#4a4a54; color:#c3c3cd; }
 body.dark .navigator-body li:hover,body.dark .nav-item:hover { background:#33333b; }
 body.dark .navigator-body li.active { background:#3c3a2a; color:#f0e6c0; box-shadow:inset 3px 0 #c8ab4d; }
 body.dark .navigator li[data-drop-target="true"] { background:#4a4326; color:#f3e8c2; }
@@ -2092,3 +2091,36 @@ body.dark .expert-admin-badge.off{background:#33333c;color:#a9a9b4;border-color:
 body.dark .expert-admin-desc,body.dark .expert-admin-toggle,body.dark .expert-save-kind{color:#c8c8d2}
 body.dark .expert-admin-dims{color:#a9a9b4}
 body.dark .expert-save-form input{background:#1f1f24;color:#e8e8ed;border-color:#4a4a55}
+
+/* ==========================================================================
+   主编辑界面整页布局统一（只调间距、对齐与表面层级）
+   ========================================================================== */
+
+/* 工具栏：标题固定在最左；分组内部不再叠一层按钮边框 */
+.toolbar { padding: 8px 16px; gap: 6px 10px; }
+.toolbar-title { flex: 0 1 auto; min-width: 0; max-width: 220px; margin-right: 4px; font-size: 14px; }
+.toolbar-group { padding: 2px; gap: 2px; }
+.toolbar-group-divider { display: none; }
+.toolbar .toolbar-group > button:not(.toolbar-save):not(.update-indicator),
+.toolbar .toolbar-group > .toolbar-more > button,
+.toolbar .toolbar-group > select { border-color: transparent; background: transparent; }
+.toolbar .toolbar-group > button:not(.toolbar-save):not(.update-indicator):hover:not(:disabled),
+.toolbar .toolbar-group > .toolbar-more > button:hover:not(:disabled),
+.toolbar .toolbar-group > select:hover { background: var(--control-hover); border-color: var(--control-border); }
+.toolbar .toolbar-group > button.active:not(.toolbar-save):not(.update-indicator) { background: var(--accent-weak); color: var(--accent); border-color: var(--accent-border); }
+body.dark .toolbar .toolbar-group > button.active:not(.toolbar-save):not(.update-indicator) { background: var(--accent-weak); color: var(--accent); border-color: var(--accent-border); }
+.episode-controls { margin-left: auto; }
+
+/* 顶栏横缝对齐：导航标签、编辑区栏头、助理面板标题统一 36px */
+.navigator-tabs { padding: 0 8px; }
+.navigator-tabs button { min-height: 36px; padding: 0 4px; }
+.pane-heading { min-height: 36px; padding: 0 12px; }
+.main > .harness-panel header { min-height: 36px; padding: 0 12px; }
+
+/* 导航列表：拖拽落点改用紫色，与“当前场景”的金色区分 */
+.navigator li[data-drop-target="true"] { background: rgba(128, 104, 215, .14); outline: 1px solid #8068d7; outline-offset: -1px; }
+body.dark .navigator li[data-drop-target="true"] { background: #322b46; color: #e7e0fb; outline-color: #9b86e0; }
+
+/* 状态栏：统一高度与节奏，给路径留出稳定比例 */
+.status-bar { min-height: 30px; gap: 18px; padding: 0 16px; }
+.status-bar .path { max-width: 34%; }
