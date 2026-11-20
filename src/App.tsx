@@ -9,6 +9,7 @@ import ModelPicker from '@/components/ModelPicker';
 import AgentContextMenu from '@/components/AgentContextMenu';
 import AgentSelectionPanel from '@/components/AgentSelectionPanel';
 import type {AgentTarget} from '@/utils/agentSelection';
+import {shouldBypassUndoShortcut} from '@/utils/shortcuts';
 import SceneBoard from '@/components/SceneBoard';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import NewProjectDialog from '@/components/NewProjectDialog';
@@ -152,6 +153,8 @@ export default function App() {
       if (!mod) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('.modal, .agent-panel') && ['z', 'y', 's'].includes(e.key.toLowerCase())) return;
+      // 输入框 / 白板便签里保留浏览器原生撤销，避免 ⌘Z 撤销整篇剧本
+      if (shouldBypassUndoShortcut(target) && ['z', 'y'].includes(e.key.toLowerCase())) return;
       if (e.key === 'z') {
         e.preventDefault();
         const st = useEditorStore.getState();
