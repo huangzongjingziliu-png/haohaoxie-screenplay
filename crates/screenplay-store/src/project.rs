@@ -116,7 +116,8 @@ fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(
     let parent=container.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e|e.to_string())?;
     // 沙盒里用户经保存面板选中的文件只授权了该文件本身，同目录建临时文件会被拒（EPERM）。
-    // 这种情况下退回直接写目标文件：牺牲原子性换可用性；容器内与非沙盒路径仍走临时文件 + rename。
+    // 这时**不能**原地截断覆盖：写到一半失败会把用户的工程变成不完整文件。
+    // 已存在工程时直接中止并报错，让用户另选位置；只有目标尚不存在时才直接创建。
     match tempfile::NamedTempFile::new_in(parent) {
         Ok(mut temporary)=>{
             if let Ok(metadata)=std::fs::metadata(container){temporary.as_file().set_permissions(metadata.permissions()).map_err(|e|e.to_string())?;}
@@ -129,12 +130,45 @@ fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(
     }
 }
 
-/// 直接截断写目标文件（仅在无法创建同目录临时文件时使用）。
+/// 无法在目标旁建临时文件时的回退（沙盒只授权单个文件，商店版每次覆盖保存都走这里）。
+/// 不能直接截断：先把原文件完整备份到临时目录，再截断写入；
+/// 写入失败立即用备份还原。这样任何失败或中断都不会让原工程只剩半截。
 fn direct_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(),String>)->Result<(),String>{
-    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(container)
-        .map_err(|e|format!("无法写入 {}: {e}",container.display()))?;
-    write(&mut file)?;
-    file.sync_all().map_err(|e|e.to_string())
+    if !container.exists() {
+        // 目标尚不存在：直接创建，失败就清掉残片
+        let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(container)
+            .map_err(|e|format!("无法创建 {}: {e}",container.display()))?;
+        let written=write(&mut file).and_then(|_|file.sync_all().map_err(|e|e.to_string()));
+        if written.is_err(){let _=std::fs::remove_file(container);}
+        return written;
+    }
+
+    let backup=save_backup_path(container);
+    std::fs::copy(container,&backup)
+        .map_err(|e|format!("无法备份原工程 {}，为避免损坏已中止保存：{e}",container.display()))?;
+    let written=(||{
+        let mut file=std::fs::OpenOptions::new().write(true).truncate(true).open(container)
+            .map_err(|e|format!("无法写入 {}: {e}",container.display()))?;
+        write(&mut file)?;
+        file.sync_all().map_err(|e|e.to_string())
+    })();
+    match written {
+        Ok(())=>{let _=std::fs::remove_file(&backup);Ok(())}
+        Err(error)=>{
+            let restored=std::fs::copy(&backup,container);
+            if restored.is_err() {
+                return Err(format!("{error}；原工程备份保存在 {}，请勿删除，可据此恢复",backup.display()));
+            }
+            let _=std::fs::remove_file(&backup);
+            Err(format!("{error}；已从备份还原原工程，文件未损坏"))
+        }
+    }
+}
+
+/// 覆盖写之前的临时备份位置（系统临时目录一定可写）。
+fn save_backup_path(container:&Path)->PathBuf{
+    let name=container.file_name().and_then(|n|n.to_str()).unwrap_or("project");
+    std::env::temp_dir().join(format!("screenplay-save-{}-{name}.bak",std::process::id()))
 }
 
 #[derive(Debug)]
@@ -376,6 +410,44 @@ mod security_tests {
         let loaded=load_project(tmp.path()).unwrap();
         assert_eq!(loaded.document.settings.project_memory,doc.settings.project_memory);
     }
+    /// 覆盖保存失败/中断时不得让已存在的工程只剩半截：
+    /// 写失败必须还原成原来的完整文件（商店版沙盒只能走这条覆盖路径）。
+    #[test]
+    fn save_failure_keeps_existing_container_intact() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("locked.screenplay");
+        let original = make_valid_zip();
+        std::fs::write(&path, &original).unwrap();
+
+        // 只读目录 → 无法在目标旁创建临时文件，只能走覆盖写回退
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = atomic_write(&path, |file| {
+            std::io::Write::write_all(file, b"partial garbage").map_err(|e| e.to_string())?;
+            Err("写入中断".to_string())
+        });
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(result.is_err(), "写入失败必须报错");
+        assert_eq!(std::fs::read(&path).unwrap(), original, "失败后原工程必须被还原成完整文件");
+    }
+
+    /// 回退路径本身必须仍可保存成功，否则商店版无法覆盖保存。
+    #[test]
+    fn sandbox_like_directory_can_still_overwrite_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.screenplay");
+        std::fs::write(&path, make_valid_zip()).unwrap();
+
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = save_project(&path, &ScreenplayDocument::blank("新内容"), None, None, None, None);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(result.is_ok(), "无法建临时文件时应退回安全覆盖写：{result:?}");
+        assert_eq!(load_project(&path).unwrap().document.metadata.title, "新内容");
+    }
+
     #[test]
     fn old_settings_without_memory_remain_compatible() {
         let settings=screenplay_core::ast::ScreenplaySettings::default();
