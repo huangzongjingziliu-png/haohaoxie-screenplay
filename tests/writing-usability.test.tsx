@@ -75,6 +75,7 @@ it('切换视图先等待草稿提交，避免卸载编辑器丢失最后输入'
   } finally { unregister(); }
 });
 it('元素工具独立于纸面缩放，不再在纸面中渲染缩小标签', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'float');
   useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }], settings } as never, activeBlockId: 'a', zoom: 0.5 });
   mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: [{ block_id: 'a', block_type: 'action', text: '动作', start_line: 0, line_count: 1 }] }] }));
   const { container, getByLabelText } = render(<ScreenplayEditor/>);
@@ -85,6 +86,7 @@ it('元素工具独立于纸面缩放，不再在纸面中渲染缩小标签', a
   expect(container.querySelector('.block-controls')).toBeNull();
 });
 it('鼠标经过不显示或移动标签，光标焦点决定标签目标；快捷键修改焦点段', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'float');
   const change = vi.fn().mockResolvedValue(undefined);
   const blocks = [{ id: 'a', block_type: 'action', text: '动作' }, { id: 'b', block_type: 'character', text: '剑客' }];
   useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks, settings } as never, activeBlockId: 'a', changeBlockType: change });

@@ -1405,6 +1405,23 @@ body.dark .paper-element-tools button, body.dark .paper-element-tools select, bo
 .row-element-actions { display: flex; gap: 4px; }
 .row-element-actions button { flex: 1; font: inherit; border: 0; border-radius: 4px; background: transparent; padding: 3px; }
 .row-element-actions button:hover { background: #e5e5eb; }
+/* 元素类型菜单：吸附顶部横排 / 左侧竖排 */
+.element-dock { position: absolute; left: 8px; top: 12px; z-index: 20; display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: calc(100% - 24px); overflow: auto; border: 1px solid #dfe1e6; border-radius: 10px; background: #ffffffed; box-shadow: 0 2px 10px #00000014; font-family: -apple-system, 'PingFang SC', sans-serif; font-size: max(12px, calc(var(--ui-font-size, 14px) - 1px)); }
+.element-dock.top { position: static; flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; max-height: none; overflow: visible; border: 0; border-bottom: 1px solid #dedee5; border-radius: 0; background: #f8f8fa; box-shadow: none; }
+.element-dock button { font: inherit; min-height: 26px; padding: 3px 9px; border: 1px solid #e2e4ea; border-radius: 6px; background: #fff; color: #3a3a42; white-space: nowrap; cursor: pointer; }
+.element-dock button:hover { background: #eef3fb; border-color: #b9cfe8; }
+.element-dock button.on { background: #e8f0fb; border-color: #8fb4e6; color: #1f4d84; font-weight: 600; }
+.element-dock button:disabled { opacity: .45; cursor: default; }
+.element-dock-title { color: #73737e; padding: 0 4px 2px; }
+.element-dock-float { margin-top: 4px; border-style: dashed !important; color: #73737e !important; }
+.element-dock.top .element-dock-float { margin: 0 0 0 auto; }
+body.dark .element-dock { background: #2b2b31f2; border-color: #4a4a52; box-shadow: 0 2px 12px #0006; }
+body.dark .element-dock.top { background: #26262b; border-color: #3d3d45; }
+body.dark .element-dock button { background: #33333a; border-color: #4a4a52; color: #e6e6ea; }
+body.dark .element-dock button:hover { background: #3c4560; border-color: #5c7aa6; }
+body.dark .element-dock button.on { background: #324a68; border-color: #6f9bd1; color: #dce9f9; }
+body.dark .element-dock-title { color: #a6a6b0; }
+body.dark .element-dock-float { color: #a6a6b0 !important; }
 .shortcut-settings { margin: 12px 0; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 .shortcut-settings input { cursor: pointer; }
 body.dark .row-element-tools { background: #303038; border-color: #555; }
@@ -2028,10 +2045,15 @@ body.dark button:disabled { opacity: .6; }
 body.dark .toolbar-group-divider { background: #4a4a54; }
 
 /* 编剧助理面板：左边缘拖动改宽 */
-.agent-panel-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 30; touch-action: none; }
-.agent-panel-resizer::after { content: ''; position: absolute; left: 3px; top: 50%; width: 2px; height: 46px; margin-top: -23px; border-radius: 1px; background: transparent; transition: background .12s; }
-.agent-panel-resizer:hover::after, .agent-panel-resizer:active::after { background: #b9b9c4; }
-body.dark .agent-panel-resizer:hover::after, body.dark .agent-panel-resizer:active::after { background: #63636f; }
+.agent-panel-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 14px; cursor: col-resize; z-index: 40; touch-action: none; }
+.agent-panel-resizer::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 1px; background: #e3e5ea; transition: background .12s, width .12s; }
+.agent-panel-resizer::after { content: ''; position: absolute; left: 6px; top: 50%; width: 5px; height: 46px; margin-top: -23px; border-radius: 3px; background: #d8dae1; transition: background .12s, width .12s, left .12s; }
+.agent-panel-resizer:hover::before, .agent-panel-resizer:active::before { background: #8fb4e6; width: 2px; }
+.agent-panel-resizer:hover::after, .agent-panel-resizer:active::after { background: #8fb4e6; width: 6px; left: 6px; }
+body.dark .agent-panel-resizer::before { background: #3c3c45; }
+body.dark .agent-panel-resizer::after { background: #55555f; }
+body.dark .agent-panel-resizer:hover::before, body.dark .agent-panel-resizer:active::before { background: #6f9bd1; }
+body.dark .agent-panel-resizer:hover::after, body.dark .agent-panel-resizer:active::after { background: #6f9bd1; }
 body.resizing-agent-panel, body.resizing-agent-panel * { cursor: col-resize !important; user-select: none !important; }
 
 @media (max-width: 1500px) {

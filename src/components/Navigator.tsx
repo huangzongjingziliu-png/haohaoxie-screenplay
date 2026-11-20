@@ -2,6 +2,7 @@ import ReplaceDialog from './ReplaceDialog';
 import {tr,fmt} from '@/i18n';
 import {sourceSegments} from '@/utils/sourcePositions';
 import { useSceneDrag } from '@/utils/useSceneDrag';
+import { suppressSceneFollow } from '@/utils/sceneFollow';
 import { moveScene, useSceneHeadingDisplays } from '@/utils/scenes';
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '@/stores/editor';
@@ -26,7 +27,7 @@ export default function Navigator() {
   const currentScene=[...blocks.slice(0,activeIndex+1)].reverse().find(b=>b.block_type==='scene_heading');
   const currentLocation=doc?.scenes?.find(s=>s.id===currentScene?.id)?.location;
   useEffect(()=>setExpanded(null),[doc?.id,tab]);
-  useEffect(()=>{const row=body.current?.querySelector<HTMLElement>('[data-current="true"]');if(row&&body.current){const a=row.getBoundingClientRect(),b=body.current.getBoundingClientRect();if(a.top<b.top||a.bottom>b.bottom)row.scrollIntoView({block:'nearest'});}},[activeBlockId,tab]);
+  useEffect(()=>{const el=body.current;const row=el?.querySelector<HTMLElement>('[data-current="true"]');if(!el||!row)return;const a=row.getBoundingClientRect(),b=el.getBoundingClientRect();if(a.top<b.top)el.scrollTop-=b.top-a.top;else if(a.bottom>b.bottom)el.scrollTop+=a.bottom-b.bottom;},[activeBlockId,tab]);
 
   const scenes = useMemo(
     () =>
@@ -51,6 +52,7 @@ export default function Navigator() {
   );
 
   const jump = (id: string) => {
+    suppressSceneFollow();
     setActiveBlock(id);
     requestAnimationFrame(() => {
       const state=useEditorStore.getState();

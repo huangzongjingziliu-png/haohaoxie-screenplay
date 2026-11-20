@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { ELEMENT_TYPES, readShortcuts, keyCombo, shortcutLabel } from '@/utils/elementShortcuts';
+import { sceneFollowSuppressed } from '@/utils/sceneFollow';
 import { defaultElementStyle } from '@/utils/appearance';
 import { paperInkColor } from '@/utils/theme';
 import { flushPendingEdits, registerPendingEditor } from '@/utils/pendingEdits';
@@ -60,6 +61,18 @@ const BLOCK_LABELS: Record<string, string> = {
 
 const TYPE_ORDER = ELEMENT_TYPES;
 
+/** 元素类型菜单：跟随光标 / 吸附顶部横排 / 吸附左侧竖排。默认吸附左侧。 */
+const TYPE_MENU_KEY = 'hhx.elementMenuMode';
+type TypeMenuMode = 'float' | 'top' | 'left';
+const readTypeMenuMode = (): TypeMenuMode => {
+  try {
+    const v = localStorage.getItem(TYPE_MENU_KEY);
+    return v === 'float' || v === 'top' || v === 'left' ? v : 'left';
+  } catch {
+    return 'left';
+  }
+};
+
 /** 剧本语义：回车后新块的元素类型 */
 function nextTypeFor(t: BlockType): BlockType {
   switch (t) {
@@ -96,6 +109,15 @@ export default function ScreenplayEditor() {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toolPosition, setToolPosition] = useState({ top: 0, left: 0, visible: true });
   const [shortcuts, setShortcuts] = useState(readShortcuts);
+  const [menuMode, setMenuMode] = useState<TypeMenuMode>(readTypeMenuMode);
+  const setMenuModePersisted = (mode: TypeMenuMode) => {
+    setMenuMode(mode);
+    try {
+      localStorage.setItem(TYPE_MENU_KEY, mode);
+    } catch {
+      /* 隐私模式下忽略，仅当次生效 */
+    }
+  };
   const targetId = focusedId ? sourceBlockId(focusedId) : null;
   const switchType = useCallback(async (id: string, type: BlockType, restoreFocus = false) => {
     const editable = workspaceRef.current?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(focusedId && sourceBlockId(focusedId)===id ? focusedId : id)}"] .screenplay-block`);
@@ -140,6 +162,41 @@ export default function ScreenplayEditor() {
   }, [focusedId, pagination, zoom]);
   const layoutRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(1000);
+  // 滚轮浏览时跟随高亮：只更新 activeBlockId，绝不触发滚动；正在编辑或刚手动跳转时不动。
+  useEffect(() => {
+    const scroller = layoutRef.current;
+    if (!scroller) return;
+    let frame = 0;
+    const pick = () => {
+      frame = 0;
+      if (sceneFollowSuppressed()) return;
+      const view = scroller.getBoundingClientRect();
+      // 正在编辑的段落在视野内时不动高亮，避免打字被滚动跟随抢走。
+      const focusedEl = focusedId ? scroller.querySelector<HTMLElement>(`[data-block-id="${cssEscape(focusedId)}"]`) : null;
+      if (focusedEl) {
+        const r = focusedEl.getBoundingClientRect();
+        if (r.bottom > view.top && r.top < view.bottom) return;
+      }
+      const top = view.top + 24;
+      let id: string | null = null;
+      for (const row of scroller.querySelectorAll<HTMLElement>('[data-block-id]')) {
+        if (row.getBoundingClientRect().bottom > top) {
+          id = row.dataset.blockId ?? null;
+          break;
+        }
+      }
+      if (!id || useEditorStore.getState().activeBlockId === id) return;
+      useEditorStore.getState().setActiveBlock(id);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(pick);
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [focusedId, pagination]);
 
   useEffect(() => {
     const parent = layoutRef.current?.parentElement;
@@ -364,6 +421,7 @@ export default function ScreenplayEditor() {
   }
 
   const selected = screenplay.blocks.find(b => b.id === targetId);
+  const dockBlock = screenplay.blocks.find(b => b.id === (targetId ?? activeBlockId)) ?? null;
   return (
     <div className="paper-workspace" ref={workspaceRef} onFocusCapture={e => {
       const element = e.target as HTMLElement;
@@ -373,8 +431,17 @@ export default function ScreenplayEditor() {
         if (!workspaceRef.current?.contains(document.activeElement)) setFocusedId(null);
       });
     }}>
-      {selected && <div className="row-element-tools" aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
+      {menuMode === 'float' && selected && <div className="row-element-tools" aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
         <div className="row-type-select"><span className="row-type-label" aria-hidden="true">{tr(BLOCK_LABELS[selected.block_type])}</span><svg className="row-type-arrow" aria-hidden="true" width="12" height="18" viewBox="0 0 12 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6 6 3 9 6 M3 12 6 15 9 12"/></svg><select aria-label={tr("当前元素类型")} title={tr("修改此段类型；Tab 也可依次切换。普通文本表示未指定剧本元素。")} value={selected.block_type} onChange={e => { const type = e.target.value as BlockType; void switchType(selected.id, type).catch(error => pushToast('error', String(error))); }}>{TYPE_ORDER.map((t) => <option key={t} value={t}>{tr(BLOCK_LABELS[t])} · {shortcutLabel(shortcuts[t])}</option>)}</select></div>
+        <div className="row-element-actions">
+          <button type="button" title={tr("吸附到顶部横排，位置固定")} onClick={() => setMenuModePersisted('top')}>{tr("顶部")}</button>
+          <button type="button" title={tr("吸附到左侧竖排，位置固定")} onClick={() => setMenuModePersisted('left')}>{tr("左侧")}</button>
+        </div>
+      </div>}
+      {menuMode !== 'float' && <div className={`element-dock ${menuMode}`} role="toolbar" aria-label={tr("元素类型")}>
+        {menuMode === 'left' && <span className="element-dock-title">{tr("元素")}</span>}
+        {TYPE_ORDER.map((t) => <button key={t} type="button" disabled={!dockBlock} className={dockBlock?.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (dockBlock) void switchType(dockBlock.id, t).catch(error => pushToast('error', String(error))); }}>{tr(BLOCK_LABELS[t])}</button>)}
+        <button type="button" className="element-dock-float" title={tr("恢复跟随光标，位置随当前段落移动")} onClick={() => setMenuModePersisted('float')}>{tr("跟随光标")}</button>
       </div>}
     <div className={`screenplay-editor typography-${paper?.typography ?? "hollywood"}`} ref={layoutRef} style={{ zoom: zoom === 0 ? Math.min(1, availableWidth / ((paper?.page_width_inch ?? 8.5) * 96 + 48)) : zoom, minWidth: `${(paper?.page_width_inch ?? 8.5) * 96 + 48}px`, fontFamily: paper?.font_family, fontSize: `${paper?.font_size ?? 12}pt`, lineHeight: `${Math.max(paper?.font_size ?? 12, ...Object.values(paper?.element_styles ?? {}).map(s => s?.font_size ?? 0)) * (paper?.line_height ?? 1)}pt` }}>
       <div className="pages-container">
