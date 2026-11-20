@@ -25,6 +25,7 @@ import SettingsPanel from '@/components/UnifiedSettings';
 import SearchBar from '@/components/SearchBar';
 import Toasts from '@/components/Toasts';
 import RecoveryPrompt from '@/components/RecoveryPrompt';
+import StaleBackupPrompt from '@/components/StaleBackupPrompt';
 import VersionPanel from '@/components/VersionPanel';
 import ProPurchase from '@/components/ProPurchase';
 import { useEntitlementStore } from '@/stores/entitlement';
@@ -248,7 +249,7 @@ export default function App() {
       </div>
     ) : renderEditor();
 
-  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}<ProPurchase /></>;
+  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><StaleBackupPrompt /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}<ProPurchase /></>;
 
   function renderEditor() {
 

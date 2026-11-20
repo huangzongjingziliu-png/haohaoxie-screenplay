@@ -104,6 +104,12 @@ pub enum AutosaveAction {
     VersionCreated,
 }
 
+/// 路径比较：能 canonicalize 就按真实路径比，避免软链/相对路径误判。
+fn same_path(a: &Path, b: &Path) -> bool {
+    let normalize = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    normalize(a) == normalize(b)
+}
+
 /// 项目服务：持有唯一 Workspace
 pub struct ProjectService {
     workspace: Mutex<Option<Arc<Workspace>>>,
@@ -329,6 +335,53 @@ impl ProjectService {
 
     pub fn is_open(&self) -> bool {
         self.workspace.lock().unwrap().is_some()
+    }
+
+    // -----------------------------------------------------------------
+    // 覆盖保存留下的残留备份
+    // -----------------------------------------------------------------
+
+    /// 启动检查：该工程是否有「覆盖保存被强杀」留下的完整备份。
+    ///
+    /// 工程文件本身还能正常打开时说明那次保存已经完成，备份只是旧版本：
+    /// 不提示用户，也不删除备份。
+    pub fn stale_save_backup(&self, path: &Path) -> Option<screenplay_store::project::StaleSaveBackup> {
+        let found = screenplay_store::project::find_stale_save_backup(path)?;
+        if screenplay_store::project::load_project(path).is_ok() {
+            return None;
+        }
+        Some(found)
+    }
+
+    /// 用户明确确认后，用残留备份还原工程文件。
+    ///
+    /// 绝不自动调用。若当前工程的未保存修改还没落盘，直接拒绝，
+    /// 避免用磁盘备份冲掉内存里的新内容。
+    pub fn restore_stale_backup(&self, path: &Path) -> Result<(), String> {
+        let same_open = self
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|ws| ws.container_path())
+            .is_some_and(|current| same_path(&current, path));
+        if same_open && self.is_dirty() {
+            return Err("当前工程有未保存的修改，请先保存或关闭后再恢复".into());
+        }
+        {
+            let _saving = self.saving.lock().map_err(|e| e.to_string())?;
+            screenplay_store::project::restore_stale_save_backup(path)?;
+        }
+        if same_open {
+            // 内存里还是被截断的旧文档，必须从恢复后的文件重新载入。
+            self.open(path)?;
+        }
+        Ok(())
+    }
+
+    /// 保留残留备份但不再提示（只改名，不删除数据）。
+    pub fn dismiss_stale_backup(&self, path: &Path) -> Result<bool, String> {
+        screenplay_store::project::dismiss_stale_save_backup(path)
     }
 
     // -----------------------------------------------------------------
@@ -847,6 +900,84 @@ mod tests {
         svc.close_without_saving().unwrap(); svc.shutdown();
         assert!(RecoveryManager::in_directory(root.clone()).pending().is_none());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)] mod stale_save_backup_service_tests {
+    use super::*;
+    /// 用户确认后：工程文件被写回，备份与归属记录被清理。
+    #[test] fn confirmed_restore_writes_container_and_cleans_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recover-me.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("完整内容").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+        std::fs::write(&path, b"truncated by kill").unwrap();
+
+        svc.restore_stale_backup(&path).unwrap();
+
+        let restored = screenplay_store::project::load_project(&path).unwrap();
+        assert_eq!(restored.document.metadata.title, "完整内容");
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("json").exists());
+    }
+
+    /// 当前工程有未保存修改时必须拒绝，不能拿磁盘备份冲掉内存里的新内容。
+    #[test] fn restore_refuses_when_open_project_has_unsaved_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("editing.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("已保存").unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "原始内容", None)).unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let block = svc.document().unwrap().blocks[0].id.clone();
+        svc.run(|s| s.replace_block(Origin::GuiLeft, &block, "未保存的新内容", None)).unwrap();
+        assert!(svc.is_dirty());
+
+        let error = svc.restore_stale_backup(&path).unwrap_err();
+        assert!(error.contains("未保存"), "错误信息：{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "拒绝时不得改动工程文件");
+        assert!(backup.exists(), "拒绝时不得删除备份");
+        assert_eq!(svc.document().unwrap().blocks[0].text, "未保存的新内容");
+
+        let _ = std::fs::remove_file(&backup);
+        let _ = std::fs::remove_file(backup.with_extension("json"));
+    }
+
+    /// 工程文件本身完好时，旧备份不提示、也不删除（避免误导用户退回旧版本）。
+    #[test] fn completed_save_is_not_offered_as_stale_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("finished.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("完整版本").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+
+        assert!(svc.stale_save_backup(&path).is_none(), "工程可正常打开时不应提示恢复");
+        assert!(backup.exists(), "不提示时也不得删除用户的备份");
+
+        let _ = std::fs::remove_file(&backup);
+        let _ = std::fs::remove_file(backup.with_extension("json"));
+    }
+
+    /// 用户拒绝后：备份保留（只改名），不再被启动检查列出。
+    #[test] fn dismiss_keeps_data_but_stops_prompting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("declined.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("待定").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+
+        assert!(svc.dismiss_stale_backup(&path).unwrap());
+        assert!(screenplay_store::project::find_stale_save_backup(&path).is_none());
+        assert_eq!(std::fs::read(format!("{}.declined", backup.display())).unwrap(), std::fs::read(&path).unwrap());
+
+        let _ = std::fs::remove_file(format!("{}.declined", backup.display()));
+        let _ = std::fs::remove_file(format!("{}.declined", backup.with_extension("json").display()));
     }
 }
 
