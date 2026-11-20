@@ -104,6 +104,12 @@ pub enum AutosaveAction {
     VersionCreated,
 }
 
+/// 路径比较：能 canonicalize 就按真实路径比，避免软链/相对路径误判。
+fn same_path(a: &Path, b: &Path) -> bool {
+    let normalize = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    normalize(a) == normalize(b)
+}
+
 /// 项目服务：持有唯一 Workspace
 pub struct ProjectService {
     workspace: Mutex<Option<Arc<Workspace>>>,
@@ -329,6 +335,53 @@ impl ProjectService {
 
     pub fn is_open(&self) -> bool {
         self.workspace.lock().unwrap().is_some()
+    }
+
+    // -----------------------------------------------------------------
+    // 覆盖保存留下的残留备份
+    // -----------------------------------------------------------------
+
+    /// 启动检查：该工程是否有「覆盖保存被强杀」留下的完整备份。
+    ///
+    /// 工程文件本身还能正常打开时说明那次保存已经完成，备份只是旧版本：
+    /// 不提示用户，也不删除备份。
+    pub fn stale_save_backup(&self, path: &Path) -> Option<screenplay_store::project::StaleSaveBackup> {
+        let found = screenplay_store::project::find_stale_save_backup(path)?;
+        if screenplay_store::project::load_project(path).is_ok() {
+            return None;
+        }
+        Some(found)
+    }
+
+    /// 用户明确确认后，用残留备份还原工程文件。
+    ///
+    /// 绝不自动调用。若当前工程的未保存修改还没落盘，直接拒绝，
+    /// 避免用磁盘备份冲掉内存里的新内容。
+    pub fn restore_stale_backup(&self, path: &Path) -> Result<(), String> {
+        let same_open = self
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|ws| ws.container_path())
+            .is_some_and(|current| same_path(&current, path));
+        if same_open && self.is_dirty() {
+            return Err("当前工程有未保存的修改，请先保存或关闭后再恢复".into());
+        }
+        {
+            let _saving = self.saving.lock().map_err(|e| e.to_string())?;
+            screenplay_store::project::restore_stale_save_backup(path)?;
+        }
+        if same_open {
+            // 内存里还是被截断的旧文档，必须从恢复后的文件重新载入。
+            self.open(path)?;
+        }
+        Ok(())
+    }
+
+    /// 保留残留备份但不再提示（只改名，不删除数据）。
+    pub fn dismiss_stale_backup(&self, path: &Path) -> Result<bool, String> {
+        screenplay_store::project::dismiss_stale_save_backup(path)
     }
 
     // -----------------------------------------------------------------
@@ -565,14 +618,24 @@ impl ProjectService {
         // 若原项目容器仍存在，直接打开它并载入恢复的文档
         let recovery_path=rec.container.as_deref().map(Path::new).filter(|p|p.exists());
         let target_lock=match recovery_path{Some(p)=>self.acquire_target(p)?,None=>None};
-        let ws = match rec.container.as_deref() {
-            Some(p) if std::path::Path::new(p).exists() => {
-                let w = Workspace::open(std::path::Path::new(p))?;
-                self.saved_revision
-                    .store(w.service.store.revision(), Ordering::SeqCst);
-                w
-            }
-            _ => {
+        let mut attached=false;
+        let ws = match recovery_path {
+            Some(p) => match Workspace::open(p) {
+                Ok(w) => {
+                    attached=true;
+                    self.saved_revision
+                        .store(w.service.store.revision(), Ordering::SeqCst);
+                    w
+                }
+                Err(_) => {
+                    // 容器已损坏：恢复记录不能因为打不开原文件而作废。
+                    // 作为未保存项目载入恢复内容，并要求另存为；损坏的原文件保持原样，
+                    // 以免覆盖掉仍可抢修的数据。
+                    self.saved_revision.store(0, Ordering::SeqCst);
+                    Workspace::blank(&rec.document.metadata.title)?
+                }
+            },
+            None => {
                 // 容器已不存在：作为未保存项目恢复
                 let w = Workspace::blank(&rec.document.metadata.title)?;
                 self.saved_revision.store(0, Ordering::SeqCst);
@@ -595,7 +658,7 @@ impl ProjectService {
             .map_err(|e| e.to_string())?;
 
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
-        if recovery_path.is_none(){*self.project_lock.lock().unwrap()=None;}else if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);}
+        if attached { if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);} } else { *self.project_lock.lock().unwrap()=None; }
         self.reset_autosave_for_project();
         self.dirty.store(true, Ordering::SeqCst);
         if self.write_recovery() {
@@ -778,6 +841,38 @@ mod tests {
     }
 }
 
+#[cfg(test)] mod recovery_corruption_tests {
+    use super::*;
+    /// 原项目容器损坏时，恢复记录仍必须能打开；
+    /// 且绝不能把恢复内容写回损坏文件，否则原稿失去抢修机会。
+    #[test] fn corrupt_container_still_restores_pending_document() {
+        let root = std::env::temp_dir().join(screenplay_core::ast::new_id("recover-corrupt-qa"));
+        let dir = root.join("recovery");
+        let path = root.join("broken.screenplay");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let svc = ProjectService::with_recovery_directory(dir.clone());
+        svc.create_new("损坏工程").unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "已保存的正文", None)).unwrap();
+        svc.save(Some(&path)).unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "崩溃前未保存的正文", None)).unwrap();
+        svc.shutdown();
+        drop(svc);
+
+        // 模拟崩溃后容器被外部程序写坏
+        std::fs::write(&path, b"not a zip").unwrap();
+
+        let svc2 = ProjectService::with_recovery_directory(dir.clone());
+        let doc = svc2.adopt_recovery().expect("容器损坏时仍应能采纳恢复内容");
+        assert!(doc.blocks.iter().any(|b| b.text == "崩溃前未保存的正文"), "恢复内容必须完整");
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a zip", "不得覆盖损坏的原文件");
+        assert!(svc2.require().unwrap().container_path().is_none(), "损坏容器应作为未保存项目恢复，要求另存为");
+
+        svc2.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[cfg(test)] mod discard_tests {
     use super::*;
     #[test] fn explicit_discard_removes_only_current_recovery_and_keeps_saved_file() {
@@ -805,6 +900,84 @@ mod tests {
         svc.close_without_saving().unwrap(); svc.shutdown();
         assert!(RecoveryManager::in_directory(root.clone()).pending().is_none());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)] mod stale_save_backup_service_tests {
+    use super::*;
+    /// 用户确认后：工程文件被写回，备份与归属记录被清理。
+    #[test] fn confirmed_restore_writes_container_and_cleans_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recover-me.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("完整内容").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+        std::fs::write(&path, b"truncated by kill").unwrap();
+
+        svc.restore_stale_backup(&path).unwrap();
+
+        let restored = screenplay_store::project::load_project(&path).unwrap();
+        assert_eq!(restored.document.metadata.title, "完整内容");
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("json").exists());
+    }
+
+    /// 当前工程有未保存修改时必须拒绝，不能拿磁盘备份冲掉内存里的新内容。
+    #[test] fn restore_refuses_when_open_project_has_unsaved_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("editing.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("已保存").unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "原始内容", None)).unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let block = svc.document().unwrap().blocks[0].id.clone();
+        svc.run(|s| s.replace_block(Origin::GuiLeft, &block, "未保存的新内容", None)).unwrap();
+        assert!(svc.is_dirty());
+
+        let error = svc.restore_stale_backup(&path).unwrap_err();
+        assert!(error.contains("未保存"), "错误信息：{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "拒绝时不得改动工程文件");
+        assert!(backup.exists(), "拒绝时不得删除备份");
+        assert_eq!(svc.document().unwrap().blocks[0].text, "未保存的新内容");
+
+        let _ = std::fs::remove_file(&backup);
+        let _ = std::fs::remove_file(backup.with_extension("json"));
+    }
+
+    /// 工程文件本身完好时，旧备份不提示、也不删除（避免误导用户退回旧版本）。
+    #[test] fn completed_save_is_not_offered_as_stale_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("finished.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("完整版本").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+
+        assert!(svc.stale_save_backup(&path).is_none(), "工程可正常打开时不应提示恢复");
+        assert!(backup.exists(), "不提示时也不得删除用户的备份");
+
+        let _ = std::fs::remove_file(&backup);
+        let _ = std::fs::remove_file(backup.with_extension("json"));
+    }
+
+    /// 用户拒绝后：备份保留（只改名），不再被启动检查列出。
+    #[test] fn dismiss_keeps_data_but_stops_prompting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("declined.screenplay");
+        let svc = ProjectService::with_recovery_directory(dir.path().join("recovery"));
+        svc.create_new("待定").unwrap();
+        svc.save(Some(&path)).unwrap();
+        let backup = screenplay_store::project::create_save_backup(&path).unwrap();
+
+        assert!(svc.dismiss_stale_backup(&path).unwrap());
+        assert!(screenplay_store::project::find_stale_save_backup(&path).is_none());
+        assert_eq!(std::fs::read(format!("{}.declined", backup.display())).unwrap(), std::fs::read(&path).unwrap());
+
+        let _ = std::fs::remove_file(format!("{}.declined", backup.display()));
+        let _ = std::fs::remove_file(format!("{}.declined", backup.with_extension("json").display()));
     }
 }
 

@@ -51,5 +51,6 @@ it('无选区且光标在段首时仍按专业编辑器习惯并入上一块',as
   sel.addRange(range);
   const notPrevented=fireEvent.keyDown(el,{key:'Backspace'});
   expect(notPrevented).toBe(false);
-  expect(mergeBlock).toHaveBeenCalled();
+  // 合并前需要先提交草稿，因此是异步调用
+  await waitFor(()=>expect(mergeBlock).toHaveBeenCalled());
 });

@@ -37,6 +37,9 @@ pub struct HistoryStack {
     redo: VecDeque<HistoryEntry>,
     /// 最大长度（防止内存无限增长）
     capacity: usize,
+    /// 刚发生过撤销/重做：下一次编辑必须另起撤销单元。
+    /// 否则新编辑会并进撤销点之前的快照，下一次 ⌘Z 会连更早的修改一起撤掉。
+    forked: bool,
 }
 
 impl Default for HistoryStack {
@@ -45,6 +48,7 @@ impl Default for HistoryStack {
             undo: VecDeque::new(),
             redo: VecDeque::new(),
             capacity: 100,
+            forked: false,
         }
     }
 }
@@ -73,7 +77,8 @@ impl HistoryStack {
         // 合并判断：调用方要求合并，且栈顶是同一「目标」的编辑。
         // 只比较命令名是不够的——用户连续编辑块 A 再编辑块 B，
         // 必须产生两个撤销单元，否则第二次 ⌘Z 会把块 A 的改动也一起撤掉。
-        if merge_into_previous {
+        // 撤销/重做之后同样不能合并：栈顶快照属于另一条历史分支。
+        if merge_into_previous && !self.forked {
             if let Some(top) = self.undo.back() {
                 if top.command == command
                     && top.origin == origin
@@ -84,6 +89,8 @@ impl HistoryStack {
                 }
             }
         }
+
+        self.forked = false;
 
         self.undo.push_back(HistoryEntry {
             snapshot: before,
@@ -101,6 +108,7 @@ impl HistoryStack {
     /// 弹出撤销目标（并把当前状态压入 redo）
     pub fn pop_undo(&mut self, current: ScreenplayDocument) -> Option<(HistoryEntry, ScreenplayDocument)> {
         let entry = self.undo.pop_back()?;
+        self.forked = true;
         self.redo.push_back(HistoryEntry {
             snapshot: current.clone(),
             origin: entry.origin.clone(),
@@ -118,6 +126,7 @@ impl HistoryStack {
     /// 弹出重做目标
     pub fn pop_redo(&mut self, current: ScreenplayDocument) -> Option<(HistoryEntry, ScreenplayDocument)> {
         let entry = self.redo.pop_back()?;
+        self.forked = true;
         self.undo.push_back(HistoryEntry {
             snapshot: current.clone(),
             origin: entry.origin.clone(),
@@ -157,6 +166,7 @@ impl HistoryStack {
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
+        self.forked = false;
     }
 
     /// 导出为可序列化状态（用于崩溃恢复）
@@ -174,6 +184,7 @@ impl HistoryStack {
             undo: dump.undo.into_iter().collect(),
             redo: dump.redo.into_iter().collect(),
             capacity: 100,
+            forked: false,
         })
     }
 }
@@ -355,6 +366,29 @@ mod tests {
         let restored = HistoryStack::from_json(&json).unwrap();
         assert_eq!(restored.undo_depth(), h.undo_depth());
         assert_eq!(restored.redo_depth(), h.redo_depth());
+    }
+
+    #[test]
+    fn t13_edit_after_undo_does_not_merge_across_fork() {
+        let mut h = HistoryStack::new();
+        // 块 A：v0 → v1
+        h.push(doc("v0"), "gui-left", "replace_block", Some("a"), true);
+        // 块 B：v1 → v2
+        h.push(doc("v1"), "gui-left", "replace_block", Some("b"), true);
+        assert_eq!(h.undo_depth(), 2);
+
+        // 撤销到 v1，栈顶只剩块 A 的快照
+        let (_, back) = h.pop_undo(doc("v2")).unwrap();
+        assert_eq!(back.blocks[0].text, "v1");
+        assert_eq!(h.undo_depth(), 1);
+
+        // 在块 A 继续输入：必须另起撤销单元，不能并进 v0 那条快照
+        h.push(back.clone(), "gui-left", "replace_block", Some("a"), true);
+        assert_eq!(h.undo_depth(), 2, "撤销后的新编辑必须是独立的撤销单元");
+
+        // 再撤销只应退回这次新输入（v1），而不是一路退回 v0
+        let (_, restored) = h.pop_undo(doc("v1 再改")).unwrap();
+        assert_eq!(restored.blocks[0].text, "v1");
     }
 
     #[test]

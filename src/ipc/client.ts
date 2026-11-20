@@ -162,6 +162,17 @@ export interface ChangeNotice {
   at: string;
 }
 
+/** 覆盖保存被强杀后留下的完整备份；只有用户确认后才会写回工程文件 */
+export interface StaleSaveBackup {
+  /** 备份文件路径 */
+  backup: string;
+  /** 备份对应的工程文件路径 */
+  container: string;
+  savedAt: string;
+  /** 备份字节数 */
+  size: number;
+}
+
 export interface SearchHit {
   blockId: string;
   blockIndex: number;
@@ -329,6 +340,10 @@ export const ipc = {
   pendingRecovery: () => call<PendingRecovery | null>('pending_recovery'),
   adoptRecovery: () => call<Bootstrap>('adopt_recovery'),
   discardRecovery: () => call<void>('discard_recovery'),
+  // 保存被强杀后留下的完整备份（只有用户确认才会写回）
+  staleSaveBackup: () => call<StaleSaveBackup | null>('stale_save_backup'),
+  restoreStaleSaveBackup: (path: string) => call<void>('restore_stale_save_backup', { path }),
+  dismissStaleSaveBackup: (path: string) => call<boolean>('dismiss_stale_save_backup', { path }),
 
   // 最近文件
   listRecent: () => call<RecentEntry[]>('list_recent'),

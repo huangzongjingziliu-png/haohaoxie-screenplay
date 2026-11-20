@@ -15,6 +15,19 @@ use screenplay_core::parser::{self, ParseOptions, ParseOutcome};
 use screenplay_core::serializer;
 use std::path::Path;
 
+/// 中文纯文本常见 GBK/GB18030 编码：先严格按 UTF-8 解码，
+/// 失败再按 GB18030（GBK 超集）解码，最后才降级为有损 UTF-8。
+fn decode_text(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    let (decoded, _, had_errors) = encoding_rs::GB18030.decode(bytes);
+    if !had_errors {
+        return decoded.into_owned();
+    }
+    String::from_utf8_lossy(bytes).to_string()
+}
+
 /// 从纯文本导入
 pub fn import_text(text: &str, title: Option<String>) -> ParseOutcome {
     let opts = ParseOptions {
@@ -56,7 +69,7 @@ pub fn import_controlled(bytes: &[u8], format: ImportFormat, title: Option<Strin
     let outcome = match format {
 
         ImportFormat::Txt | ImportFormat::Markdown | ImportFormat::Fountain => {
-            let text = String::from_utf8_lossy(bytes).to_string();
+            let text = decode_text(bytes);
             Ok(import_text(&text, title))
         }
         ImportFormat::Fdx => {
@@ -227,5 +240,32 @@ mod source_file_tests {
         let file = tempfile::Builder::new().suffix(".txt").tempfile().unwrap();
         file.as_file().set_len(MAX_SOURCE_BYTES + 1).unwrap();
         assert!(import_path(file.path(), None).unwrap_err().to_string().contains("512 MiB"));
+    }
+
+    /// 中文纯文本常见 GBK/GB18030 编码，必须有损降级前先按 GB18030 解码。
+    #[test]
+    fn gb18030_text_is_decoded_not_mojibake() {
+        // "中文" 的 GBK 字节
+        let bytes = [0xD6u8, 0xD0, 0xCE, 0xC4];
+        let outcome = import(&bytes, ImportFormat::Txt, None).unwrap();
+        let text: String = outcome.document.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("中文"), "GBK 中文被解成了乱码: {text}");
+    }
+
+    #[test]
+    fn gb18030_markdown_and_fountain_use_same_decoder() {
+        let bytes = [0xD6u8, 0xD0, 0xCE, 0xC4];
+        for format in [ImportFormat::Markdown, ImportFormat::Fountain] {
+            let outcome = import(&bytes, format, None).unwrap();
+            let text: String = outcome.document.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+            assert!(text.contains("中文"), "{format:?} 中文被解成了乱码: {text}");
+        }
+    }
+
+    #[test]
+    fn valid_utf8_text_is_imported_as_is() {
+        let outcome = import("中文正文".as_bytes(), ImportFormat::Txt, None).unwrap();
+        let text: String = outcome.document.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert_eq!(text, "中文正文");
     }
 }

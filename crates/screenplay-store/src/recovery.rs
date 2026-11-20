@@ -197,28 +197,16 @@ impl RecoveryManager {
         self.source_id = None;
     }
 
-    /// 用户选择丢弃恢复内容
+    /// 用户选择丢弃恢复内容：只删除当前提示的那条记录及其附件。
+    /// 其他崩溃会话各自是一条独立记录，不能被连带删除。
     pub fn discard_pending(&mut self) {
-        let files: Vec<PathBuf> = std::fs::read_dir(&self.dir)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter_map(|e| {
-                        let p = e.path();
-                        if p.extension().and_then(|s| s.to_str()) != Some("json") {
-                            return None;
-                        }
-                        Some(p)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        for path in files {
-            if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
-                let _ = std::fs::remove_file(&path);
-                self.remove_other_source_files(stem, None);
+        if let Some(record) = self.pending.take() {
+            if safe_session_id(&record.session_id) {
+                let path = self.dir.join(format!("{}.json", record.session_id));
+                let _ = std::fs::remove_file(path);
+                self.remove_other_source_files(&record.session_id, None);
             }
         }
-        self.pending = None;
     }
 
     /// 采纳成功后仅消费被采纳的旧会话，不影响其他恢复记录。
@@ -501,18 +489,26 @@ mod tests {
     }
 
     #[test]
-    fn t08_discard_pending_removes_all() {
+    fn t08_discard_pending_removes_only_that_session() {
         let dir = tmpdir("08");
         let mut m1 = mgr_in(&dir);
         m1.session_id = "old1".into();
         m1.save(None, &doc_with("a"), None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
         let mut m2 = mgr_in(&dir);
         m2.session_id = "old2".into();
         m2.save(None, &doc_with("b"), None).unwrap();
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
 
+        // 用户只丢弃当前提示的那条（最新）记录
+        m1.pending = m1.find_stale_session("current");
+        assert_eq!(m1.pending().unwrap().session_id, "old2");
         m1.discard_pending();
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        assert!(!dir.join("old2.json").exists(), "被丢弃的记录应删除");
+        assert!(
+            dir.join("old1.json").exists(),
+            "不得连带删除其他崩溃会话的恢复记录"
+        );
     }
 
     #[test]

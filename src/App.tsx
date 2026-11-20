@@ -9,6 +9,7 @@ import ModelPicker from '@/components/ModelPicker';
 import AgentContextMenu from '@/components/AgentContextMenu';
 import AgentSelectionPanel from '@/components/AgentSelectionPanel';
 import type {AgentTarget} from '@/utils/agentSelection';
+import {shouldBypassUndoShortcut} from '@/utils/shortcuts';
 import SceneBoard from '@/components/SceneBoard';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import NewProjectDialog from '@/components/NewProjectDialog';
@@ -24,6 +25,7 @@ import SettingsPanel from '@/components/UnifiedSettings';
 import SearchBar from '@/components/SearchBar';
 import Toasts from '@/components/Toasts';
 import RecoveryPrompt from '@/components/RecoveryPrompt';
+import StaleBackupPrompt from '@/components/StaleBackupPrompt';
 import VersionPanel from '@/components/VersionPanel';
 import ProPurchase from '@/components/ProPurchase';
 import { useEntitlementStore } from '@/stores/entitlement';
@@ -152,6 +154,8 @@ export default function App() {
       if (!mod) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('.modal, .agent-panel') && ['z', 'y', 's'].includes(e.key.toLowerCase())) return;
+      // 输入框 / 白板便签里保留浏览器原生撤销，避免 ⌘Z 撤销整篇剧本
+      if (shouldBypassUndoShortcut(target) && ['z', 'y'].includes(e.key.toLowerCase())) return;
       if (e.key === 'z') {
         e.preventDefault();
         const st = useEditorStore.getState();
@@ -245,7 +249,7 @@ export default function App() {
       </div>
     ) : renderEditor();
 
-  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}<ProPurchase /></>;
+  return <>{helpSection&&<HelpPanel initial={helpSection} onClose={()=>setHelpSection(null)}/ >}{content}{showImport && <ImportDialog onClose={() => setShowImport(false)} />}<ModelRequiredDialog/><Toasts /><StaleBackupPrompt /><RecoveryPrompt />{showNew && <NewProjectDialog onClose={() => setShowNew(false)} onCreated={() => void ipc.listRecent().then(setRecent)} />}{showImportReview && <ImportReview onClose={() => setShowImportReview(false)} />}{exitDialog}{project.state === 'empty' && showSettings && <SettingsPanel initial={settingsTab} onClose={()=>setShowSettings(false)}/ >}{showConnections && <ConnectionPanel onClose={() => setShowConnections(false)} />}<ProPurchase /></>;
 
   function renderEditor() {
 

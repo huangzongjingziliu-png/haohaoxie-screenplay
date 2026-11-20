@@ -205,6 +205,17 @@ impl ModelRouter {
             .ok_or_else(|| anyhow::anyhow!("没有可用的模型 provider"))?;
         p.chat_limited(messages, temperature, max_tokens).await
     }
+
+    /// 按技能自身配置调用：温度与输出上限都取自技能，而不是固定默认值。
+    pub async fn chat_for_skill(
+        &self,
+        model: Option<&str>,
+        messages: &[ChatMessage],
+        skill: &crate::skill::Skill,
+    ) -> Result<String> {
+        self.chat_with_max_tokens(model, messages, skill.temperature, skill.max_tokens)
+            .await
+    }
 }
 
 #[cfg(test)]

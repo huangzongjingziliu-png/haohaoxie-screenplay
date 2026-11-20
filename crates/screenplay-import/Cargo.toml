@@ -15,5 +15,6 @@ lopdf.workspace = true
 zip.workspace = true
 quick-xml.workspace = true
 tempfile.workspace = true
+encoding_rs.workspace = true
 
 [dev-dependencies]

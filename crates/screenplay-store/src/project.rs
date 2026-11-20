@@ -116,7 +116,8 @@ fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(
     let parent=container.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e|e.to_string())?;
     // 沙盒里用户经保存面板选中的文件只授权了该文件本身，同目录建临时文件会被拒（EPERM）。
-    // 这种情况下退回直接写目标文件：牺牲原子性换可用性；容器内与非沙盒路径仍走临时文件 + rename。
+    // 这时**不能**原地截断覆盖：写到一半失败会把用户的工程变成不完整文件。
+    // 已存在工程时直接中止并报错，让用户另选位置；只有目标尚不存在时才直接创建。
     match tempfile::NamedTempFile::new_in(parent) {
         Ok(mut temporary)=>{
             if let Ok(metadata)=std::fs::metadata(container){temporary.as_file().set_permissions(metadata.permissions()).map_err(|e|e.to_string())?;}
@@ -129,12 +130,216 @@ fn atomic_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(
     }
 }
 
-/// 直接截断写目标文件（仅在无法创建同目录临时文件时使用）。
+/// 无法在目标旁建临时文件时的回退（沙盒只授权单个文件，商店版每次覆盖保存都走这里）。
+/// 不能直接截断：先把原文件完整备份到临时目录，再截断写入；
+/// 写入失败立即用备份还原。这样任何失败或中断都不会让原工程只剩半截。
 fn direct_write(container:&Path, write:impl FnOnce(&mut std::fs::File)->Result<(),String>)->Result<(),String>{
-    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(container)
-        .map_err(|e|format!("无法写入 {}: {e}",container.display()))?;
-    write(&mut file)?;
-    file.sync_all().map_err(|e|e.to_string())
+    if !container.exists() {
+        // 目标尚不存在：直接创建，失败就清掉残片
+        let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(container)
+            .map_err(|e|format!("无法创建 {}: {e}",container.display()))?;
+        let written=write(&mut file).and_then(|_|file.sync_all().map_err(|e|e.to_string()));
+        if written.is_err(){let _=std::fs::remove_file(container);}
+        return written;
+    }
+
+    let backup=create_save_backup(container)?;
+    let written=(||{
+        let mut file=std::fs::OpenOptions::new().write(true).truncate(true).open(container)
+            .map_err(|e|format!("无法写入 {}: {e}",container.display()))?;
+        write(&mut file)?;
+        file.sync_all().map_err(|e|e.to_string())
+    })();
+    match written {
+        Ok(())=>{remove_save_backup(&backup);Ok(())}
+        Err(error)=>{
+            let restored=std::fs::copy(&backup,container);
+            if restored.is_err() {
+                return Err(format!("{error}；原工程备份保存在 {}，请勿删除，可据此恢复",backup.display()));
+            }
+            remove_save_backup(&backup);
+            Err(format!("{error}；已从备份还原原工程，文件未损坏"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 覆盖保存的残留备份
+// ---------------------------------------------------------------------------
+
+/// 临时备份文件名前缀。
+pub const SAVE_BACKUP_PREFIX: &str = "screenplay-save-";
+
+/// 覆盖保存留下的、可确认恢复的完整备份。
+///
+/// 只有「备份文件 + 侧写归属信息」都在，且用户明确确认后才会被恢复；
+/// 应用不会自动采用它，也不会自动删除它。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleSaveBackup {
+    /// 备份文件绝对路径
+    pub backup: String,
+    /// 备份对应的工程文件绝对路径
+    pub container: String,
+    pub saved_at: String,
+    pub size: u64,
+}
+
+/// 备份旁记录归属的 sidecar（JSON），避免靠文件名猜工程。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SaveBackupSidecar {
+    container: String,
+    saved_at: String,
+}
+
+/// 路径规范化：能 canonicalize 就用真实路径，否则退回原样。
+fn absolute_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// FNV-1a：跨进程、跨版本稳定，用来给备份文件名打上可复现的路径标记。
+fn path_tag(path: &Path) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in absolute_path(path).to_string_lossy().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn save_backup_sidecar_path(backup: &Path) -> PathBuf {
+    backup.with_extension("json")
+}
+
+/// 覆盖写之前的临时备份位置（系统临时目录一定可写）。
+fn save_backup_path(container: &Path) -> PathBuf {
+    let name = container.file_name().and_then(|n| n.to_str()).unwrap_or("project");
+    std::env::temp_dir().join(format!("{SAVE_BACKUP_PREFIX}{}-{name}.bak", path_tag(container)))
+}
+
+/// 覆盖写之前把原工程完整备份到临时目录，并记录它属于哪个工程。
+///
+/// 备份与归属记录都在、且原工程已被截断时，就是「保存被强杀」留下的残留状态。
+pub fn create_save_backup(container: &Path) -> Result<PathBuf, String> {
+    let backup = save_backup_path(container);
+    // 先登记归属再复制：进程在复制后被强杀时，启动检查要能认出它属于哪个工程。
+    write_save_backup_sidecar(&backup, container)?;
+    if let Err(e) = std::fs::copy(container, &backup) {
+        remove_save_backup(&backup);
+        return Err(format!(
+            "无法备份原工程 {}，为避免损坏已中止保存：{e}",
+            container.display()
+        ));
+    }
+    Ok(backup)
+}
+
+fn write_save_backup_sidecar(backup: &Path, container: &Path) -> Result<(), String> {
+    let sidecar = save_backup_sidecar_path(backup);
+    let payload = SaveBackupSidecar {
+        container: absolute_path(container).to_string_lossy().into_owned(),
+        saved_at: now_iso(),
+    };
+    std::fs::write(
+        &sidecar,
+        serde_json::to_string(&payload).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("无法记录备份位置 {}，为避免损坏已中止保存：{e}", sidecar.display()))
+}
+
+fn remove_save_backup(backup: &Path) {
+    let _ = std::fs::remove_file(backup);
+    let _ = std::fs::remove_file(save_backup_sidecar_path(backup));
+}
+
+fn read_save_backup_sidecar(backup: &Path) -> Option<SaveBackupSidecar> {
+    std::fs::read_to_string(save_backup_sidecar_path(backup))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+}
+
+/// 列出所有可确认恢复的残留保存备份（最新在前）。
+///
+/// 只做一次临时目录的 `read_dir`，没有残备份时开销可忽略。
+pub fn list_stale_save_backups() -> Vec<StaleSaveBackup> {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(SAVE_BACKUP_PREFIX) || !name.ends_with(".bak") {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
+        // 没有归属记录的 .bak 无法确认属于哪个工程：不猜、不列、也不删。
+        let Some(sidecar) = read_save_backup_sidecar(&path) else {
+            continue;
+        };
+        found.push(StaleSaveBackup {
+            backup: path.to_string_lossy().into_owned(),
+            container: sidecar.container,
+            saved_at: sidecar.saved_at,
+            size: metadata.len(),
+        });
+    }
+    found.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    found
+}
+
+/// 查找某个工程的残留保存备份。
+pub fn find_stale_save_backup(container: &Path) -> Option<StaleSaveBackup> {
+    let target = absolute_path(container);
+    list_stale_save_backups()
+        .into_iter()
+        .find(|item| Path::new(&item.container) == target.as_path())
+}
+
+/// 用户确认后用残留备份还原工程文件，成功后清理备份与归属记录。
+///
+/// 覆盖前先验证备份本身是完整可读的工程，避免把损坏内容写回去。
+pub fn restore_stale_save_backup(container: &Path) -> Result<StaleSaveBackup, String> {
+    let found = find_stale_save_backup(container)
+        .ok_or_else(|| "未找到该工程的残留保存备份".to_string())?;
+    // 工程文件仍能正常打开，说明那次保存其实已经完成：备份只是旧版本。
+    // 此时拒绝覆盖，避免把用户更新的内容退回旧版；备份原样保留。
+    if load_project(container).is_ok() {
+        return Err("工程文件当前可以正常打开，已取消恢复；备份仍保留在原处".into());
+    }
+    let backup = PathBuf::from(&found.backup);
+    load_project(&backup).map_err(|e| format!("备份文件不完整，未做任何改动：{e}"))?;
+    if let Some(parent) = container.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&backup, container).map_err(|e| format!("恢复失败：{e}"))?;
+    // 先确保落盘，再删备份：宁可留下多余备份，也不能出现「备份已删、内容未落盘」。
+    if let Ok(file) = std::fs::OpenOptions::new().write(true).open(container) {
+        let _ = file.sync_all();
+    }
+    remove_save_backup(&backup);
+    Ok(found)
+}
+
+/// 用户选择保留备份但不再提示：只改名，不删除数据。
+pub fn dismiss_stale_save_backup(container: &Path) -> Result<bool, String> {
+    let Some(found) = find_stale_save_backup(container) else {
+        return Ok(false);
+    };
+    let backup = PathBuf::from(&found.backup);
+    let sidecar = save_backup_sidecar_path(&backup);
+    let declined = PathBuf::from(format!("{}.declined", backup.display()));
+    std::fs::rename(&backup, &declined)
+        .map_err(|e| format!("保留备份失败：{e}"))?;
+    if sidecar.exists() {
+        let _ = std::fs::rename(&sidecar, PathBuf::from(format!("{}.declined", sidecar.display())));
+    }
+    Ok(true)
 }
 
 #[derive(Debug)]
@@ -376,6 +581,44 @@ mod security_tests {
         let loaded=load_project(tmp.path()).unwrap();
         assert_eq!(loaded.document.settings.project_memory,doc.settings.project_memory);
     }
+    /// 覆盖保存失败/中断时不得让已存在的工程只剩半截：
+    /// 写失败必须还原成原来的完整文件（商店版沙盒只能走这条覆盖路径）。
+    #[test]
+    fn save_failure_keeps_existing_container_intact() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("locked.screenplay");
+        let original = make_valid_zip();
+        std::fs::write(&path, &original).unwrap();
+
+        // 只读目录 → 无法在目标旁创建临时文件，只能走覆盖写回退
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = atomic_write(&path, |file| {
+            std::io::Write::write_all(file, b"partial garbage").map_err(|e| e.to_string())?;
+            Err("写入中断".to_string())
+        });
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(result.is_err(), "写入失败必须报错");
+        assert_eq!(std::fs::read(&path).unwrap(), original, "失败后原工程必须被还原成完整文件");
+    }
+
+    /// 回退路径本身必须仍可保存成功，否则商店版无法覆盖保存。
+    #[test]
+    fn sandbox_like_directory_can_still_overwrite_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.screenplay");
+        std::fs::write(&path, make_valid_zip()).unwrap();
+
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = save_project(&path, &ScreenplayDocument::blank("新内容"), None, None, None, None);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(result.is_ok(), "无法建临时文件时应退回安全覆盖写：{result:?}");
+        assert_eq!(load_project(&path).unwrap().document.metadata.title, "新内容");
+    }
+
     #[test]
     fn old_settings_without_memory_remain_compatible() {
         let settings=screenplay_core::ast::ScreenplaySettings::default();
@@ -405,6 +648,96 @@ mod security_tests {
   save_project(&path,&ScreenplayDocument::blank("first"),None,None,None,None).unwrap();
   save_project(&path,&ScreenplayDocument::blank("second"),None,None,None,None).unwrap();
   assert_eq!(load_project(&path).unwrap().document.metadata.title,"second");
+ }
+}
+
+#[cfg(test)]mod stale_save_backup_tests{
+ use super::*;
+
+ /// 模拟「覆盖写过程中进程被强杀」：完整备份 + 归属记录留着，工程文件只剩半截。
+ fn leave_stale_backup(path:&Path,title:&str)->PathBuf{
+  save_project(path,&ScreenplayDocument::blank(title),None,None,None,None).unwrap();
+  // 走生产同一条备份路径，但停在覆盖写之前，模拟进程此刻被强杀。
+  let backup=create_save_backup(path).unwrap();
+  std::fs::write(path,b"half written garbage\n").unwrap();
+  backup
+ }
+
+ #[test]
+ fn stale_backup_can_be_found_restored_and_cleaned(){
+  let dir=tempfile::tempdir().unwrap();
+  let path=dir.path().join("残留.screenplay");
+  let backup=leave_stale_backup(&path,"恢复后的完整工程");
+
+  let found=find_stale_save_backup(&path).expect("应发现与本工程相关的残留备份");
+  assert_eq!(Path::new(&found.container),absolute_path(&path).as_path());
+  assert!(found.size>0);
+  assert!(list_stale_save_backups().iter().any(|item|item.backup==found.backup));
+
+  restore_stale_save_backup(&path).unwrap();
+  assert_eq!(load_project(&path).unwrap().document.metadata.title,"恢复后的完整工程");
+  assert!(!backup.exists(),"恢复成功后必须清理备份文件");
+  assert!(!save_backup_sidecar_path(&backup).exists(),"恢复成功后必须清理归属记录");
+  assert!(find_stale_save_backup(&path).is_none());
+ }
+
+ #[test]
+ fn dismissed_backup_is_kept_but_not_listed(){
+  let dir=tempfile::tempdir().unwrap();
+  let path=dir.path().join("拒绝恢复.screenplay");
+  let backup=leave_stale_backup(&path,"不自动采用的内容");
+  let bytes=std::fs::read(&backup).unwrap();
+
+  assert!(dismiss_stale_save_backup(&path).unwrap());
+  assert!(!backup.exists());
+  let declined=PathBuf::from(format!("{}.declined",backup.display()));
+  assert_eq!(std::fs::read(&declined).unwrap(),bytes,"拒绝恢复只能改名，绝不能删数据");
+  assert!(find_stale_save_backup(&path).is_none(),"已拒绝的备份不再打扰");
+  assert!(!list_stale_save_backups().iter().any(|item|item.backup==backup.to_string_lossy()));
+
+  let _=std::fs::remove_file(declined);
+  let _=std::fs::remove_file(PathBuf::from(format!("{}.declined",save_backup_sidecar_path(&backup).display())));
+ }
+
+ #[test]
+ fn healthy_project_is_not_overwritten_by_leftover_backup(){
+  let dir=tempfile::tempdir().unwrap();
+  let path=dir.path().join("healthy.screenplay");
+  save_project(&path,&ScreenplayDocument::blank("最新版本"),None,None,None,None).unwrap();
+  let backup=create_save_backup(&path).unwrap();
+
+  let error=restore_stale_save_backup(&path).unwrap_err();
+  assert!(error.contains("正常打开"),"错误信息：{error}");
+  assert_eq!(load_project(&path).unwrap().document.metadata.title,"最新版本");
+  assert!(backup.exists(),"拒绝恢复时不得删除备份");
+  remove_save_backup(&backup);
+ }
+
+ #[test]
+ fn corrupt_backup_is_not_restored_over_current_file(){
+  let dir=tempfile::tempdir().unwrap();
+  let path=dir.path().join("损坏备份.screenplay");
+  leave_stale_backup(&path,"原工程");
+  let backup=save_backup_path(&path);
+  std::fs::write(&backup,b"not a zip").unwrap();
+
+  let error=restore_stale_save_backup(&path).unwrap_err();
+  assert!(error.contains("不完整"),"错误信息：{error}");
+  assert_eq!(std::fs::read(&path).unwrap(),b"half written garbage\n","备份不可用时不得改动工程文件");
+  assert!(backup.exists(),"未恢复成功前不得删除备份");
+
+  remove_save_backup(&backup);
+ }
+
+ #[test]
+ fn backup_paths_of_same_name_projects_do_not_collide(){
+  let a=tempfile::tempdir().unwrap();
+  let b=tempfile::tempdir().unwrap();
+  let first=a.path().join("剧名.screenplay");
+  let second=b.path().join("剧名.screenplay");
+  save_project(&first,&ScreenplayDocument::blank("甲"),None,None,None,None).unwrap();
+  save_project(&second,&ScreenplayDocument::blank("乙"),None,None,None,None).unwrap();
+  assert_ne!(save_backup_path(&first),save_backup_path(&second));
  }
 }
 

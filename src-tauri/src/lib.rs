@@ -32,6 +32,7 @@ use screenplay_store::bridge::{
     BridgeError, BridgeRequest, BridgeResponse, BridgeServer,
 };
 use screenplay_store::command::{CommandError, CommandResult};
+use screenplay_store::project::StaleSaveBackup;
 use screenplay_store::db::{AuditEntry, Branch, Origin, VersionRecord};
 use screenplay_agent::{AgentRunner, ModelRouter, SkillRegistry};
 use serde::{Deserialize, Serialize};
@@ -1491,6 +1492,63 @@ fn discard_recovery(state: State<'_, AppState>) -> IpcResult<()> {
 }
 
 // ---------------------------------------------------------------------------
+// 覆盖保存被强杀后的残留备份
+// ---------------------------------------------------------------------------
+
+/// 启动检查的目标工程：优先当前工程，其次最近打开过的工程。
+fn stale_backup_target(project: &ProjectService) -> Option<PathBuf> {
+    project
+        .state()
+        .path()
+        .map(PathBuf::from)
+        .or_else(|| load_recent().into_iter().next().map(|entry| PathBuf::from(entry.path)))
+}
+
+/// 查询与当前工程相关的残留保存备份；只在用户确认后才会被恢复。
+#[tauri::command]
+fn stale_save_backup(state: State<'_, AppState>) -> IpcResult<Option<StaleSaveBackup>> {
+    let Some(path) = stale_backup_target(&state.project) else {
+        return Ok(None);
+    };
+    let found = state.project.stale_save_backup(&path);
+    if let Some(item) = &found {
+        diag::log(&format!(
+            "stale_save_backup: {} <- {} ({} bytes, {})",
+            path.display(),
+            item.backup,
+            item.size,
+            item.saved_at
+        ));
+    }
+    Ok(found)
+}
+
+/// 用户明确确认后，用残留备份还原工程文件。
+#[tauri::command]
+fn restore_stale_save_backup(state: State<'_, AppState>, path: String) -> IpcResult<()> {
+    // 沙盒下写入用户目录需要安全作用域；拿不到授权时仍尝试恢复，失败会给出原因。
+    let access = match file_access::acquire(&path) {
+        Ok(access) => access,
+        Err(error) => {
+            diag::log(&format!("stale backup access: {error}"));
+            None
+        }
+    };
+    state.project.restore_stale_backup(&PathBuf::from(&path))?;
+    drop(access);
+    diag::log(&format!("restore_stale_save_backup: {path}"));
+    Ok(())
+}
+
+/// 用户选择保留备份但不再提示（只改名，不删除数据）。
+#[tauri::command]
+fn dismiss_stale_save_backup(state: State<'_, AppState>, path: String) -> IpcResult<bool> {
+    let kept = state.project.dismiss_stale_backup(&PathBuf::from(&path))?;
+    diag::log(&format!("dismiss_stale_save_backup: {path} kept={kept}"));
+    Ok(kept)
+}
+
+// ---------------------------------------------------------------------------
 // 开发期诊断文件读写（供 GUI 自检探针写证据）
 // ---------------------------------------------------------------------------
 
@@ -1866,6 +1924,9 @@ pub fn run() {
             pending_recovery,
             adopt_recovery,
             discard_recovery,
+            stale_save_backup,
+            restore_stale_save_backup,
+            dismiss_stale_save_backup,
             // 开发期诊断
             home_dir,
             write_text_file,
