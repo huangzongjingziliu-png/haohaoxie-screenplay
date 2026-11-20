@@ -565,14 +565,24 @@ impl ProjectService {
         // 若原项目容器仍存在，直接打开它并载入恢复的文档
         let recovery_path=rec.container.as_deref().map(Path::new).filter(|p|p.exists());
         let target_lock=match recovery_path{Some(p)=>self.acquire_target(p)?,None=>None};
-        let ws = match rec.container.as_deref() {
-            Some(p) if std::path::Path::new(p).exists() => {
-                let w = Workspace::open(std::path::Path::new(p))?;
-                self.saved_revision
-                    .store(w.service.store.revision(), Ordering::SeqCst);
-                w
-            }
-            _ => {
+        let mut attached=false;
+        let ws = match recovery_path {
+            Some(p) => match Workspace::open(p) {
+                Ok(w) => {
+                    attached=true;
+                    self.saved_revision
+                        .store(w.service.store.revision(), Ordering::SeqCst);
+                    w
+                }
+                Err(_) => {
+                    // 容器已损坏：恢复记录不能因为打不开原文件而作废。
+                    // 作为未保存项目载入恢复内容，并要求另存为；损坏的原文件保持原样，
+                    // 以免覆盖掉仍可抢修的数据。
+                    self.saved_revision.store(0, Ordering::SeqCst);
+                    Workspace::blank(&rec.document.metadata.title)?
+                }
+            },
+            None => {
                 // 容器已不存在：作为未保存项目恢复
                 let w = Workspace::blank(&rec.document.metadata.title)?;
                 self.saved_revision.store(0, Ordering::SeqCst);
@@ -595,7 +605,7 @@ impl ProjectService {
             .map_err(|e| e.to_string())?;
 
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
-        if recovery_path.is_none(){*self.project_lock.lock().unwrap()=None;}else if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);}
+        if attached { if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);} } else { *self.project_lock.lock().unwrap()=None; }
         self.reset_autosave_for_project();
         self.dirty.store(true, Ordering::SeqCst);
         if self.write_recovery() {
@@ -775,6 +785,38 @@ mod tests {
         svc.shutdown();
         let _ = std::fs::remove_file(source_path);
         let _ = std::fs::remove_file(project_path);
+    }
+}
+
+#[cfg(test)] mod recovery_corruption_tests {
+    use super::*;
+    /// 原项目容器损坏时，恢复记录仍必须能打开；
+    /// 且绝不能把恢复内容写回损坏文件，否则原稿失去抢修机会。
+    #[test] fn corrupt_container_still_restores_pending_document() {
+        let root = std::env::temp_dir().join(screenplay_core::ast::new_id("recover-corrupt-qa"));
+        let dir = root.join("recovery");
+        let path = root.join("broken.screenplay");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let svc = ProjectService::with_recovery_directory(dir.clone());
+        svc.create_new("损坏工程").unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "已保存的正文", None)).unwrap();
+        svc.save(Some(&path)).unwrap();
+        svc.run(|s| s.insert_block(Origin::GuiLeft, None, screenplay_core::ast::BlockType::Action, "崩溃前未保存的正文", None)).unwrap();
+        svc.shutdown();
+        drop(svc);
+
+        // 模拟崩溃后容器被外部程序写坏
+        std::fs::write(&path, b"not a zip").unwrap();
+
+        let svc2 = ProjectService::with_recovery_directory(dir.clone());
+        let doc = svc2.adopt_recovery().expect("容器损坏时仍应能采纳恢复内容");
+        assert!(doc.blocks.iter().any(|b| b.text == "崩溃前未保存的正文"), "恢复内容必须完整");
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a zip", "不得覆盖损坏的原文件");
+        assert!(svc2.require().unwrap().container_path().is_none(), "损坏容器应作为未保存项目恢复，要求另存为");
+
+        svc2.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
