@@ -6,7 +6,7 @@ import SkillCreator from './SkillCreator';
 
 type SkillInfo={id:string;name:string;description:string;dimensions:string[];kind:'review'|'writing';builtin:boolean;enabled:boolean};
 
-/** 设置 → 模型与技能：技能库的启用/停用、改名、导入导出。 */
+/** 设置 → 编剧助理 → 技能管理：启用/停用、改名、导入导出。 */
 export default function SkillSettings({creating,onCreating}:{creating:boolean;onCreating:(value:boolean)=>void}){
  const toast=useEditorStore(s=>s.pushToast);
  const [skills,setSkills]=useState<SkillInfo[]>([]);
@@ -39,7 +39,7 @@ export default function SkillSettings({creating,onCreating}:{creating:boolean;on
   </div>
  </li>;
  return <div>
-  <h3>{tr("技能")}</h3>
+  <h3>{tr("技能管理")}</h3>
   <p className="modal-hint">{tr("技能在设置里管理，在助理面板里使用。内置技能随版本提供；自定义技能以 SKILL.md 单文件保存，旧版 EXPERT.md 仍可读取。")}</p>
   <p className="modal-hint">{tr("类型：审稿型参加会审，对文本提判断与修改建议；写作型出现在助理对话里，做单步写作或改写。")}</p>
   <div className="expert-admin-toolbar">
