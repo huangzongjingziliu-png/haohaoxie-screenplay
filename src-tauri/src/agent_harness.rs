@@ -72,7 +72,8 @@ pub async fn agent_chat(state: State<'_,AppState>, project_id:String, instructio
     let active_expert=expert_id.as_deref().filter(|id|!id.is_empty()).and_then(|id|crate::agent_experts::load_all_experts().into_iter().find(|e|e.id==id));
     let writing=active_expert.as_ref().is_some_and(|e|e.kind==screenplay_agent::ExpertKind::Writing);
     let persona=active_expert.as_ref().map(|e|format!("{}\n\n",e.persona())).unwrap_or_default();
-    let skill=match skill_id { Some(id) if !id.is_empty()=>agent.skills.get(&id).ok_or_else(||error("技能不存在"))?.render(&context), _=>String::new() };
+    let selected_skill=match skill_id { Some(id) if !id.is_empty()=>Some(agent.skills.get(&id).ok_or_else(||error("技能不存在"))?), _=>None };
+    let skill=selected_skill.map(|s|s.render(&context)).unwrap_or_default();
     let reply_language=if ui_language.as_deref()==Some("en") { "Use concise English for discussion unless the user requests another language. Do not translate screenplay content unless requested." } else { "用简洁中文对话，除非用户要求其他语言。不要主动翻译剧本。" };
     let active_episode=doc.series.as_ref().and_then(|s|s.episodes.iter().find(|e|e.id==s.active_id)).map(|e|e.title.as_str()).unwrap_or("独立剧本");
     let mode_rule=if writing {"直接给出可写进剧本的文字，保留人物与情节事实，不解释工作过程；不要声称已经修改或保存。"} else {"当前调用只提供建议，不能声称已经修改或保存。用户要改稿时给出明确方案，界面提供预览入口。"};
@@ -80,7 +81,11 @@ pub async fn agent_chat(state: State<'_,AppState>, project_id:String, instructio
     let mut messages=vec![ChatMessage{role:"system".into(),content:system}];
     for t in history.into_iter().rev().take(12).collect::<Vec<_>>().into_iter().rev() { if (t.role=="user" || t.role=="assistant") && t.content.len()<=20000 {messages.push(ChatMessage{role:t.role,content:t.content});} }
     messages.push(ChatMessage{role:"user".into(),content:instruction.clone()});
-    let response=agent.router.chat(None,&messages,0.5).await.map_err(error)?;
+    // 选中技能时按其配置的 temperature / max_tokens 调用；未选技能才用对话默认值。
+    let response=match selected_skill {
+        Some(s)=>agent.router.chat_for_skill(None,&messages,s).await,
+        None=>agent.router.chat(None,&messages,0.5).await,
+    }.map_err(error)?;
     // Personalization is edited by the user only; model responses never write it.
     Ok(response)
 }

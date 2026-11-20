@@ -88,7 +88,7 @@ impl AgentRunner {
 
         let response = self
             .router
-            .chat(None, &messages, skill.temperature)
+            .chat_for_skill(None, &messages, skill)
             .await
             .map_err(AgentError::Model)?;
 
@@ -327,6 +327,41 @@ mod tests {
         let result = runner.apply_skill("polish", &doc.blocks[0].id, "change").await;
         assert!(matches!(result, Err(AgentError::CloudAiDisabled)));
         assert_eq!(runner.service.get_document().document, doc);
+    }
+
+    /// 技能里配置的 temperature / max_tokens 必须真正传给模型调用，
+    /// 而不是被固定的 0.5 / 4096 覆盖。
+    #[tokio::test]
+    async fn skill_temperature_and_max_tokens_reach_provider() {
+        struct ParamRecorder(Arc<std::sync::Mutex<Vec<(f32, u32)>>>);
+        #[async_trait::async_trait]
+        impl ModelProvider for ParamRecorder {
+            fn name(&self) -> &str { "params" }
+            async fn chat(&self, _: &[ChatMessage], t: f32) -> Result<String> {
+                self.0.lock().unwrap().push((t, 0));
+                Ok("改写结果".into())
+            }
+            async fn chat_limited(&self, _: &[ChatMessage], t: f32, max_tokens: u32) -> Result<String> {
+                self.0.lock().unwrap().push((t, max_tokens));
+                Ok("改写结果".into())
+            }
+        }
+        let mut runner = make_runner();
+        let id = runner.service.get_document().document.blocks[0].id.clone();
+        let mut skill = crate::skill::Skill::new("limit-skill", "限量", "测试用", "系统提示 {input}");
+        skill.temperature = 0.3;
+        skill.max_tokens = 1234;
+        runner.skills.register(skill);
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut router = ModelRouter::new("params");
+        router.register(Box::new(ParamRecorder(seen.clone())));
+        runner.router = router;
+
+        runner.apply_skill("limit-skill", &id, "改一下").await.unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!((seen[0].0 - 0.3).abs() < 0.001, "temperature 未按技能配置传递: {}", seen[0].0);
+        assert_eq!(seen[0].1, 1234, "max_tokens 未按技能配置传递");
     }
 
     struct ConcurrentEditProvider { service: Arc<CommandService>, block_id: String }
