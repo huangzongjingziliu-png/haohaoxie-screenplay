@@ -1,9 +1,11 @@
-//! 专家（Expert）会审：多位带方法论的审稿人依次评审，再由“会审主持”汇总。
+//! 技能（内部沿用 Expert 命名）：审稿技能依次评审后由“会审主持”汇总；
+//! 写作技能在对话里做单步写作或改写。
 //!
-//! 设计要点见 `docs/assistant/harness-experts.md`：
-//! - 专家与技能分工：技能是片段级写作动作，专家是稳定的方法论人格；
-//! - 串行执行，调用次数 = 专家数 + 1，避免并发放大成本；
-//! - 自定义专家放在用户目录的 `experts/<id>/EXPERT.md`，不覆盖内置专家。
+//! 设计要点见 `docs/assistant/harness-skills.md`：
+//! - 对外只有「技能」一个概念，按类型分流到会审或对话；
+//! - 串行执行，调用次数 = 技能数 + 1，避免并发放大成本；
+//! - 自定义技能放在用户目录的 `skills/<id>/SKILL.md`；
+//!   旧目录 `experts/<id>/EXPERT.md` 继续读取，不覆盖内置技能。
 
 use crate::{build_agent, AppState, IpcError, IpcResult};
 use screenplay_agent::{Expert, ExpertMode, ExpertPanel};
@@ -17,14 +19,24 @@ fn error(message: impl ToString) -> IpcError {
     IpcError::InvalidArgument { message: message.to_string() }
 }
 
-/// 用户专家目录（与内置技能目录并列）。
-pub(crate) fn experts_dir() -> Option<PathBuf> {
+/// 用户技能目录：新文件统一保存为 `skills/<id>/SKILL.md`。
+pub(crate) fn skills_dir() -> Option<PathBuf> {
+    crate::user_skills_dir()
+}
+
+/// 旧版技能目录：继续读取 `experts/<id>/EXPERT.md`，避免用户旧文件失效。
+pub(crate) fn legacy_experts_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("ScreenplayStudio").join("experts"))
 }
 
-/// 停用名单单独存放，不改 EXPERT.md 格式，也不改既有解析规则。
+/// 加载顺序：新目录优先，旧目录兜底。
+fn skill_dirs() -> Vec<PathBuf> {
+    [skills_dir(), legacy_experts_dir()].into_iter().flatten().collect()
+}
+
+/// 停用名单单独存放，不改技能文件格式，也不改既有解析规则。
 fn disabled_file() -> Option<PathBuf> {
-    experts_dir().map(|d| d.join(".disabled.json"))
+    legacy_experts_dir().map(|d| d.join(".disabled.json"))
 }
 
 fn read_disabled() -> Vec<String> {
@@ -45,11 +57,25 @@ fn write_disabled(ids: &[String]) -> IpcResult<()> {
 
 pub(crate) fn load_all_experts() -> Vec<Expert> {
     let disabled = read_disabled();
-    screenplay_agent::load_experts_detailed(experts_dir().as_deref())
+    screenplay_agent::load_experts_detailed(&skill_dirs())
         .0
         .into_iter()
         .filter(|e| !disabled.contains(&e.id))
         .collect()
+}
+
+/// 自定义技能实际所在的文件：优先 SKILL.md，兼容旧版 EXPERT.md。
+fn custom_file(id: &str) -> Option<PathBuf> {
+    for dir in skill_dirs() {
+        let folder = dir.join(id);
+        for name in ["SKILL.md", "EXPERT.md"] {
+            let file = folder.join(name);
+            if file.is_file() {
+                return Some(file);
+            }
+        }
+    }
+    None
 }
 
 #[derive(Serialize)]
@@ -75,7 +101,7 @@ fn expert_info(expert: &Expert, enabled: bool) -> ExpertInfo {
     }
 }
 
-/// 专家列表 + 自定义文件被跳过时的原因（路径与错误），供界面提示用户修正。
+/// 技能列表 + 自定义文件被跳过时的原因（路径与错误），供界面提示用户修正。
 #[derive(Serialize)]
 pub struct ExpertCatalog {
     pub experts: Vec<ExpertInfo>,
@@ -84,7 +110,7 @@ pub struct ExpertCatalog {
 
 #[tauri::command]
 pub fn agent_list_experts() -> IpcResult<ExpertCatalog> {
-    let (experts, issues) = screenplay_agent::load_experts_detailed(experts_dir().as_deref());
+    let (experts, issues) = screenplay_agent::load_experts_detailed(&skill_dirs());
     let disabled = read_disabled();
     Ok(ExpertCatalog {
         experts: experts
@@ -95,12 +121,12 @@ pub fn agent_list_experts() -> IpcResult<ExpertCatalog> {
     })
 }
 
-/// 启用/停用专家。状态存本地，不改动 EXPERT.md。
+/// 启用/停用技能。状态存本地，不改动技能文件。
 #[tauri::command]
 pub fn agent_set_expert_enabled(expert_id: String, enabled: bool) -> IpcResult<()> {
-    let (all, _) = screenplay_agent::load_experts_detailed(experts_dir().as_deref());
+    let (all, _) = screenplay_agent::load_experts_detailed(&skill_dirs());
     if !all.iter().any(|e| e.id == expert_id) {
-        return Err(error(format!("专家不存在：{expert_id}")));
+        return Err(error(format!("技能不存在：{expert_id}")));
     }
     let mut disabled = read_disabled();
     disabled.retain(|id| id != &expert_id);
@@ -140,33 +166,26 @@ fn set_frontmatter_name(content: &str, name: &str) -> String {
 pub fn agent_rename_expert(expert_id: String, name: String) -> IpcResult<()> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(error("专家名称不能为空"));
+        return Err(error("技能名称不能为空"));
     }
     if name.chars().count() > 60 {
-        return Err(error("专家名称最多 60 个字"));
+        return Err(error("技能名称最多 60 个字"));
     }
-    let dir = experts_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
-    let file = dir.join(&expert_id).join("EXPERT.md");
-    if !file.is_file() {
-        return Err(error("内置专家不支持改名；请改用自定义专家"));
-    }
+    let file = custom_file(&expert_id).ok_or_else(|| error("内置技能不支持改名；请改用自定义技能"))?;
     let content = std::fs::read_to_string(&file).map_err(|e| IpcError::Internal { message: e.to_string() })?;
     let updated = set_frontmatter_name(&content, name);
     std::fs::write(&file, updated).map_err(|e| IpcError::Internal { message: e.to_string() })
 }
 
-/// 打开专家目录；传入 expert_id 时打开该自定义专家的文件夹。
+/// 打开技能目录；传入 expert_id 时打开该自定义技能的文件夹。
 #[tauri::command]
 pub fn agent_open_experts_dir(expert_id: Option<String>) -> IpcResult<()> {
-    let root = experts_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
+    let root = skills_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
     std::fs::create_dir_all(&root).map_err(|e| IpcError::Internal { message: e.to_string() })?;
     let target = match expert_id {
         Some(id) => {
-            let dir = root.join(&id);
-            if !dir.is_dir() {
-                return Err(error("该专家没有本地文件夹"));
-            }
-            dir
+            let file = custom_file(&id).ok_or_else(|| error("该技能没有本地文件夹"))?;
+            file.parent().map(PathBuf::from).unwrap_or(root)
         }
         None => root,
     };
@@ -177,47 +196,58 @@ pub fn agent_open_experts_dir(expert_id: Option<String>) -> IpcResult<()> {
     Ok(())
 }
 
-/// 导入单个专家：源可以是 EXPERT.md 文件，也可以是包含 EXPERT.md 的文件夹。
+/// 导入单个技能：源可以是 SKILL.md / 旧版 EXPERT.md，也可以是包含它们的文件夹。
+/// 统一落盘为 `skills/<id>/SKILL.md`，未写 kind 时按来源文件推断默认类型。
 #[tauri::command]
 pub fn agent_import_expert(source_path: String) -> IpcResult<ExpertInfo> {
     let src = PathBuf::from(&source_path);
-    let file = if src.is_dir() { src.join("EXPERT.md") } else { src };
+    let (file, default_kind) = if src.is_dir() {
+        if src.join("SKILL.md").is_file() {
+            (src.join("SKILL.md"), screenplay_agent::ExpertKind::Writing)
+        } else {
+            (src.join("EXPERT.md"), screenplay_agent::ExpertKind::Review)
+        }
+    } else if src.file_name().is_some_and(|name| name == "EXPERT.md") {
+        (src, screenplay_agent::ExpertKind::Review)
+    } else {
+        (src, screenplay_agent::ExpertKind::Writing)
+    };
     if !file.is_file() {
-        return Err(error("请选择 EXPERT.md 文件或包含它的文件夹"));
+        return Err(error("请选择 SKILL.md（或旧版 EXPERT.md）文件，或包含它的文件夹"));
     }
     let content = std::fs::read_to_string(&file).map_err(|e| IpcError::Internal { message: e.to_string() })?;
-    let expert = screenplay_agent::parse_expert_md(&content).map_err(|e| error(format!("解析失败：{e}")))?;
-    if expert.builtin || screenplay_agent::builtin_experts().iter().any(|b| b.id == expert.id) {
-        return Err(error(format!("id「{}」与内置专家重复，请修改后再导入", expert.id)));
+    let skill = screenplay_agent::parse_expert_md_with_default(&content, default_kind)
+        .map_err(|e| error(format!("解析失败：{e}")))?;
+    let builtin = screenplay_agent::builtin_experts()
+        .into_iter()
+        .chain(screenplay_agent::builtin_writing_experts());
+    if skill.builtin || builtin.into_iter().any(|b| b.id == skill.id) {
+        return Err(error(format!("id「{}」与内置技能重复，请修改后再导入", skill.id)));
     }
-    let root = experts_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
+    let root = skills_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
     std::fs::create_dir_all(&root).map_err(|e| IpcError::Internal { message: e.to_string() })?;
-    let dest_dir = root.join(&expert.id);
-    if dest_dir.exists() {
-        return Err(error(format!("已存在同名专家「{}」，请先移除或改名", expert.id)));
+    let dest_dir = root.join(&skill.id);
+    if dest_dir.exists() || legacy_experts_dir().is_some_and(|d| d.join(&skill.id).exists()) {
+        return Err(error(format!("已存在同名技能「{}」，请先移除或改名", skill.id)));
     }
     std::fs::create_dir_all(&dest_dir).map_err(|e| IpcError::Internal { message: e.to_string() })?;
-    std::fs::write(dest_dir.join("EXPERT.md"), content)
+    std::fs::write(dest_dir.join("SKILL.md"), content)
         .map_err(|e| IpcError::Internal { message: e.to_string() })?;
     let mut disabled = read_disabled();
-    disabled.retain(|id| id != &expert.id);
+    disabled.retain(|id| id != &skill.id);
     write_disabled(&disabled)?;
-    Ok(expert_info(&expert, true))
+    Ok(expert_info(&skill, true))
 }
 
-/// 导出单个自定义专家为 EXPERT.md。
+/// 导出单个自定义技能为 Markdown 文件。
 #[tauri::command]
 pub fn agent_export_expert(expert_id: String, dest_path: String) -> IpcResult<()> {
-    let root = experts_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
-    let file = root.join(&expert_id).join("EXPERT.md");
-    if !file.is_file() {
-        return Err(error("内置专家没有可导出的文件；仅支持导出自定义专家"));
-    }
+    let file = custom_file(&expert_id).ok_or_else(|| error("内置技能没有可导出的文件；仅支持导出自定义技能"))?;
     let content = std::fs::read_to_string(&file).map_err(|e| IpcError::Internal { message: e.to_string() })?;
     std::fs::write(&dest_path, content).map_err(|e| IpcError::Internal { message: e.to_string() })
 }
 
-/// 把一次会审选择的专家合成一个自定义专家：人格提示词与维度合并后落盘。
+/// 把一次会审选择的技能合成一个自定义技能：人格提示词与维度合并后落盘。
 #[tauri::command]
 pub fn agent_save_panel_expert(
     name: String,
@@ -228,23 +258,23 @@ pub fn agent_save_panel_expert(
 ) -> IpcResult<ExpertInfo> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(error("请先给专家起个名字"));
+        return Err(error("请先给这个技能起个名字"));
     }
     if name.chars().count() > 60 {
-        return Err(error("专家名称最多 60 个字"));
+        return Err(error("技能名称最多 60 个字"));
     }
-    let (all, _) = screenplay_agent::load_experts_detailed(experts_dir().as_deref());
+    let (all, _) = screenplay_agent::load_experts_detailed(&skill_dirs());
     let picked: Vec<&Expert> = expert_ids
         .iter()
         .filter_map(|id| all.iter().find(|e| &e.id == id))
         .collect();
     if picked.is_empty() {
-        return Err(error("请至少选择一位专家"));
+        return Err(error("请至少选择一个技能"));
     }
     let mode_label = if mode == "rewrite" { "改写建议" } else { "评审" };
     let scope_label = if scope == "whole" { "整稿" } else { "当前场景" };
     let mut body = format!(
-        "你是由多位专家方法论合成的自定义专家。面对同一份文本时，依次用下列视角检查，并在输出中标注每条意见来自哪个视角。\n\n本次保存自一次{scope_label}会审（{mode_label}）。\n\n"
+        "你是由多个审稿技能的方法合成的自定义技能。面对同一份文本时，依次用下列视角检查，并在输出中标注每条意见来自哪个视角。\n\n本次保存自一次{scope_label}会审（{mode_label}）。\n\n"
     );
     let mut dimensions: Vec<String> = Vec::new();
     let mut max_tokens = 2400u32;
@@ -274,7 +304,7 @@ pub fn agent_save_panel_expert(
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let id = format!("panel-{stamp}");
-    let root = experts_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
+    let root = skills_dir().ok_or_else(|| error("无法确定用户数据目录"))?;
     let dest_dir = root.join(&id);
     std::fs::create_dir_all(&dest_dir).map_err(|e| IpcError::Internal { message: e.to_string() })?;
     let description = format!(
@@ -287,7 +317,7 @@ pub fn agent_save_panel_expert(
         kind.as_str(),
         dimensions.join("、")
     );
-    std::fs::write(dest_dir.join("EXPERT.md"), text)
+    std::fs::write(dest_dir.join("SKILL.md"), text)
         .map_err(|e| IpcError::Internal { message: e.to_string() })?;
     Ok(expert_info(
         &Expert {
@@ -385,10 +415,10 @@ pub async fn agent_expert_panel(
         }
     }
     if ids.is_empty() {
-        return Err(error("请至少选择一位专家"));
+        return Err(error("请至少选择一个技能"));
     }
     if ids.len() > 4 {
-        return Err(error("一次最多选择四位专家，避免耗时和费用过大"));
+        return Err(error("一次最多选择四个技能，避免耗时和费用过大"));
     }
     let all = load_all_experts();
     let mut picked = Vec::new();
@@ -396,9 +426,9 @@ pub async fn agent_expert_panel(
         let expert = all
             .iter()
             .find(|e| &e.id == id)
-            .ok_or_else(|| error(format!("专家不存在：{id}")))?;
+            .ok_or_else(|| error(format!("技能不存在：{id}")))?;
         if expert.kind != screenplay_agent::ExpertKind::Review {
-            return Err(error(format!("「{}」是写作型专家，不参加会审", expert.name)));
+            return Err(error(format!("「{}」是写作型技能，不参加会审", expert.name)));
         }
         picked.push(expert.clone());
     }
@@ -463,12 +493,12 @@ mod tests {
 
     #[test]
     fn rename_replaces_existing_name_and_keeps_rest() {
-        let content = "---\nid: my-expert\nname: 旧名字\ndescription: 说明\n---\n你是专家。\n";
+        let content = "---\nid: my-expert\nname: 旧名字\ndescription: 说明\n---\n你是审稿技能。\n";
         let updated = set_frontmatter_name(content, "新名字");
         assert!(updated.contains("name: 新名字"));
         assert!(!updated.contains("旧名字"));
         assert!(updated.contains("description: 说明"));
-        assert!(updated.contains("你是专家。"));
+        assert!(updated.contains("你是审稿技能。"));
         // 解析规则不变，改名后仍可正常载入
         let expert = screenplay_agent::parse_expert_md(&updated).expect("改名后仍应可解析");
         assert_eq!(expert.name, "新名字");

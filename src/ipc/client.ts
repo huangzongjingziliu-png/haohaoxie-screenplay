@@ -352,8 +352,6 @@ export const ipc = {
   agentRefreshMemory: (projectId:string,discussion?:string,force=false)=>call<void>('agent_refresh_memory',{projectId,discussion,force}),
   agentMemory: (scope:string,projectId:string) => call<string>('agent_memory',{scope,projectId}),
   agentSaveMemory: (scope:string,projectId:string,text:string) => call<void>('agent_save_memory',{scope,projectId,text}),
-  agentListSkills: () =>
-    call<{ id: string; name: string; description: string; builtin: boolean }[]>('agent_list_skills'),
   agentApplySkill: (skillId: string, blockId: string, userInput: string) =>
     call<CommandResult>('agent_apply_skill', { skillId, blockId, userInput }),
   agentFreeformEdit: (instruction: string) =>
@@ -383,8 +381,6 @@ export const ipc = {
     ),
   agentGenerateSkill: (instruction:string)=>call<string>("agent_generate_skill",{instruction}),
   agentCreateSkill: (markdown:string)=>call<string>("agent_create_skill",{markdown}),
-  agentInstallSkill: (sourcePath: string) => call<string>('agent_install_skill', { sourcePath }),
-  agentUnloadSkill: (skillId: string) => call<boolean>('agent_unload_skill', { skillId }),
 };
 
 // ---------------------------------------------------------------------------

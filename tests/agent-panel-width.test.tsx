@@ -11,7 +11,6 @@ const firePointer = (target: EventTarget, type: string, clientX: number) => {
 beforeEach(() => {
   window.localStorage.clear();
   mockBackend.reset();
-  mockBackend.on('agent_list_skills', () => []);
   mockBackend.on('agent_list_experts', () => ({ experts: [], issues: [] }));
   useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [] } as never });
 });

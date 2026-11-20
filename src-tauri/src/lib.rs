@@ -1609,29 +1609,6 @@ fn load_agent_skills() -> SkillRegistry {
     skills
 }
 
-#[derive(Serialize)]
-pub struct SkillInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub builtin: bool,
-}
-
-#[tauri::command]
-fn agent_list_skills() -> IpcResult<Vec<SkillInfo>> {
-    let skills = load_agent_skills();
-    Ok(skills
-        .list()
-        .iter()
-        .map(|s| SkillInfo {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            description: s.description.clone(),
-            builtin: s.builtin,
-        })
-        .collect())
-}
-
 #[tauri::command]
 async fn agent_apply_skill(
     app: AppHandle,
@@ -1771,104 +1748,11 @@ fn agent_set_config(
 }
 
 /// 用户 skills 目录：~/Library/Application Support/ScreenplayStudio/skills
-fn user_skills_dir() -> Option<PathBuf> {
+pub(crate) fn user_skills_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("ScreenplayStudio").join("skills"))
 }
 
-/// 安装一个 skill：将源目录复制到用户 skills 目录。
-#[tauri::command]
-fn agent_install_skill(source_path: String) -> IpcResult<String> {
-    let src = PathBuf::from(&source_path);
-    if !src.is_dir() {
-        return Err(IpcError::InvalidArgument {
-            message: format!("源路径不是目录: {source_path}"),
-        });
-    }
-    let skill_md = src.join("SKILL.md");
-    if !skill_md.exists() {
-        return Err(IpcError::InvalidArgument {
-            message: "源目录缺少 SKILL.md".into(),
-        });
-    }
-    // 解析以获取 skill id 作为目标目录名
-    let content = std::fs::read_to_string(&skill_md).map_err(|e| IpcError::Internal {
-        message: e.to_string(),
-    })?;
-    let skill = screenplay_agent::parse_skill_md(&content).map_err(|e| IpcError::InvalidArgument {
-        message: e.to_string(),
-    })?;
 
-    let dest_dir = user_skills_dir().ok_or_else(|| IpcError::Internal {
-        message: "无法确定用户数据目录".into(),
-    })?;
-    std::fs::create_dir_all(&dest_dir).map_err(|e| IpcError::Internal {
-        message: e.to_string(),
-    })?;
-    if screenplay_agent::builtin_skills().iter().any(|builtin| builtin.id == skill.id) {
-        return Err(IpcError::InvalidArgument { message: "不可覆盖内置 skill".into() });
-    }
-    let dest = dest_dir.join(&skill.id);
-    let canonical_src = src.canonicalize().map_err(|error| IpcError::Internal { message: error.to_string() })?;
-    let canonical_dest = dest_dir.canonicalize().map_err(|error| IpcError::Internal { message: error.to_string() })?.join(&skill.id);
-    if canonical_src.starts_with(&canonical_dest) || canonical_dest.starts_with(&canonical_src) {
-        return Err(IpcError::InvalidArgument { message: "安装源目录与目标目录不能相互包含".into() });
-    }
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest).map_err(|e| IpcError::Internal {
-            message: e.to_string(),
-        })?;
-    }
-    copy_dir_all(&src, &dest).map_err(|e| IpcError::Internal {
-        message: e.to_string(),
-    })?;
-    Ok(skill.id)
-}
-
-/// 卸载一个 skill：从用户 skills 目录删除（内置 skill 不可卸载）。
-#[tauri::command]
-fn agent_unload_skill(skill_id: String) -> IpcResult<bool> {
-    if !screenplay_agent::skill::is_valid_skill_id(&skill_id) {
-        return Err(IpcError::InvalidArgument { message: "非法 skill id".into() });
-    }
-    // 先检查是否内置
-    let skills = load_agent_skills();
-    if let Some(s) = skills.get(&skill_id) {
-        if s.builtin {
-            return Err(IpcError::InvalidArgument {
-                message: "内置 skill 不可卸载".into(),
-            });
-        }
-    }
-    let dest_dir = user_skills_dir().ok_or_else(|| IpcError::Internal {
-        message: "无法确定用户数据目录".into(),
-    })?;
-    let target = dest_dir.join(&skill_id);
-    if target.exists() {
-        std::fs::remove_dir_all(&target).map_err(|e| IpcError::Internal {
-            message: e.to_string(),
-        })?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_symlink() {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "skill 不允许符号链接"));
-        }
-        if ty.is_dir() {
-            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
-        } else {
-            std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // 工具
@@ -2006,7 +1890,6 @@ pub fn run() {
             agent_experts::agent_import_expert,
             agent_experts::agent_export_expert,
             agent_experts::agent_save_panel_expert,
-            agent_list_skills,
             agent_apply_skill,
             agent_freeform_edit,
             agent_get_config,
@@ -2021,8 +1904,6 @@ pub fn run() {
             model_profiles::agent_delete_model,
             model_profiles::agent_test_model,
             model_profiles::agent_available_models,
-            agent_install_skill,
-            agent_unload_skill,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {

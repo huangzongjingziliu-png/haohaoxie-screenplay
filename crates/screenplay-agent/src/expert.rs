@@ -1,26 +1,29 @@
-//! 专家（Expert）体系：带明确方法论的审稿者 / 协作写作者。
+//! 技能体系：对外统一称「技能」，带明确方法论的审稿技能与写作技能。
 //!
-//! ## Skill 与 Expert 的分工
+//! 模块与类型标识沿用历史命名（Expert），但用户可见文案只使用「技能」。
 //!
-//! - Skill：一次性的写作动作（续写、润色、扩写…），输入片段、输出片段。
-//! - Expert：稳定的人格与方法论，面向「场景/整稿 → 判断与修改方案」，
-//!   也能作为对话中的协作写作者视角。
+//! ## 两种类型
+//!
+//! - 审稿技能：稳定的人格与方法论，面向「场景/整稿 → 判断与修改方案」，参与会审。
+//! - 写作技能：一次性的写作动作（续写、润色、扩写…），用于对话里的单步写作或改写。
 //!
 //! ## 成本策略
 //!
-//! 多专家会审默认串行：每位专家各调用一次模型，最后再由「会审主持」
-//! 汇总一次，避免并发把费用放大到不可预期。调用次数 = 专家数 + 1。
+//! 会审默认串行：每个审稿技能各调用一次模型，最后再由「会审主持」
+//! 汇总一次，避免并发把费用放大到不可预期。调用次数 = 技能数 + 1。
 //!
-//! 自定义专家放在 `~/Library/Application Support/ScreenplayStudio/experts/<id>/EXPERT.md`，
+//! 自定义技能放在 `~/Library/Application Support/ScreenplayStudio/skills/<id>/SKILL.md`；
+//! 旧目录 `experts/<id>/EXPERT.md` 继续读取，避免用户旧文件失效。
 //! frontmatter 支持 id / name / description / kind / dimensions / temperature / max_tokens。
-//! kind 取 review（审稿型，默认）或 writing（写作型）。
+//! kind 取 review（审稿）或 writing（写作）；缺省时按文件名推断：
+//! SKILL.md 视为写作技能，EXPERT.md 视为审稿技能。
 
 use crate::provider::{ChatMessage, ModelRouter};
 use serde::Serialize;
-use std::path::Path;
+use std::path::PathBuf;
 use thiserror::Error;
 
-/// 专家类型：审稿型参与会审；写作型用于单步写作或改写。
+/// 技能类型：审稿型参与会审；写作型用于单步写作或改写。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExpertKind {
@@ -44,7 +47,7 @@ impl ExpertKind {
     }
 }
 
-/// 一个专家定义。
+/// 一项技能定义。
 #[derive(Debug, Clone)]
 pub struct Expert {
     pub id: String,
@@ -60,7 +63,7 @@ pub struct Expert {
     pub max_tokens: u32,
     /// 审稿型参与会审；写作型用于单步写作/改写
     pub kind: ExpertKind,
-    /// 内置专家不可被同名自定义专家覆盖
+    /// 内置技能不可被同名自定义技能覆盖
     pub builtin: bool,
 }
 
@@ -91,14 +94,20 @@ impl Expert {
         self
     }
 
-    /// 专家在对话中的人格前缀。
+    /// 技能在对话中的人格前缀：审稿型给判断与建议，写作型直接产出文字。
     pub fn persona(&self) -> String {
-        format!(
-            "{}\n\n你的评审维度：{}。\n你的输出结构：{}。\n你只能提出建议，不能声称已经修改或保存稿件。",
-            self.system_prompt,
-            self.dimensions.join("、"),
-            self.output_sections.join("、")
-        )
+        match self.kind {
+            ExpertKind::Review => format!(
+                "{}\n\n你的评审维度：{}。\n你的输出结构：{}。\n你只能提出建议，不能声称已经修改或保存稿件。",
+                self.system_prompt,
+                self.dimensions.join("、"),
+                self.output_sections.join("、")
+            ),
+            ExpertKind::Writing => format!(
+                "{}\n\n这是一个写作技能：直接在对话里给出可用的文字，保留人物与情节事实，不新增未发生的情节，不解释工作过程，不要声称已经保存或应用修改。",
+                self.system_prompt
+            ),
+        }
     }
 }
 
@@ -111,12 +120,12 @@ fn default_sections() -> Vec<String> {
     ]
 }
 
-/// 内置专家：用方法论命名，不绑定任何真人。
+/// 内置审稿技能：显示名带方法论来源，让作者一眼看出这是谁的判断方法。
 pub fn builtin_experts() -> Vec<Expert> {
     vec![
         Expert::new(
             "beat-sheet",
-            "节拍表专家",
+            "布莱克·斯奈德的节拍表",
             "用节拍表检查故事推进与情绪曲线，指出漏拍、错拍和节奏塌陷",
             &[
                 "开场画面与主题",
@@ -133,7 +142,7 @@ pub fn builtin_experts() -> Vec<Expert> {
         .builtin(),
         Expert::new(
             "three-act",
-            "三幕结构专家",
+            "悉德·菲尔德的三幕结构",
             "检查幕结构、情节点与戏剧问题的闭合，判断故事是否站得住",
             &[
                 "第一幕建置",
@@ -150,7 +159,7 @@ pub fn builtin_experts() -> Vec<Expert> {
         .builtin(),
         Expert::new(
             "character-arc",
-            "人物弧光专家",
+            "约翰·特鲁比的人物弧光",
             "追踪欲望、缺陷与转变，检查人物是否在压力下做出可见的选择",
             &[
                 "想要与需要",
@@ -166,7 +175,7 @@ pub fn builtin_experts() -> Vec<Expert> {
         .builtin(),
         Expert::new(
             "scene-craft",
-            "场景与冲突专家",
+            "罗伯特·麦基的场景与冲突",
             "逐场检查目标、障碍与转折，判断每场戏是否必要、是否改变了力量关系",
             &[
                 "场景目标",
@@ -183,7 +192,7 @@ pub fn builtin_experts() -> Vec<Expert> {
         .builtin(),
         Expert::new(
             "dialogue-voice",
-            "对白与声口专家",
+            "罗伯特·麦基的对白与声口",
             "检查人物区分度、潜台词与可演性，删掉解释性台词",
             &[
                 "人物区分度",
@@ -200,7 +209,7 @@ pub fn builtin_experts() -> Vec<Expert> {
         .builtin(),
         Expert::new(
             "series-pacing",
-            "短剧节奏专家",
+            "竖屏短剧流派 · 短剧节奏",
             "按集检查钩子、冲突升级与卡点，判断单集是否留得住观众",
             &[
                 "前三十秒钩子",
@@ -219,7 +228,26 @@ pub fn builtin_experts() -> Vec<Expert> {
     ]
 }
 
-/// 专家评审模式。
+/// 内置写作技能：沿用写作动作的内置定义，进入同一份技能目录。
+pub fn builtin_writing_experts() -> Vec<Expert> {
+    crate::skill::builtin_skills()
+        .into_iter()
+        .map(|skill| Expert {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            dimensions: Vec::new(),
+            output_sections: Vec::new(),
+            system_prompt: skill.system_prompt.replace("{input}", "").trim().to_string(),
+            temperature: skill.temperature,
+            max_tokens: skill.max_tokens,
+            kind: ExpertKind::Writing,
+            builtin: true,
+        })
+        .collect()
+}
+
+/// 会审模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpertMode {
     /// 评审：给判断、问题与修改建议
@@ -316,25 +344,25 @@ pub fn synthesis_messages(replies: &[ExpertReply], mode: ExpertMode) -> Vec<Chat
         ExpertMode::Rewrite => "这是一次改写方案会审。",
     };
     let user = format!(
-        "{mode_hint}下面是多位专家对同一份剧本的独立意见。请汇总，不要新增专家没有提出的问题，不要抹平分歧。\n\
-         输出结构：\n## 共识\n（2-5 条，注明依据来自哪些专家）\n\
+        "{mode_hint}下面是多个审稿技能对同一份剧本的独立意见。请汇总，不要新增技能没有提出的问题，不要抹平分歧。\n\
+         输出结构：\n## 共识\n（2-5 条，注明依据来自哪些技能）\n\
          ## 分歧\n（逐条列出冲突点与各方立场；没有分歧就写「无实质分歧」）\n\
-         ## 修改优先级\n（P0 必改 / P1 建议 / P2 可选，每条注明依据专家）\n\
-         ## 一句话结论\n\n专家意见：\n{joined}"
+         ## 修改优先级\n（P0 必改 / P1 建议 / P2 可选，每条注明依据技能）\n\
+         ## 一句话结论\n\n技能意见：\n{joined}"
     );
     vec![
         ChatMessage {
             role: "system".into(),
-            content: "你是剧本会审主持。你只做归纳与对比，不替专家补充新观点，也不裁决审美口味。".into(),
+            content: "你是剧本会审主持。你只做归纳与对比，不替审稿技能补充新观点，也不裁决审美口味。".into(),
         },
         ChatMessage { role: "user".into(), content: user },
     ]
 }
 
-/// 依次执行多专家会审，再做一次汇总。
+/// 依次执行多技能会审，再做一次汇总。
 ///
 /// - 串行执行，避免并发放大成本；
-/// - 单个专家失败不影响其他专家；
+/// - 单个技能失败不影响其他技能；
 /// - 少于两位成功时不生成汇总。
 pub async fn run_panel(
     router: &ModelRouter,
@@ -377,12 +405,12 @@ pub async fn run_panel(
     }
     let successes: Vec<&ExpertReply> = reviews.iter().filter(|r| r.ok).collect();
     if successes.len() < 2 {
-        // 选了多位专家却没能凑够两位时，说清为什么没有综合意见。
+        // 选了多个技能却没能凑够两个时，说清为什么没有综合意见。
         let synthesis_error = if experts.len() > 1 {
             Some(if successes.is_empty() {
-                "没有专家成功返回结果，因此没有综合意见。请检查模型设置后重试。".into()
+                "没有技能成功返回结果，因此没有综合意见。请检查模型设置后重试。".into()
             } else {
-                "只有 1 位专家成功返回，至少需要 2 位才能比较汇总，因此没有综合意见。".into()
+                "只有 1 个技能成功返回，至少需要 2 个才能比较汇总，因此没有综合意见。".into()
             })
         } else {
             None
@@ -423,8 +451,16 @@ fn friendly_error(raw: &str) -> String {
     }
 }
 
-/// 解析 EXPERT.md（frontmatter + 正文人格提示词）。
+/// 解析技能文件（frontmatter + 正文人格提示词），缺省类型按审稿处理。
 pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
+    parse_expert_md_with_default(content, ExpertKind::Review)
+}
+
+/// 解析技能文件；未写 kind 时使用调用方按文件名推断的默认类型。
+pub fn parse_expert_md_with_default(
+    content: &str,
+    default_kind: ExpertKind,
+) -> Result<Expert, ExpertLoadError> {
     let (frontmatter, body) = crate::skill::split_frontmatter(content)
         .map_err(|e| ExpertLoadError::Format(e.to_string()))?;
     let mut id = String::new();
@@ -433,7 +469,7 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
     let mut dimensions = Vec::new();
     let mut temperature = 0.4f32;
     let mut max_tokens = 2400u32;
-    let mut kind = ExpertKind::Review;
+    let mut kind = default_kind;
     for line in frontmatter.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -501,40 +537,51 @@ pub fn parse_expert_md(content: &str) -> Result<Expert, ExpertLoadError> {
     })
 }
 
-/// 内置专家 + 用户目录专家（同名时保留内置）。
-pub fn load_experts(dir: Option<&Path>) -> Vec<Expert> {
-    load_experts_detailed(dir).0
+/// 内置技能 + 用户目录技能（同名时保留内置）。
+pub fn load_experts(dirs: &[PathBuf]) -> Vec<Expert> {
+    load_experts_detailed(dirs).0
 }
 
 /// 同 [`load_experts`]，同时返回被跳过的文件及原因，供界面提示用户修正。
-pub fn load_experts_detailed(dir: Option<&Path>) -> (Vec<Expert>, Vec<String>) {
-    let mut experts = builtin_experts();
+///
+/// 每个子目录优先读 `SKILL.md`（缺省按写作型），没有时回退到旧版 `EXPERT.md`
+///（缺省按审稿型）。`dirs` 靠前者优先，用于让新目录覆盖旧目录。
+pub fn load_experts_detailed(dirs: &[PathBuf]) -> (Vec<Expert>, Vec<String>) {
+    let mut skills = builtin_experts();
+    skills.extend(builtin_writing_experts());
     let mut issues = Vec::new();
-    let Some(dir) = dir else { return (experts, issues) };
-    let Ok(entries) = std::fs::read_dir(dir) else { return (experts, issues) };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let file = path.join("EXPERT.md");
-        let Ok(content) = std::fs::read_to_string(&file) else { continue };
-        match parse_expert_md(&content) {
-            Ok(expert) => {
-                if experts.iter().any(|e| e.id == expert.id) {
-                    issues.push(format!(
-                        "{}：id「{}」与已有专家重复，已忽略。",
-                        path.display(),
-                        expert.id
-                    ));
-                } else {
-                    experts.push(expert);
-                }
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
             }
-            Err(error) => issues.push(format!("{}：{error}", file.display())),
+            let (file, default_kind) = if path.join("SKILL.md").is_file() {
+                (path.join("SKILL.md"), ExpertKind::Writing)
+            } else if path.join("EXPERT.md").is_file() {
+                (path.join("EXPERT.md"), ExpertKind::Review)
+            } else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&file) else { continue };
+            match parse_expert_md_with_default(&content, default_kind) {
+                Ok(skill) => {
+                    if skills.iter().any(|e| e.id == skill.id) {
+                        issues.push(format!(
+                            "{}：id「{}」与已有技能重复，已忽略。",
+                            path.display(),
+                            skill.id
+                        ));
+                    } else {
+                        skills.push(skill);
+                    }
+                }
+                Err(error) => issues.push(format!("{}：{error}", file.display())),
+            }
         }
     }
-    (experts, issues)
+    (skills, issues)
 }
 
 #[derive(Debug, Error)]
@@ -597,20 +644,45 @@ mod tests {
     }
 
     #[test]
+    fn builtin_writing_skills_join_the_same_catalog() {
+        let writing = builtin_writing_experts();
+        assert_eq!(writing.len(), 4);
+        for skill in &writing {
+            assert!(skill.builtin);
+            assert_eq!(skill.kind, ExpertKind::Writing);
+            assert!(!skill.system_prompt.contains("{input}"));
+        }
+    }
+
+    #[test]
+    fn skill_md_defaults_to_writing_and_expert_md_to_review() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill_dir = tmp.path().join("qa-writer");
+        std::fs::create_dir(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nid: qa-writer\nname: 改写\n---\n直接改写对白。").unwrap();
+        let legacy_dir = tmp.path().join("qa-review");
+        std::fs::create_dir(&legacy_dir).unwrap();
+        std::fs::write(legacy_dir.join("EXPERT.md"), "---\nid: qa-review\nname: 审稿\n---\n只看结构。").unwrap();
+        let skills = load_experts(&[tmp.path().to_path_buf()]);
+        assert_eq!(skills.iter().find(|s| s.id == "qa-writer").unwrap().kind, ExpertKind::Writing);
+        assert_eq!(skills.iter().find(|s| s.id == "qa-review").unwrap().kind, ExpertKind::Review);
+    }
+
+    #[test]
     fn custom_expert_parses_and_cannot_override_builtin() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("my-expert");
         std::fs::create_dir(&dir).unwrap();
         std::fs::write(
             dir.join("EXPERT.md"),
-            "---\nid: my-expert\nname: 我的专家\ndescription: 自定义\n\
+            "---\nid: my-expert\nname: 我的技能\ndescription: 自定义\n\
              dimensions: 结构，节奏、人物\ntemperature: 0.5\nmax_tokens: 2000\n---\n\
              你只关心一件事：这场戏有没有让主角付出代价。",
         )
         .unwrap();
-        let experts = load_experts(Some(tmp.path()));
+        let experts = load_experts(&[tmp.path().to_path_buf()]);
         let custom = experts.iter().find(|e| e.id == "my-expert").unwrap();
-        assert_eq!(custom.name, "我的专家");
+        assert_eq!(custom.name, "我的技能");
         assert_eq!(custom.dimensions.len(), 3);
         assert!(!custom.builtin);
 
@@ -621,7 +693,7 @@ mod tests {
             "---\nid: beat-sheet\nname: 冒名\n---\n覆盖内置",
         )
         .unwrap();
-        let experts = load_experts(Some(tmp.path()));
+        let experts = load_experts(&[tmp.path().to_path_buf()]);
         assert!(experts.iter().find(|e| e.id == "beat-sheet").unwrap().builtin);
     }
 
@@ -678,7 +750,7 @@ mod tests {
         assert_eq!(panel.reviews.iter().filter(|r| !r.ok).count(), 1);
         assert!(panel.synthesis.is_none());
         let reason = panel.synthesis_error.expect("应说明为何没有综合意见");
-        assert!(reason.contains("至少需要 2 位"), "实际: {reason}");
+        assert!(reason.contains("至少需要 2 个"), "实际: {reason}");
         // 失败信息不应带出 provider 原始错误（可能含端点或模型名）
         assert_eq!(panel.reviews.iter().filter(|r| !r.ok).next().unwrap().error.as_deref(), Some("模型调用失败，请检查模型设置后重试。"));
     }
