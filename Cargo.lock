@@ -4415,6 +4415,7 @@ name = "screenplay-import"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "encoding_rs",
  "lopdf 0.36.0",
  "quick-xml 0.38.4",
  "screenplay-core",

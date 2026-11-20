@@ -183,7 +183,6 @@ pub fn from_fdx(xml: &str, title: Option<String>) -> Result<ScreenplayDocument, 
     }
 
     let para_re = paragraph_regex();
-    let text_re = text_regex();
     let int_re = Regex::new(r#"INT="(Yes|No)""#).unwrap();
 
     let mut blocks: Vec<ScreenplayBlock> = Vec::new();
@@ -192,10 +191,7 @@ pub fn from_fdx(xml: &str, title: Option<String>) -> Result<ScreenplayDocument, 
         let ptype = cap.name("type").map(|m| m.as_str()).unwrap_or("General");
         let bt = BlockType::from_fdx(ptype).unwrap_or(BlockType::General);
         let inner = &xml[whole.start()..whole.end()];
-        let text = text_re
-            .captures(inner)
-            .map(|c| unescape_xml(c.name("t").unwrap().as_str()))
-            .unwrap_or_default();
+        let text = paragraph_text(inner);
         let mut b = ScreenplayBlock::new(bt, text);
         if bt == BlockType::SceneHeading {
             let is_int = int_re
@@ -216,6 +212,9 @@ pub fn from_fdx(xml: &str, title: Option<String>) -> Result<ScreenplayDocument, 
     }
 
     let mut doc = ScreenplayDocument::blank(title.as_deref().unwrap_or("导入的剧本"));
+    if blocks.is_empty() && !unescape_xml(&strip_tags(xml)).trim().is_empty() {
+        return Err("FDX 文件中没有可识别的 <Paragraph> 段落，已拒绝导入以免丢失正文".into());
+    }
     doc.blocks = blocks;
     doc.rebuild_derived();
     doc.import_info = Some(ImportInfo {
@@ -231,12 +230,47 @@ pub fn from_fdx(xml: &str, title: Option<String>) -> Result<ScreenplayDocument, 
 
 fn paragraph_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r#"(?s)<Paragraph\s+Type="(?P<type>[^"]*)"\s*>(?P<body>.*?)</Paragraph>"#).unwrap())
+    // 段落标签常带 Number 等额外属性，且 Type 不一定紧贴标签名，必须容忍。
+    RE.get_or_init(|| Regex::new(r#"(?s)<Paragraph\b[^>]*\bType="(?P<type>[^"]*)"[^>]*>(?P<body>.*?)</Paragraph>"#).unwrap())
 }
 
 fn text_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r#"(?s)<Text>(?P<t>.*?)</Text>"#).unwrap())
+    // `<Text Style="Bold">` 这类样式属性很常见；同一段落可拆成多段 Text。
+    RE.get_or_init(|| Regex::new(r#"(?s)<Text\b[^>]*>(?P<t>.*?)</Text>"#).unwrap())
+}
+
+/// 提取一个 Paragraph 的正文：拼接全部 `<Text>` 片段；
+/// 若该段落没有可识别的 Text 标签，退回去标签的纯文本，
+/// 宁可多带格式残渣，也不能静默丢掉正文。
+fn paragraph_text(inner: &str) -> String {
+    let mut text = String::new();
+    for c in text_regex().captures_iter(inner) {
+        if let Some(t) = c.name("t") {
+            text.push_str(&unescape_xml(t.as_str()));
+        }
+    }
+    if text.trim().is_empty() {
+        let plain = unescape_xml(&strip_tags(inner));
+        if !plain.trim().is_empty() {
+            text = plain;
+        }
+    }
+    text
+}
+
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut depth = 0usize;
+    for ch in s.chars() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(ch),
+            _ => {}
+        }
+    }
+    out
 }
 
 pub fn escape_xml(s: &str) -> String {
@@ -431,6 +465,48 @@ mod tests {
     fn fdx_invalid_xml_returns_error_not_panic() {
         let r = from_fdx("this is not xml at all", None);
         assert!(r.is_err());
+    }
+
+    /// Final Draft 实际导出的段落带 Number/Style 等属性，正文可能拆成多段 <Text>。
+    /// 解析必须容忍这些写法，不能整篇静默变空。
+    #[test]
+    fn fdx_tolerates_extra_attributes_and_joins_multiple_text_runs() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Template="No" Version="1">
+<Content>
+<Paragraph Type="Scene Heading" Number="1">
+<Text>INT. OFFICE - DAY</Text>
+</Paragraph>
+<Paragraph Type="Action" Number="2">
+<Text Style="Normal">先写一半，</Text><Text Style="Bold">再写一半。</Text>
+</Paragraph>
+</Content>
+</FinalDraft>"#;
+        let doc = from_fdx(xml, None).expect("合法 FDX 应能解析");
+        assert_eq!(doc.blocks.len(), 2, "段落不能被丢弃: {:?}", doc.blocks.iter().map(|b|&b.text).collect::<Vec<_>>());
+        assert_eq!(doc.blocks[0].block_type, BlockType::SceneHeading);
+        assert_eq!(doc.blocks[0].text, "INT. OFFICE - DAY");
+        assert_eq!(doc.blocks[1].block_type, BlockType::Action);
+        assert_eq!(doc.blocks[1].text, "先写一半，再写一半。");
+    }
+
+    /// 段落里没有 <Text> 包裹的变体：至少要保留可见正文，而不是静默丢弃。
+    #[test]
+    fn fdx_keeps_paragraph_text_without_text_tags() {
+        let xml = r#"<FinalDraft><Content>
+<Paragraph Type="Action" Number="1"><Text>有标签的正文</Text></Paragraph>
+<Paragraph Type="Action" Number="2">裸文本没有被 Text 包裹</Paragraph>
+</Content></FinalDraft>"#;
+        let doc = from_fdx(xml, None).unwrap();
+        let texts: Vec<_> = doc.blocks.iter().map(|b| b.text.as_str()).collect();
+        assert_eq!(texts, vec!["有标签的正文", "裸文本没有被 Text 包裹"]);
+    }
+
+    /// 完全无法识别段落结构但有可见正文时必须报错，不能返回空剧本。
+    #[test]
+    fn fdx_unparsable_content_returns_error_instead_of_empty_script() {
+        let xml = r#"<FinalDraft><Content><WeirdBlock>正文还在，但结构未知</WeirdBlock></Content></FinalDraft>"#;
+        assert!(from_fdx(xml, None).is_err(), "不得静默返回空剧本");
     }
 
     #[test]
