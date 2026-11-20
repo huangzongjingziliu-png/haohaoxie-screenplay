@@ -26,7 +26,7 @@ it('switching the UI updates labels without dropping import formats',()=>{
  expect(screen.getAllByRole('button',{name:'Image (OCR)'})).toHaveLength(2);
 });
 it('General settings changes and remembers the interface language',()=>{
- mockBackend.on('agent_list_skills',()=>[]);mockBackend.on('agent_get_config',()=>({cloudAiEnabled:false}));
+ mockBackend.on('agent_get_config',()=>({cloudAiEnabled:false}));
  render(<UnifiedSettings initial="general" onClose={()=>{}}/>);
  fireEvent.change(screen.getByLabelText('界面语言'),{target:{value:'en'}});
  expect(screen.getByRole('heading',{name:'Language'})).toBeTruthy();

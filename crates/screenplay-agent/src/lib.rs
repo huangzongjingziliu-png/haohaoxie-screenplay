@@ -8,7 +8,7 @@ pub mod summary;
 pub mod expert;
 pub mod board;
 
-pub use expert::{Expert, ExpertMode, ExpertPanel, ExpertReply, builtin_experts, load_experts, load_experts_detailed, parse_expert_md, run_panel};
+pub use expert::{Expert, ExpertKind, ExpertMode, ExpertPanel, ExpertReply, builtin_experts, builtin_writing_experts, load_experts, load_experts_detailed, parse_expert_md, parse_expert_md_with_default, run_panel};
 pub use provider::{ChatMessage, ModelProvider, ModelRouter, OpenAiProvider};
 pub use runner::{AgentError, AgentMode, AgentRunner, AgentToolOutcome};
 pub use skill::{Skill, SkillRegistry, builtin_skills, parse_skill_md};
