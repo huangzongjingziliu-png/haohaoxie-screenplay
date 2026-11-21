@@ -61,15 +61,15 @@ const BLOCK_LABELS: Record<string, string> = {
 
 const TYPE_ORDER = ELEMENT_TYPES;
 
-/** 元素类型菜单：跟随光标 / 吸附顶部横排 / 吸附左侧竖排。默认吸附左侧。 */
+/** 元素类型菜单：跟随光标 / 吸附顶部横排 / 吸附左侧竖排。默认跟随光标，已保存偏好者沿用。 */
 const TYPE_MENU_KEY = 'hhx.elementMenuMode';
 type TypeMenuMode = 'float' | 'top' | 'left';
 const readTypeMenuMode = (): TypeMenuMode => {
   try {
     const v = localStorage.getItem(TYPE_MENU_KEY);
-    return v === 'float' || v === 'top' || v === 'left' ? v : 'left';
+    return v === 'float' || v === 'top' || v === 'left' ? v : 'float';
   } catch {
-    return 'left';
+    return 'float';
   }
 };
 
@@ -449,7 +449,7 @@ export default function ScreenplayEditor() {
       </div>}
       {menuMode !== 'float' && <div className={`element-dock ${menuMode}`} role="toolbar" aria-label={tr("元素类型")}>
         {menuMode === 'left' && <span className="element-dock-title">{tr("元素")}</span>}
-        {TYPE_ORDER.map((t) => <button key={t} type="button" disabled={!dockBlock} className={dockBlock?.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (dockBlock) void switchType(dockBlock.id, t).catch(error => pushToast('error', String(error))); }}>{tr(BLOCK_LABELS[t])}</button>)}
+        {TYPE_ORDER.map((t) => <button key={t} type="button" disabled={!dockBlock} className={dockBlock?.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (dockBlock) void switchType(dockBlock.id, t).catch(error => pushToast('error', String(error))); }}>{tr(BLOCK_LABELS[t])}<kbd className="element-dock-key" aria-hidden="true">{shortcutLabel(shortcuts[t])}</kbd></button>)}
         <button type="button" className="element-dock-float" title={tr("恢复跟随光标，位置随当前段落移动")} onClick={() => setMenuModePersisted('float')}>{tr("跟随光标")}</button>
       </div>}
     <div className={`screenplay-editor typography-${paper?.typography ?? "hollywood"}`} ref={layoutRef} style={{ zoom: zoom === 0 ? Math.min(1, availableWidth / ((paper?.page_width_inch ?? 8.5) * 96 + 48)) : zoom, minWidth: `${(paper?.page_width_inch ?? 8.5) * 96 + 48}px`, fontFamily: paper?.font_family, fontSize: `${paper?.font_size ?? 12}pt`, lineHeight: `${Math.max(paper?.font_size ?? 12, ...Object.values(paper?.element_styles ?? {}).map(s => s?.font_size ?? 0)) * (paper?.line_height ?? 1)}pt` }}>
