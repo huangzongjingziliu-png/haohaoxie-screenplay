@@ -1421,6 +1421,10 @@ body.dark .element-dock button { background: #33333a; border-color: #4a4a52; col
 body.dark .element-dock button:hover { background: #3c4560; border-color: #5c7aa6; }
 body.dark .element-dock button.on { background: #324a68; border-color: #6f9bd1; color: #dce9f9; }
 body.dark .element-dock-title { color: #a6a6b0; }
+.element-dock-key { display: inline-block; margin-left: 6px; padding: 0 4px; border: 1px solid #d5d8df; border-radius: 4px; background: #f4f5f8; color: #7a7a84; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 16px; vertical-align: 1px; }
+.element-dock button.on .element-dock-key { border-color: #a9c4e6; background: #fff; color: #1f4d84; }
+body.dark .element-dock-key { background: #2b2b31; border-color: #4a4a52; color: #a9a9b4; }
+body.dark .element-dock button.on .element-dock-key { background: #2a3a50; border-color: #6f9bd1; color: #dce9f9; }
 body.dark .element-dock-float { color: #a6a6b0 !important; }
 .shortcut-settings { margin: 12px 0; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 .shortcut-settings input { cursor: pointer; }
