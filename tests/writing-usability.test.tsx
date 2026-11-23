@@ -9,6 +9,7 @@ const settings = { typography: 'chinese-reading', font_family: 'Songti SC', font
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   mockBackend.reset();
+  window.localStorage.clear();
   useEditorStore.setState({ viewMode: 'split', previousViewMode: 'split', sourceFirst: true, zoom: 1, composing: false, activeBlockId: null });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -81,9 +82,10 @@ it('元素工具独立于纸面缩放，不再在纸面中渲染缩小标签', a
   const { container, getByLabelText } = render(<ScreenplayEditor/>);
   await waitFor(() => expect(container.querySelector('.screenplay-block')).toBeTruthy());
   fireEvent.focus(container.querySelector('.screenplay-block')!);
-  await waitFor(() => expect(getByLabelText('当前元素类型')).toBeTruthy());
-  expect(container.querySelector('.screenplay-editor')?.contains(getByLabelText('当前元素类型'))).toBe(false);
+  await waitFor(() => expect(getByLabelText('当前元素工具')).toBeTruthy());
+  expect(container.querySelector('.screenplay-editor')?.contains(getByLabelText('当前元素工具'))).toBe(false);
   expect(container.querySelector('.block-controls')).toBeNull();
+  expect(container.querySelectorAll('.float-menu-list button')).toHaveLength(11);
 });
 it('鼠标经过不显示或移动标签，光标焦点决定标签目标；快捷键修改焦点段', async () => {
   window.localStorage.setItem('hhx.elementMenuMode', 'float');
@@ -93,19 +95,88 @@ it('鼠标经过不显示或移动标签，光标焦点决定标签目标；快�
   mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: blocks.map((b,i) => ({ ...b, block_id: b.id, start_line: i*2, line_count: 1 })) }] }));
   const { container, getByLabelText } = render(<ScreenplayEditor/>);
   await waitFor(() => expect(container.querySelector('[data-block-id="b"]')).toBeTruthy());
-  expect(container.querySelector('.row-element-tools')).toBeNull();
+  // 跟随光标：无需先聚焦，菜单即锚定当前活动段落
+  expect(container.querySelector('.float-menu')).toBeTruthy();
+  expect(container.querySelector('.float-menu-list button.on')?.textContent).toContain('动作');
   fireEvent.focus(container.querySelector('[data-block-id="a"] .screenplay-block')!);
   fireEvent.mouseOver(container.querySelector('[data-block-id="b"]')!);
-  expect((getByLabelText('当前元素类型') as HTMLSelectElement).value).toBe('action');
+  expect(container.querySelector('.float-menu-list button.on')?.textContent).toContain('动作');
   fireEvent.focus(container.querySelector('[data-block-id="b"] .screenplay-block')!);
-  expect((getByLabelText('当前元素类型') as HTMLSelectElement).value).toBe('character');
-  fireEvent.change(getByLabelText('当前元素类型'), { target: { value: 'action' } });
+  expect(container.querySelector('.float-menu-list button.on')?.textContent).toContain('人物');
+  const actionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.float-menu-list button'))
+    .find(b => b.textContent?.startsWith('动作'))!;
+  fireEvent.click(actionButton);
   await waitFor(() => expect(change).toHaveBeenCalledWith('b', 'action'));
+  // 选中任意一项后菜单自动收起
+  expect(container.querySelector('.float-menu.collapsed')).toBeTruthy();
+  expect(getByLabelText('当前元素工具')).toBeTruthy();
+  fireEvent.click(container.querySelector('.float-menu-pill')!);
   fireEvent.keyDown(container.querySelector('[data-block-id="a"] .screenplay-block')!, {key:'3',code:'Digit3',metaKey:true});
   await waitFor(() => expect(change).toHaveBeenCalledWith('a', 'character'));
   change.mockClear();
   fireEvent.keyDown(container.querySelector('[data-block-id="a"] .screenplay-block')!, {key:'2',code:'Digit2',metaKey:true,isComposing:true});
   expect(change).not.toHaveBeenCalled();
+});
+
+it('元素菜单可折叠并记住状态', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'float');
+  useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }], settings } as never, activeBlockId: 'a' });
+  mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: [{ block_id: 'a', block_type: 'action', text: '动作', start_line: 0, line_count: 1 }] }] }));
+  const first = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(first.container.querySelector('.screenplay-block')).toBeTruthy());
+  fireEvent.focus(first.container.querySelector('.screenplay-block')!);
+  await waitFor(() => expect(first.container.querySelector('.float-menu-list')).toBeTruthy());
+  fireEvent.click(first.getByTitle('收起元素菜单'));
+  expect(first.container.querySelector('.float-menu.collapsed')).toBeTruthy();
+  expect(first.container.querySelector('.float-menu-list')).toBeNull();
+  expect(first.container.querySelector('.float-menu-pill')?.textContent).toContain('元素');
+  expect(window.localStorage.getItem('hhx.elementMenuCollapsed')).toBe('1');
+  fireEvent.click(first.container.querySelector('.float-menu-pill')!);
+  expect(first.container.querySelector('.float-menu-list')).toBeTruthy();
+  expect(window.localStorage.getItem('hhx.elementMenuCollapsed')).toBe('0');
+  first.unmount();
+
+  // 重新打开后沿用上次收起状态
+  window.localStorage.setItem('hhx.elementMenuCollapsed', '1');
+  const second = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(second.container.querySelector('.screenplay-block')).toBeTruthy());
+  fireEvent.focus(second.container.querySelector('.screenplay-block')!);
+  await waitFor(() => expect(second.container.querySelector('.float-menu.collapsed')).toBeTruthy());
+  expect(second.container.querySelector('.float-menu-list')).toBeNull();
+});
+
+it('左侧吸附菜单收起为窄条，展开后选中任意项自动收回', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'left');
+  useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }], settings } as never, activeBlockId: 'a', changeBlockType: vi.fn().mockResolvedValue(undefined) });
+  mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: [{ block_id: 'a', block_type: 'action', text: '动作', start_line: 0, line_count: 1 }] }] }));
+  const { container } = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(container.querySelector('.element-dock.left')).toBeTruthy());
+  fireEvent.click(container.querySelector('.element-dock-toggle')!);
+  expect(container.querySelector('.element-dock.left.collapsed')).toBeTruthy();
+  expect(container.querySelector('.element-dock-float')).toBeNull();
+  expect(container.querySelector('.element-dock-title')?.textContent).toContain('元素');
+  expect(window.localStorage.getItem('hhx.elementMenuCollapsed')).toBe('1');
+  fireEvent.click(container.querySelector('.element-dock-toggle')!);
+  expect(container.querySelector('.element-dock.left.collapsed')).toBeNull();
+  expect(container.querySelector('.element-dock-float')).toBeTruthy();
+  const typeButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.element-dock button'))
+    .find(b => b.textContent?.startsWith('人物'))!;
+  fireEvent.click(typeButton);
+  await waitFor(() => expect(container.querySelector('.element-dock.left.collapsed')).toBeTruthy());
+});
+
+it('点「跟随光标」当场切回浮动菜单并锚定当前段落', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'left');
+  useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }], settings } as never, activeBlockId: null });
+  mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: [{ block_id: 'a', block_type: 'action', text: '动作', start_line: 0, line_count: 1 }] }] }));
+  const { container, queryByLabelText } = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(container.querySelector('.element-dock.left')).toBeTruthy());
+  fireEvent.click(container.querySelector('.element-dock-float')!);
+  expect(window.localStorage.getItem('hhx.elementMenuMode')).toBe('float');
+  expect(useEditorStore.getState().activeBlockId).toBe('a');
+  await waitFor(() => expect(container.querySelector('.float-menu')).toBeTruthy());
+  expect(container.querySelector('.element-dock')).toBeNull();
+  expect(queryByLabelText('当前元素工具')).toBeTruthy();
 });
 
 it('标准剧本视图隐藏左右互换，只在分栏显示', () => {

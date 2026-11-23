@@ -883,6 +883,18 @@ fn delete_block(
 }
 
 #[tauri::command]
+fn apply_block_batch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    batch: screenplay_store::command::BlockBatch,
+    expected_revision: Option<u64>,
+) -> IpcResult<CommandResult> {
+    let r = state.project.run(|svc| svc.apply_block_batch(Origin::GuiLeft, &batch, expected_revision))?;
+    broadcast(&app, "gui-left", &r);
+    Ok(r)
+}
+
+#[tauri::command]
 fn reorder_scenes(app: AppHandle, state: State<'_, AppState>, scene_ids: Vec<String>, expected_revision: Option<u64>) -> IpcResult<CommandResult> {
     let r = state.project.run(|svc| svc.reorder_scenes(Origin::GuiLeft, &scene_ids, expected_revision))?;
     broadcast(&app, "gui-left", &r); Ok(r)
@@ -1875,6 +1887,7 @@ pub fn run() {
             replace_block,
             insert_block,
             delete_block,
+            apply_block_batch,
             set_block_type,
             reorder_scenes,
             update_scene_board,

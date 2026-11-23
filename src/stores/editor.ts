@@ -71,6 +71,8 @@ interface EditorState {
   changeSourceText: (text: string, expectedRevision?: number) => Promise<boolean>;
   insertBlock: (afterId: string | null, type: BlockType, text?: string) => Promise<void>;
   deleteBlock: (blockId: string) => Promise<void>;
+  /** 跨块批量编辑（复制/剪切/粘贴、跨块删除），一个撤销单元 */
+  applyBlockBatch: (batch: import('@/ipc/client').BlockBatch) => Promise<CommandResult | null>;
   /** 块首退格：把 second 合并进 first */
   mergeBlock: (firstId: string, secondId: string) => Promise<void>;
 
@@ -365,6 +367,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (get().activeBlockId === blockId) set({ activeBlockId: null });
     } catch (e) {
       get().pushToast('error', describe(e), codeOf(e));
+    }
+  },
+
+  applyBlockBatch: async (batch) => {
+    try {
+      await flushPendingEdits();
+      const r = await ipc.applyBlockBatch(batch, get().document?.revision);
+      await get().applyResult(r);
+      return r;
+    } catch (e) {
+      get().pushToast('error', describe(e), codeOf(e));
+      if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') await get().bootstrap();
+      return null;
     }
   },
 

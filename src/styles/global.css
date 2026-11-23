@@ -662,6 +662,36 @@ body.dark ::-webkit-scrollbar-thumb {
   background: #fff2bd;
 }
 
+/* 块级多选：Shift 点击设端点、拖过块边界、⌘A 选当前场/全文 */
+.block-row.block-selected {
+  background: rgba(22, 117, 232, 0.16);
+  box-shadow: inset 3px 0 0 #1675e8;
+}
+.block-row.block-selected.active { background: rgba(22, 117, 232, 0.24); }
+
+/* 段落左侧 gutter：不侵入正文点击区，单击选整块、Shift 点扩范围、按住拖动连选 */
+.block-row > .block-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -20px;
+  width: 14px;
+  cursor: pointer;
+}
+.block-row > .block-gutter::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: transparent;
+}
+.block-row:hover > .block-gutter::after { background: #d8dee8; }
+.block-row.block-selected > .block-gutter::after { background: #1675e8; }
+
 /* 合并预设：人物、可选括注、对白共用一行，与导出排版一致。 */
 .merged-dialogue-row > .block-inline {
   position: static !important;
@@ -1314,6 +1344,13 @@ body.dark .import-review-detail blockquote { background: #303036; }
 .bracket-decoration { pointer-events: none; user-select: none; }
 
 body.dark .block-row.active { background: #50472b; }
+body.dark .block-row.block-selected {
+  background: rgba(138, 180, 248, 0.26);
+  box-shadow: inset 3px 0 0 #8ab4f8;
+}
+body.dark .block-row.block-selected.active { background: rgba(138, 180, 248, 0.34); }
+body.dark .block-row:hover > .block-gutter::after { background: #4a4a52; }
+body.dark .block-row.block-selected > .block-gutter::after { background: #8ab4f8; }
 
 .connection-status-card { display: grid; gap: 8px; padding: 16px; background: #f4f4f5; border: 1px solid #dedee2; border-radius: 12px; margin: 16px 0; }
 .connection-status-card small { color: #606068; line-height: 1.6; }
@@ -1426,6 +1463,40 @@ body.dark .element-dock-title { color: #a6a6b0; }
 body.dark .element-dock-key { background: #2b2b31; border-color: #4a4a52; color: #a9a9b4; }
 body.dark .element-dock button.on .element-dock-key { background: #2a3a50; border-color: #6f9bd1; color: #dce9f9; }
 body.dark .element-dock-float { color: #a6a6b0 !important; }
+/* 元素菜单折叠：跟随光标浮层（float）+ 吸附条（top / left） */
+.float-menu { width: 128px; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+.float-menu.collapsed { width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.float-menu-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; color: #73737e; font-size: 12px; }
+.float-menu-head button { border: 0; border-radius: 4px; background: transparent; color: inherit; padding: 0 4px; font: inherit; line-height: 18px; cursor: pointer; }
+.float-menu-head button:hover { background: #e5e5eb; }
+.float-menu-list { display: flex; flex-direction: column; gap: 2px; }
+.float-menu-list button { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: inherit; min-height: 26px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: #fff; color: #3a3a42; white-space: nowrap; text-align: left; cursor: pointer; }
+.float-menu-list button:hover { background: #eef3fb; border-color: #b9cfe8; }
+.float-menu-list button.on { background: #e8f0fb; border-color: #8fb4e6; color: #1f4d84; font-weight: 600; }
+.float-menu-list button.on .element-dock-key { border-color: #a9c4e6; background: #fff; color: #1f4d84; }
+.float-menu-pill { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1px solid #dfe1e6; border-radius: 999px; background: #fafafb; color: #5a5a64; font: inherit; white-space: nowrap; cursor: pointer; }
+.float-menu-pill:hover { background: #eef3fb; border-color: #b9cfe8; }
+.float-menu-caret { font-size: 10px; color: #8a8a94; }
+body.dark .float-menu.collapsed { background: transparent; border: 0; box-shadow: none; }
+body.dark .float-menu-head { color: #a6a6b0; }
+body.dark .float-menu-head button:hover { background: #3c4560; }
+body.dark .float-menu-list button { background: #33333a; border-color: #4a4a52; color: #e6e6ea; }
+body.dark .float-menu-list button:hover { background: #3c4560; border-color: #5c7aa6; }
+body.dark .float-menu-list button.on { background: #324a68; border-color: #6f9bd1; color: #dce9f9; }
+body.dark .float-menu-list button.on .element-dock-key { background: #2a3a50; border-color: #6f9bd1; color: #dce9f9; }
+body.dark .float-menu-pill { background: #33333a; border-color: #4a4a52; color: #cfcfd6; }
+body.dark .float-menu-pill:hover { background: #3c4560; border-color: #5c7aa6; }
+.element-dock-toggle { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: inherit; min-height: 26px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: #73737e; white-space: nowrap; cursor: pointer; }
+.element-dock-toggle:hover { background: #eef3fb; }
+.element-dock-arrow { font-size: 10px; color: #8a8a94; }
+.element-dock.collapsed { width: auto; gap: 0; padding: 4px; max-height: none; overflow: visible; }
+.element-dock.top.collapsed { padding: 2px 8px; }
+.element-dock.top.collapsed .element-dock-toggle { min-height: 22px; }
+.element-dock.left.collapsed { width: 28px; padding: 6px 2px; align-items: center; }
+.element-dock.left.collapsed .element-dock-toggle { flex-direction: column; gap: 2px; padding: 2px 0; }
+.element-dock.left.collapsed .element-dock-title { writing-mode: vertical-rl; letter-spacing: 2px; padding: 2px 0; }
+body.dark .element-dock-toggle { color: #a6a6b0; }
+body.dark .element-dock-toggle:hover { background: #3c4560; }
 .shortcut-settings { margin: 12px 0; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 .shortcut-settings input { cursor: pointer; }
 body.dark .row-element-tools { background: #303038; border-color: #555; }

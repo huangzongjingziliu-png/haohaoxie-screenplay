@@ -529,6 +529,101 @@ impl CommandService {
         Ok(self.result(affected,None))
     }
 
+    /// 一批跨块编辑合并为一个撤销单元：先替换文本、再删除块、最后在指定块之后插入。
+    ///
+    /// 用于跨块选区的复制/剪切/粘贴：任何一步失败都整体回滚，
+    /// 成功时只 push 一条历史记录，撤销一次即可恢复原状。
+    pub fn apply_block_batch(
+        &self,
+        origin: Origin,
+        batch: &BlockBatch,
+        expected_revision: Option<u64>,
+    ) -> Result<CommandResult, CommandError> {
+        self.check_revision(expected_revision)?;
+        let before = self.store.snapshot();
+        let del: std::collections::BTreeSet<&str> = batch.delete.iter().map(String::as_str).collect();
+        if del.len() != batch.delete.len() {
+            return Err(CommandError::InvalidArgument { message: "删除列表包含重复块".into() });
+        }
+        for id in &batch.delete {
+            if before.block(id).is_none() {
+                return Err(CommandError::NotFound { what: "block".into(), id: id.clone() });
+            }
+        }
+        let mut replace: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+        for edit in &batch.replace {
+            if before.block(&edit.block_id).is_none() {
+                return Err(CommandError::NotFound { what: "block".into(), id: edit.block_id.clone() });
+            }
+            replace.insert(edit.block_id.as_str(), edit.text.as_str());
+        }
+        if let Some(after) = &batch.insert_after {
+            if before.block(after).is_none() {
+                return Err(CommandError::NotFound { what: "block".into(), id: after.clone() });
+            }
+            if del.contains(after.as_str()) {
+                return Err(CommandError::InvalidArgument { message: "不能粘贴到将被删除的块之后".into() });
+            }
+        }
+
+        let new_rev = before.revision + 1;
+        let mut rebuilt: Vec<ScreenplayBlock> = Vec::with_capacity(before.blocks.len() + batch.insert.len());
+        let mut inserted: Vec<String> = Vec::new();
+        let mut changed = false;
+        let mut placed = false;
+        for block in &before.blocks {
+            let id = block.id.as_str();
+            if del.contains(id) {
+                changed = true;
+                continue;
+            }
+            let mut next = block.clone();
+            if let Some(text) = replace.get(id) {
+                if next.text != **text {
+                    next.text = (*text).to_string();
+                    next.confidence = 1.0;
+                    next.revision = new_rev;
+                    changed = true;
+                }
+            }
+            rebuilt.push(next);
+            if batch.insert_after.as_deref() == Some(id) {
+                push_batch_inserts(&mut rebuilt, &mut inserted, &batch.insert, new_rev, &mut changed);
+                placed = true;
+            }
+        }
+        if batch.insert_after.is_none() {
+            push_batch_inserts(&mut rebuilt, &mut inserted, &batch.insert, new_rev, &mut changed);
+        } else if !placed {
+            return Err(CommandError::NotFound {
+                what: "block".into(),
+                id: batch.insert_after.clone().unwrap_or_default(),
+            });
+        }
+        if !changed {
+            return Ok(self.result(Vec::new(), None));
+        }
+        let mut doc = before.clone();
+        doc.blocks = rebuilt;
+        let affected: Vec<String> = batch
+            .replace
+            .iter()
+            .map(|e| e.block_id.clone())
+            .chain(batch.delete.iter().cloned())
+            .chain(inserted.iter().cloned())
+            .collect();
+        self.store.log_operation(
+            origin,
+            "apply_block_batch",
+            "document",
+            "",
+            &format!("{} replace, {} delete, {} insert", batch.replace.len(), batch.delete.len(), batch.insert.len()),
+            None,
+        );
+        self.commit_with_history(before, doc, origin, "apply_block_batch", None, false, true);
+        Ok(self.result(affected, None))
+    }
+
     /// 修改 block 类型
     pub fn set_block_type(
         &self,
@@ -1100,6 +1195,50 @@ impl CommandService {
         };
         self.commit_with_history(backup, work, origin, label, None, false, true);
         Ok(self.result(affected, checkpoint))
+    }
+}
+
+/// 跨块批量编辑（GUI 复制/剪切/粘贴、跨块选区删除）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockBatch {
+    #[serde(default)]
+    pub replace: Vec<BlockEdit>,
+    #[serde(default)]
+    pub delete: Vec<String>,
+    #[serde(default)]
+    pub insert_after: Option<String>,
+    #[serde(default)]
+    pub insert: Vec<BlockInsert>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockEdit {
+    pub block_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockInsert {
+    pub block_type: BlockType,
+    pub text: String,
+}
+
+fn push_batch_inserts(
+    out: &mut Vec<ScreenplayBlock>,
+    inserted: &mut Vec<String>,
+    specs: &[BlockInsert],
+    revision: u64,
+    changed: &mut bool,
+) {
+    for spec in specs {
+        let mut block = ScreenplayBlock::new(spec.block_type, spec.text.as_str());
+        block.revision = revision;
+        inserted.push(block.id.clone());
+        out.push(block);
+        *changed = true;
     }
 }
 
@@ -2189,4 +2328,76 @@ mod custom_scene_source_health {
  #[test]fn failed_planning_patch_does_not_partially_save(){let s=svc();let r=s.edit_series("enable","","",&[],0).unwrap();let id=r.document.series.as_ref().unwrap().active_id.clone();let result=s.update_series_planning(&[PlanningPatch{episode_id:"".into(),field:"season_outline".into(),value:"不应保存".into(),expected_value:"".into()},PlanningPatch{episode_id:id,field:"synopsis".into(),value:"冲突".into(),expected_value:"错误旧值".into()}],r.revision);assert!(result.is_err());assert!(s.store.snapshot().series.unwrap().season_outline.is_empty());}
  #[test]fn report_review_never_rewrites_script_and_stale_evidence_is_rejected(){let s=svc();let r=s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n第一集内容",None).unwrap();let r=s.edit_series("add","","第二集",&[],r.revision).unwrap();let r=s.replace_source_text(Origin::GuiRight,"EXT. ROAD - NIGHT\n\n第二集内容",Some(r.revision)).unwrap();let doc=s.store.snapshot();let ids=doc.series.as_ref().unwrap().episodes.iter().map(|e|e.id.clone()).collect::<Vec<_>>();let evidence=ids.iter().map(|id|{let d=screenplay_core::series_planning::episode_document(&doc,id).unwrap();let b=d.blocks.iter().find(|b|b.block_type==BlockType::Action).unwrap();ContinuityEvidence{episode_id:id.clone(),block_id:b.id.clone(),quote:b.text.clone()}}).collect();let report=ContinuityReport{id:"report".into(),created_at:now_iso(),episode_ids:ids.clone(),source_fingerprint:fingerprint(&doc,&ids).unwrap(),findings:vec![ContinuityFinding{id:"finding".into(),kind:"character".into(),title:"待确认".into(),reason:"需要作者判断".into(),evidence,status:"open".into()}],note:"".into()};let mut bad=report.clone();bad.findings[0].evidence[0].quote="编造的原文".into();assert!(s.save_continuity_report(bad,r.revision).is_err());let r=s.save_continuity_report(report,r.revision).unwrap();let text=r.source_text.clone();let r=s.review_continuity_finding("report","finding","dismissed",r.revision).unwrap();assert_eq!(text,r.source_text);assert_eq!(r.document.series.unwrap().checks[0].findings[0].status,"dismissed");}
  #[test]fn named_draft_is_an_immutable_snapshot_and_current_comparison_works(){let s=svc();s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n第一稿内容",None).unwrap();let version=s.create_version(Origin::GuiLeft,"V1","交稿记录").unwrap();let id=version.version_id.unwrap();assert_eq!(s.store.version_document(&id).unwrap().draft_label.as_deref(),Some("V1"));let r=s.replace_source_text(Origin::GuiRight,"INT. ROOM - DAY\n\n后续修改",Some(version.revision)).unwrap();assert_eq!(r.document.draft_label.as_deref(),Some("V1"));assert!(!s.compare_versions(&id,"").unwrap().is_empty());assert!(s.store.version_document(&id).unwrap().blocks.iter().any(|b|b.text.contains("第一稿内容")));let restored=s.restore_version(Origin::GuiLeft,&id).unwrap();assert_eq!(restored.document.draft_label.as_deref(),Some("V1"));}
+}
+
+#[cfg(test)]
+mod block_batch_tests {
+    use super::*;
+
+    fn svc() -> CommandService {
+        CommandService::new(std::sync::Arc::new(Store::new(
+            crate::db::open_db(std::path::Path::new(":memory:")).unwrap(),
+            ScreenplayDocument::blank("批量测试"),
+        )))
+    }
+
+    fn seed(svc: &CommandService) -> Vec<String> {
+        svc.mutate_document(Origin::GuiLeft, |doc| {
+            doc.blocks = vec![
+                ScreenplayBlock::new(BlockType::Action, "A"),
+                ScreenplayBlock::new(BlockType::Dialogue, "B"),
+                ScreenplayBlock::new(BlockType::Action, "C"),
+            ];
+        })
+        .unwrap();
+        svc.store.snapshot().blocks.iter().map(|b| b.id.clone()).collect()
+    }
+
+    #[test]
+    fn batch_is_atomic_one_undo_and_keeps_block_types() {
+        let svc = svc();
+        let ids = seed(&svc);
+        let before = svc.store.snapshot();
+        let batch = BlockBatch {
+            replace: vec![BlockEdit { block_id: ids[0].clone(), text: "A2".into() }],
+            delete: vec![ids[1].clone()],
+            insert_after: Some(ids[0].clone()),
+            insert: vec![
+                BlockInsert { block_type: BlockType::Character, text: "张三".into() },
+                BlockInsert { block_type: BlockType::Parenthetical, text: "低声".into() },
+                BlockInsert { block_type: BlockType::Dialogue, text: "走吧".into() },
+            ],
+        };
+        let r = svc.apply_block_batch(Origin::GuiLeft, &batch, Some(before.revision)).unwrap();
+        let got: Vec<(BlockType, String)> = r.document.blocks.iter().map(|b| (b.block_type, b.text.clone())).collect();
+        assert_eq!(got.len(), 5);
+        assert_eq!(got[0], (BlockType::Action, "A2".into()));
+        assert_eq!(got[1], (BlockType::Character, "张三".into()));
+        assert_eq!(got[2], (BlockType::Parenthetical, "低声".into()));
+        assert_eq!(got[3], (BlockType::Dialogue, "走吧".into()));
+        assert_eq!(got[4], (BlockType::Action, "C".into()));
+        assert_eq!(r.affected.len(), 5);
+        let restored = svc.undo(Origin::GuiLeft).unwrap();
+        assert_eq!(restored.document.blocks.len(), 3);
+        assert_eq!(restored.document.blocks[0].text, "A");
+        assert_eq!(restored.document.blocks[1].block_type, BlockType::Dialogue);
+    }
+
+    #[test]
+    fn batch_inserts_into_empty_document_and_rejects_stale_revision() {
+        let svc = svc();
+        let rev = svc.store.snapshot().revision;
+        let batch = BlockBatch {
+            insert: vec![
+                BlockInsert { block_type: BlockType::SceneHeading, text: "INT. ROOM - DAY".into() },
+                BlockInsert { block_type: BlockType::Action, text: "有人推门".into() },
+            ],
+            ..Default::default()
+        };
+        assert!(svc.apply_block_batch(Origin::GuiLeft, &batch, Some(rev + 9)).is_err());
+        let r = svc.apply_block_batch(Origin::GuiLeft, &batch, Some(rev)).unwrap();
+        assert_eq!(r.document.blocks.len(), 2);
+        assert_eq!(r.document.blocks[0].block_type, BlockType::SceneHeading);
+        assert!(svc.apply_block_batch(Origin::GuiLeft, &batch, Some(rev)).is_err());
+    }
 }

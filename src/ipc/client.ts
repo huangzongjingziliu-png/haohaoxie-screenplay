@@ -118,6 +118,13 @@ export interface RecentEntry {
   openedAt: string;
 }
 
+/** 跨块批量编辑载荷（与 Rust `BlockBatch` 对应） */
+export interface BlockBatch {
+  replace?: { blockId: string; text: string }[];
+  delete?: string[];
+  insertAfter?: string | null;
+  insert?: { blockType: BlockType; text: string }[];
+}
 /** 白板构思分区模板 */
 export interface TemplateLane {
   name: string;
@@ -256,6 +263,9 @@ export const ipc = {
     }),
   deleteBlock: (blockId: string, expectedRevision?: number) =>
     call<CommandResult>('delete_block', { blockId, expectedRevision }),
+  /** 跨块批量编辑：一次 IPC、一个撤销单元（复制/剪切/粘贴、跨块删除） */
+  applyBlockBatch: (batch: BlockBatch, expectedRevision?: number) =>
+    call<CommandResult>('apply_block_batch', { batch, expectedRevision }),
   setBlockType: (
     blockId: string,
     blockType: BlockType,
