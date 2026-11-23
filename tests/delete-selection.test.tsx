@@ -124,8 +124,9 @@ it('括注整段选中后 ⌘X 写入剪贴板并清空',async()=>{
   await waitFor(()=>expect(container.querySelector('.parenthetical-shell')).toBeTruthy());
   const {el}=selectShell(container);
   expect(fireEvent.keyDown(el,{key:'x',metaKey:true})).toBe(false);
-  expect(writeText).toHaveBeenCalledWith('（'+parText+'）');
-  expect(el.textContent).toBe('');
+  await waitFor(()=>expect(writeText).toHaveBeenCalledWith('（'+parText+'）'));
+  // 剪切是事务：写剪贴板成功后才清空正文
+  await waitFor(()=>expect(el.textContent).toBe(''));
   await waitFor(()=>expect(changeBlockText).toHaveBeenCalledWith('par','',expect.anything()),{timeout:1500});
 });
 

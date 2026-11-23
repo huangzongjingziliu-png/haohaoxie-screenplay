@@ -84,6 +84,29 @@ pub struct HistoryStatus {
     pub redo_depth: usize,
 }
 
+/// 删块后清理场景板孤儿数据：卡片 key 与分组成员必须仍是现存场景标题块。
+///
+/// 卡片和分组是 scene_heading 块的附属展示数据，块被删除后若不清理会留下
+/// 永远无法对应正文的「幽灵场景」。
+fn prune_scene_board(doc: &mut ScreenplayDocument) {
+    if doc.settings.scene_board.cards.is_empty() && doc.settings.scene_board.groups.is_empty() {
+        return;
+    }
+    let scenes: std::collections::BTreeSet<String> = doc
+        .blocks
+        .iter()
+        .filter(|b| b.block_type == BlockType::SceneHeading)
+        .map(|b| b.id.clone())
+        .collect();
+    doc.settings.scene_board.cards.retain(|id, _| scenes.contains(id));
+    let mut groups = std::mem::take(&mut doc.settings.scene_board.groups);
+    for group in &mut groups {
+        group.scene_ids.retain(|id| scenes.contains(id));
+    }
+    groups.retain(|g| !g.scene_ids.is_empty());
+    doc.settings.scene_board.groups = groups;
+}
+
 /// 写事务：批量修改要么全部成功要么全部回滚（说明书第 61 条）
 #[derive(Clone)]
 pub struct CommandService {
@@ -458,6 +481,7 @@ impl CommandService {
             id: block_id.to_string(),
         })?;
         let removed = doc.blocks.remove(idx);
+        prune_scene_board(&mut doc);
         self.store
             .log_operation(origin, "delete_block", block_id, &removed.text, "", None);
         self.commit_with_history(before, doc, origin, "delete_block", Some(block_id), false, true);
@@ -524,6 +548,7 @@ impl CommandService {
         if replacement.is_empty(){return Err(CommandError::InvalidArgument{message:"修改结果为空，未应用".into()});}
         if before.blocks[start].block_type==BlockType::SceneHeading && replacement[0].block_type==BlockType::SceneHeading {replacement[0].id=ids[0].clone();}
         let mut doc=before.clone();doc.blocks.splice(start..start+ids.len(),replacement);
+        prune_scene_board(&mut doc);
         let affected=ids.to_vec();
         self.commit_with_history(before,doc,origin,"replace_selected_blocks",ids.first().map(String::as_str),false,true);
         Ok(self.result(affected,None))
@@ -605,6 +630,7 @@ impl CommandService {
         }
         let mut doc = before.clone();
         doc.blocks = rebuilt;
+        prune_scene_board(&mut doc);
         let affected: Vec<String> = batch
             .replace
             .iter()
@@ -706,6 +732,7 @@ impl CommandService {
         doc.blocks[first_idx].text = merged_text.clone();
         doc.blocks[first_idx].revision = doc.revision + 1;
         doc.blocks.remove(second_idx);
+        prune_scene_board(&mut doc);
         self.store.log_operation(
             origin,
             "merge_blocks",
@@ -1361,6 +1388,38 @@ mod tests {
         let doc = ScreenplayDocument::blank("test");
         let store = Arc::new(Store::new(conn, doc));
         CommandService::new(store)
+    }
+
+    #[test]
+    fn deleting_scene_heading_prunes_board_cards_and_groups() {
+        let svc = make_service();
+        let a = svc
+            .create_board_scene(Origin::GuiLeft, "INT. A - DAY", "A", svc.store.revision(), None)
+            .unwrap()
+            .affected[0]
+            .clone();
+        let b = svc
+            .create_board_scene(Origin::GuiLeft, "EXT. B - NIGHT", "B", svc.store.revision(), None)
+            .unwrap()
+            .affected[0]
+            .clone();
+        svc.mutate_document(Origin::GuiLeft, |d| {
+            d.settings.scene_board.groups.push(SceneGroup {
+                id: "g1".into(),
+                name: "第一幕".into(),
+                scene_ids: vec![a.clone(), b.clone()],
+                collapsed: false,
+            });
+        })
+        .unwrap();
+        let r = svc.delete_block(Origin::GuiLeft, &a, None).unwrap();
+        assert!(!r.document.settings.scene_board.cards.contains_key(&a));
+        assert!(r.document.settings.scene_board.cards.contains_key(&b));
+        assert_eq!(r.document.settings.scene_board.groups.len(), 1);
+        assert_eq!(r.document.settings.scene_board.groups[0].scene_ids, vec![b.clone()]);
+        // 撤销恢复正文时，卡片与分组也应一并回来。
+        svc.undo(Origin::GuiLeft).unwrap();
+        assert!(svc.get_document().document.settings.scene_board.cards.contains_key(&a));
     }
 
     #[test]

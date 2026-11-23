@@ -9,7 +9,8 @@ import { sceneFollowSuppressed } from '@/utils/sceneFollow';
 import { defaultElementStyle } from '@/utils/appearance';
 import { paperInkColor } from '@/utils/theme';
 import { flushPendingEdits, registerPendingEditor } from '@/utils/pendingEdits';
-import { orderedBlockRange, sceneBlockIds, blocksToText, rememberBlockClipboard, readBlockClipboard } from './blockSelection';
+import { orderedBlockRange, sceneBlockIds, blocksToText, rememberBlockClipboard, readBlockClipboard, floatingMenuTop, blockRangeAnnouncement } from './blockSelection';
+import { writeClipboardText } from '@/utils/clipboard';
 import type { BlockType, Page, PageBlock, Pagination } from '@/ipc/types';
 
 // Share document indexes across rendered paragraphs; build once per block array.
@@ -117,7 +118,7 @@ export default function ScreenplayEditor() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [toolPosition, setToolPosition] = useState({ top: 0, left: 0, visible: true });
+  const [toolPosition, setToolPosition] = useState({ top: 0, left: 0, maxHeight: 0, visible: true });
   const [shortcuts, setShortcuts] = useState(readShortcuts);
   const [menuMode, setMenuMode] = useState<TypeMenuMode>(readTypeMenuMode);
   const [menuCollapsed, setMenuCollapsed] = useState(readTypeMenuCollapsed);
@@ -183,7 +184,19 @@ export default function ScreenplayEditor() {
       const row = workspace?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(id ?? '')}"]`);
       if (!workspace || !row) return;
       const bounds = workspace.getBoundingClientRect(), r = row.getBoundingClientRect();
-      setToolPosition({ top: r.top - bounds.top, left: Math.max(4, r.left - bounds.left - (menuCollapsed ? 72 : 136)), visible: r.bottom >= bounds.top && r.top < bounds.bottom });
+      const menuHeight = workspace.querySelector<HTMLElement>('.float-menu')?.offsetHeight ?? 0;
+      const placed = floatingMenuTop({
+        rowTop: r.top - bounds.top,
+        rowBottom: r.bottom - bounds.top,
+        containerHeight: bounds.height,
+        menuHeight,
+      });
+      setToolPosition({
+        top: placed.top,
+        maxHeight: placed.maxHeight,
+        left: Math.max(4, r.left - bounds.left - (menuCollapsed ? 72 : 136)),
+        visible: r.bottom >= bounds.top && r.top < bounds.bottom,
+      });
     };
     update();
     window.addEventListener('resize', update);
@@ -319,6 +332,7 @@ export default function ScreenplayEditor() {
   const blockRangeRef = useRef(blockRange);
   blockRangeRef.current = blockRange;
   const dragAnchor = useRef<string | null>(null);
+  const dragCrossed = useRef(false);
   const [dragSelecting, setDragSelecting] = useState(false);
   const blockIds = useMemo(() => (screenplay?.blocks ?? []).map((b) => b.id), [screenplay]);
   const selectedIds = useMemo(
@@ -380,7 +394,7 @@ export default function ScreenplayEditor() {
       const blocks = doc.blocks;
       const si = blocks.findIndex((b) => b.id === startId);
       const ei = blocks.findIndex((b) => b.id === endId);
-      if (si < 0 || ei <= si) return;
+      if (si < 0 || ei < si) return;
       const startRow = closestRow(range.startContainer) ?? rowForBlock(startId);
       const endRow = closestRow(range.endContainer) ?? rowForBlock(endId);
       const startEl = startRow?.querySelector<HTMLElement>('.screenplay-block');
@@ -390,6 +404,19 @@ export default function ScreenplayEditor() {
       const startOff = Math.max(0, startBase + (startEl ? offsetWithin(startEl, range.startContainer, range.startOffset, 0) : 0));
       const endLen = endEl?.textContent?.length ?? blocks[ei].text.length;
       const endOff = Math.max(0, endBase + (endEl ? offsetWithin(endEl, range.endContainer, range.endOffset, endLen) : blocks[ei].text.length));
+      // 同一源块被分页拆成多段：按 source offset 在单块内删除，不走「不同块」分支。
+      if (si === ei) {
+        const from = Math.min(startOff, endOff);
+        const to = Math.max(startOff, endOff);
+        const text = blocks[si].text;
+        const clippedTo = Math.min(to, text.length);
+        if (clippedTo <= from) return;
+        const replacement = text.slice(0, from) + text.slice(clippedTo);
+        if (replacement === text) return;
+        const same = await useEditorStore.getState().applyBlockBatch({ replace: [{ blockId: startId, text: replacement }] });
+        if (same) requestFocus(startId, from);
+        return;
+      }
       const head = blocks[si].text.slice(0, Math.min(startOff, blocks[si].text.length));
       // 选区停在末块开头时只删首块的尾巴，不能整块吞掉末块
       const keepEnd = endOff === 0;
@@ -406,11 +433,47 @@ export default function ScreenplayEditor() {
     [requestFocus, rowForBlock]
   );
 
+  /** 焦点是否在正文可编辑块里：块选区、⌘C/⌘X、粘贴与 Esc 共用同一判断。 */
+  const focusInText = useCallback((): boolean => {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !workspaceRef.current?.contains(active)) return false;
+    const block = active.closest<HTMLElement>('.screenplay-block');
+    if (!block) return false;
+    return block.getAttribute('contenteditable') !== 'false';
+  }, []);
+
+  /** 事务式复制/剪切：先落盘草稿、取稳定载荷、写剪贴板成功后才删除。 */
+  const copySelectedBlocks = useCallback(
+    async (cut: boolean): Promise<boolean> => {
+      const ids = selectedIdsRef.current;
+      if (!ids.length) return false;
+      try {
+        await flushPendingEdits();
+      } catch (error) {
+        useEditorStore.getState().pushToast('error', String(error));
+        return false;
+      }
+      const doc = useEditorStore.getState().document;
+      const picked = ids.flatMap((id) => doc?.blocks.find((b) => b.id === id) ?? []);
+      if (!picked.length) return false;
+      const text = blocksToText(picked);
+      const ok = await writeClipboardText(text);
+      if (!ok) {
+        useEditorStore
+          .getState()
+          .pushToast('error', cut ? '复制到剪贴板失败，所选段落未删除' : '复制到剪贴板失败，请检查系统剪贴板权限');
+        return false;
+      }
+      rememberBlockClipboard(text, picked.map((b) => ({ type: b.block_type, text: b.text })));
+      if (cut) await removeSelectedBlocks();
+      return true;
+    },
+    [removeSelectedBlocks]
+  );
+
   useEffect(() => {
-    const inEditor = () => {
-      const active = document.activeElement as HTMLElement | null;
-      return !!workspaceRef.current && !!active && workspaceRef.current.contains(active);
-    };
+    /** 弹层/对话框自己处理 Esc，兜底层不抢。 */
+    const inDialog = () => !!document.activeElement?.closest?.('[role="dialog"], [aria-modal="true"]');
     /**
      * 选区端点可能在不可编辑的括号装饰里（整段选中括注时），
      * 此时焦点常常不在正文 contenteditable 上，keydown 不会冒泡到块组件。
@@ -455,34 +518,48 @@ export default function ScreenplayEditor() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (composingRef.current || e.isComposing) return;
-      // 焦点在编辑器外的输入框（搜索、标题等）时，不劫持复制/剪切/退格等通用键
-      const focusedEl = document.activeElement as HTMLElement | null;
-      if (focusedEl && !workspaceRef.current?.contains(focusedEl) && (focusedEl.tagName === 'INPUT' || focusedEl.tagName === 'TEXTAREA' || focusedEl.isContentEditable)) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
       const range = blockRangeRef.current;
+      // 焦点不在正文：不接管任何块操作，并清掉残留块选区（工具栏、弹层、场景板等）。
+      if (!focusInText()) {
+        if (range) setBlockRange(null);
+        return;
+      }
       const info = selectionInfo();
       const activeEditable = !!document.activeElement?.closest?.('.screenplay-block');
-      if (e.key === 'Escape' && range) {
+      // 撤销/重做会整体重建文档：块选区此时已失效，先清掉，
+      // 避免「界面无高亮但下一次删除仍按块执行」。
+      if (mod && !e.altKey && key === 'z') setBlockRange(null);
+      if (e.key === 'Escape') {
+        if (!range && !info) return;
+        if (inDialog()) return;
         e.preventDefault();
         e.stopPropagation();
         setBlockRange(null);
         window.getSelection()?.removeAllRanges();
         return;
       }
-      if (!inEditor() && !range && !info) return;
       const ids = selectedIdsRef.current;
-      // 已有块选区时，Shift+↑/↓ 按块扩展或收缩范围（键盘替代 Shift 点击）
-      if (range && e.shiftKey && !mod && !e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      // Shift+↑/↓：已有块选区时按块扩展/收缩；没有时从当前块起选（仅接管折叠的文字光标）。
+      if (e.shiftKey && !mod && !e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         const doc = useEditorStore.getState().document;
-        if (!doc) return;
+        if (!doc?.blocks.length) return;
+        let current = range;
+        if (!current) {
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) return;
+          const seed = focusedId ? sourceBlockId(focusedId) : useEditorStore.getState().activeBlockId;
+          if (!seed) return;
+          current = { anchor: seed, focus: seed };
+        }
         const all = doc.blocks.map((b) => b.id);
-        const from = all.indexOf(range.focus);
+        const from = all.indexOf(current.focus);
+        if (from < 0) return;
         const to = Math.min(all.length - 1, Math.max(0, from + (e.key === 'ArrowDown' ? 1 : -1)));
-        if (from < 0 || to === from) return;
         e.preventDefault();
         e.stopPropagation();
-        setBlockRange({ anchor: range.anchor, focus: all[to] });
+        setBlockRange({ anchor: current.anchor, focus: all[to] });
         window.getSelection()?.removeAllRanges();
         return;
       }
@@ -508,25 +585,25 @@ export default function ScreenplayEditor() {
         if (ids.length) {
           e.preventDefault();
           e.stopPropagation();
-          void (async () => {
-            await flushPendingEdits();
-            const doc = useEditorStore.getState().document;
-            const picked = ids
-              .map((id) => doc?.blocks.find((b) => b.id === id))
-              .filter((b): b is NonNullable<typeof b> => !!b);
-            const text = blocksToText(picked);
-            rememberBlockClipboard(text, picked.map((b) => ({ type: b.block_type, text: b.text })));
-            void navigator.clipboard?.writeText(text)?.catch(() => {});
-          })();
-          if (key === 'x') void removeSelectedBlocks();
+          void copySelectedBlocks(key === 'x');
           return;
         }
-        // 原生文字选区：焦点不在正文（例如端点落在括注括号）时浏览器切不动
+        // 原生文字选区：焦点不在正文（例如端点落在括注括号）时浏览器切不动。
+        // 剪切同样是事务：写剪贴板成功后才删。
         if (info && (info.sRow !== info.eRow || !activeEditable)) {
           e.preventDefault();
           e.stopPropagation();
-          void navigator.clipboard?.writeText(info.r.toString())?.catch(() => {});
-          if (key === 'x') deleteInPaper(info);
+          const text = info.r.toString();
+          void (async () => {
+            const ok = await writeClipboardText(text);
+            if (!ok) {
+              useEditorStore
+                .getState()
+                .pushToast('error', key === 'x' ? '复制到剪贴板失败，选区未删除' : '复制到剪贴板失败');
+              return;
+            }
+            if (key === 'x') deleteInPaper(info);
+          })();
         }
         return;
       }
@@ -546,15 +623,13 @@ export default function ScreenplayEditor() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [removeSelectedBlocks, deleteAcrossBlocks]);
+  }, [removeSelectedBlocks, deleteAcrossBlocks, copySelectedBlocks, focusInText, focusedId]);
 
-  // 块剪贴板粘贴：只有系统剪贴板文本与应用内记录完全一致时才按块还原类型。
+  // 块剪贴板粘贴：只在焦点位于正文时拦截，避免在搜索框/标题框里粘贴插进剧本。
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (composingRef.current) return;
-      const active = document.activeElement as HTMLElement | null;
-      const inside = !!active && !!workspaceRef.current?.contains(active);
-      if (!inside && !blockRangeRef.current) return;
+      if (!focusInText()) return;
       const text = e.clipboardData?.getData('text/plain') ?? '';
       const payload = readBlockClipboard(text);
       if (!payload || !useEditorStore.getState().document) return;
@@ -564,27 +639,17 @@ export default function ScreenplayEditor() {
     };
     window.addEventListener('paste', onPaste, true);
     return () => window.removeEventListener('paste', onPaste, true);
-  }, [insertBlocksAfterSelection]);
+  }, [insertBlocksAfterSelection, focusInText]);
 
   // macOS 原生 Edit 菜单会先截走 ⌘C/⌘X，页面收不到 keydown；
-  // 因此在 copy/cut 事件里兜底：有块选区才按块写入剪贴板/删除，没有就交还原生。
+  // 因此在 copy/cut 事件里兜底，并走同一条事务：写剪贴板成功后才删除。
   useEffect(() => {
     const onCopyCut = (e: ClipboardEvent) => {
       if (composingRef.current) return;
-      const ids = selectedIdsRef.current;
-      if (!ids.length) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active && !workspaceRef.current?.contains(active)
-        && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-      const doc = useEditorStore.getState().document;
-      const picked = ids.flatMap((id) => doc?.blocks.find((b) => b.id === id) ?? []);
-      if (!picked.length) return;
-      const text = blocksToText(picked);
+      if (!selectedIdsRef.current.length || !focusInText()) return;
       e.preventDefault();
       e.stopPropagation();
-      try { e.clipboardData?.setData('text/plain', text); } catch { /* 只读剪贴板时忽略 */ }
-      rememberBlockClipboard(text, picked.map((b) => ({ type: b.block_type, text: b.text })));
-      if (e.type === 'cut') void removeSelectedBlocks();
+      void copySelectedBlocks(e.type === 'cut');
     };
     window.addEventListener('copy', onCopyCut, true);
     window.addEventListener('cut', onCopyCut, true);
@@ -592,12 +657,22 @@ export default function ScreenplayEditor() {
       window.removeEventListener('copy', onCopyCut, true);
       window.removeEventListener('cut', onCopyCut, true);
     };
-  }, [removeSelectedBlocks]);
+  }, [copySelectedBlocks, focusInText]);
 
-  // Esc 兜底：即便焦点落在编辑器外的输入框，也要能清掉块选区与原生选区。
+  // Esc 兜底：焦点不在正文（工具栏、场景板等）时也能清块选区；
+  // 但组字中、弹层内、外部可编辑区里的 Esc 交给它们自己处理。
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !blockRangeRef.current) return;
+      if (composingRef.current || e.isComposing) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest?.('[role="dialog"], [aria-modal="true"]')) return;
+      if (
+        active &&
+        !workspaceRef.current?.contains(active) &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+      )
+        return;
       e.preventDefault();
       setBlockRange(null);
       window.getSelection()?.removeAllRanges();
@@ -606,14 +681,49 @@ export default function ScreenplayEditor() {
     return () => document.removeEventListener('keydown', onEsc, true);
   }, []);
 
+  // 撤销/文档变化后端点可能已不存在：清掉块选区，避免「无高亮但 Delete 被吞」。
+  useEffect(() => {
+    if (!blockRange) return;
+    if (!blockIds.includes(blockRange.anchor) || !blockIds.includes(blockRange.focus)) setBlockRange(null);
+  }, [blockRange, blockIds]);
+
+  // 焦点离开正文（工具栏按钮、弹层、场景板、帮助面板）→ 立刻清块选区。
+  useEffect(() => {
+    const clearIfOutside = () => {
+      if (blockRangeRef.current && !focusInText()) setBlockRange(null);
+    };
+    document.addEventListener('focusin', clearIfOutside, true);
+    document.addEventListener('pointerdown', clearIfOutside, true);
+    return () => {
+      document.removeEventListener('focusin', clearIfOutside, true);
+      document.removeEventListener('pointerdown', clearIfOutside, true);
+    };
+  }, [focusInText]);
+
   useEffect(() => {
     const onUp = () => {
+      const hadAnchor = !!dragAnchor.current;
       dragAnchor.current = null;
+      dragCrossed.current = false;
       setDragSelecting(false);
+      // 拖选/Shift 点选后把焦点交回正文，保证 ⌘C/⌘X 与 Shift+↑↓ 立即可用。
+      if (hadAnchor && blockRangeRef.current && !focusInText()) {
+        rowForBlock(blockRangeRef.current.focus)
+          ?.querySelector<HTMLElement>('.screenplay-block')
+          ?.focus({ preventScroll: true });
+      }
     };
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
-  }, []);
+  }, [focusInText, rowForBlock]);
+
+  /** 把键盘焦点交回指定块正文（gutter/拖选后立即能复制、扩展选区）。 */
+  const focusBlockText = useCallback(
+    (id: string) => {
+      rowForBlock(id)?.querySelector<HTMLElement>('.screenplay-block')?.focus({ preventScroll: true });
+    },
+    [rowForBlock]
+  );
 
   const onPaperMouseDown = (e: React.MouseEvent) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
@@ -622,9 +732,14 @@ export default function ScreenplayEditor() {
     if (!id) return;
     if (e.shiftKey) {
       e.preventDefault();
-      const anchor = blockRangeRef.current?.anchor ?? useEditorStore.getState().activeBlockId ?? id;
+      // 合并对白行没有块选区时，Shift 点行内块以它自己为锚点，便于单独选中。
+      const mergedInline = row.classList.contains('block-inline') && !!row.closest('.merged-dialogue-row');
+      const anchor =
+        blockRangeRef.current?.anchor ??
+        (mergedInline ? id : useEditorStore.getState().activeBlockId ?? id);
       setBlockRange({ anchor, focus: id });
       useEditorStore.getState().setActiveBlock(id);
+      focusBlockText(id);
       window.getSelection()?.removeAllRanges();
       return;
     }
@@ -634,24 +749,40 @@ export default function ScreenplayEditor() {
       if (type === 'parenthetical') {
         e.preventDefault();
         dragAnchor.current = id;
+        dragCrossed.current = false;
         setBlockRange({ anchor: id, focus: id });
         useEditorStore.getState().setActiveBlock(id);
+        focusBlockText(id);
         window.getSelection()?.removeAllRanges();
         return;
       }
     }
     if (blockRangeRef.current) setBlockRange(null);
     dragAnchor.current = id;
+    dragCrossed.current = false;
   };
 
   const onPaperMouseMove = (e: React.MouseEvent) => {
     if (!dragAnchor.current || (e.buttons & 1) === 0) return;
-    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
-    if (!row) return;
-    const id = sourceBlockId(row.dataset.blockId ?? '');
-    if (!id || id === dragAnchor.current) return;
+    const hit = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id], .block-gutter');
+    if (!hit) return;
+    const id = hit.classList.contains('block-gutter')
+      ? hit.dataset.gutterFor ?? ''
+      : sourceBlockId(hit.dataset.blockId ?? '');
+    if (!id) return;
+    // 拖过合并对白行时把整组算进范围（视觉上是一行）。
+    const merged = hit.closest<HTMLElement>('.merged-dialogue-row');
+    let focusId = id;
+    if (merged) {
+      const members = merged.querySelectorAll<HTMLElement>('.block-inline[data-block-id]');
+      const last = members[members.length - 1];
+      if (last) focusId = sourceBlockId(last.dataset.blockId ?? '') || id;
+    }
+    // 回拖到锚点要收缩回单块，而不是停在最远范围。
+    if (focusId !== dragAnchor.current) dragCrossed.current = true;
+    if (focusId === dragAnchor.current && !dragCrossed.current) return;
     if (!blockRangeRef.current) setDragSelecting(true);
-    setBlockRange({ anchor: dragAnchor.current, focus: id });
+    setBlockRange({ anchor: dragAnchor.current, focus: focusId });
     window.getSelection()?.removeAllRanges();
   };
 
@@ -660,16 +791,46 @@ export default function ScreenplayEditor() {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.shiftKey) {
-      const anchor = blockRangeRef.current?.anchor ?? useEditorStore.getState().activeBlockId ?? id;
-      setBlockRange({ anchor, focus: id });
-    } else {
-      dragAnchor.current = id;
-      setBlockRange({ anchor: id, focus: id });
+    // 合并对白行：gutter 选中整组（行内文字仍可 Shift 点选单个块）。
+    let anchorId = id;
+    let focusId = id;
+    const mergedRow = (e.currentTarget as HTMLElement).parentElement;
+    if (mergedRow?.classList.contains('merged-dialogue-row')) {
+      const members = Array.from(mergedRow.querySelectorAll<HTMLElement>('.block-inline[data-block-id]'))
+        .map((el) => sourceBlockId(el.dataset.blockId ?? ''))
+        .filter(Boolean);
+      if (members.length) {
+        anchorId = members[0];
+        focusId = members[members.length - 1];
+      }
     }
-    useEditorStore.getState().setActiveBlock(id);
+    if (e.shiftKey) {
+      const anchor = blockRangeRef.current?.anchor ?? useEditorStore.getState().activeBlockId ?? anchorId;
+      setBlockRange({ anchor, focus: focusId });
+      useEditorStore.getState().setActiveBlock(anchorId);
+      focusBlockText(focusId);
+    } else {
+      dragAnchor.current = anchorId;
+      dragCrossed.current = false;
+      setBlockRange({ anchor: anchorId, focus: focusId });
+      useEditorStore.getState().setActiveBlock(anchorId);
+      focusBlockText(anchorId);
+    }
     window.getSelection()?.removeAllRanges();
   };
+
+  /** 键盘/读屏激活 gutter（无拖拽语义）：选中该块并把焦点交回正文。 */
+  const selectGutterBlock = useCallback(
+    (id: string) => {
+      dragAnchor.current = id;
+      dragCrossed.current = false;
+      setBlockRange({ anchor: id, focus: id });
+      useEditorStore.getState().setActiveBlock(id);
+      focusBlockText(id);
+      window.getSelection()?.removeAllRanges();
+    },
+    [focusBlockText]
+  );
 
   const starting = useRef(false);
   const startWriting = async () => {
@@ -858,8 +1019,9 @@ export default function ScreenplayEditor() {
         if (!workspaceRef.current?.contains(document.activeElement)) setFocusedId(null);
       });
     }}>
+      <div className="sr-only" role="status" aria-live="polite">{blockRangeAnnouncement(selectedIds.length)}</div>
       {menuMode === 'float' && selected && (
-        <div className={`row-element-tools float-menu ${menuCollapsed ? 'collapsed' : ''}`} aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
+        <div className={`row-element-tools float-menu ${menuCollapsed ? 'collapsed' : ''}`} aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, maxHeight: toolPosition.maxHeight || undefined, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
           {menuCollapsed ? (
             <button type="button" className="float-menu-pill" title={tr("展开元素菜单")} onMouseDown={(e) => e.preventDefault()} onClick={() => setMenuCollapsedPersisted(false)}>
               <span>{tr("元素")}</span><span className="float-menu-caret" aria-hidden="true">▸</span>
@@ -874,7 +1036,7 @@ export default function ScreenplayEditor() {
                 {TYPE_ORDER.map((t) => (
                   <button key={t} type="button" className={selected.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { void switchType(selected.id, t).catch(error => pushToast('error', String(error))); setMenuCollapsedPersisted(true); }}>
+                    onClick={() => { void switchType(selected.id, t, true).catch(error => pushToast('error', String(error))); setMenuCollapsedPersisted(true); }}>
                     <span>{tr(BLOCK_LABELS[t])}</span><kbd className="element-dock-key" aria-hidden="true">{shortcutLabel(shortcuts[t])}</kbd>
                   </button>
                 ))}
@@ -893,12 +1055,12 @@ export default function ScreenplayEditor() {
           <span className="element-dock-arrow" aria-hidden="true">{menuCollapsed ? (menuMode === 'left' ? '▸' : '▾') : (menuMode === 'left' ? '◂' : '▴')}</span>
         </button>
         {!menuCollapsed && <>
-          {TYPE_ORDER.map((t) => <button key={t} type="button" disabled={!dockBlock} className={dockBlock?.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (dockBlock) void switchType(dockBlock.id, t).catch(error => pushToast('error', String(error))); setMenuCollapsedPersisted(true); }}>{tr(BLOCK_LABELS[t])}<kbd className="element-dock-key" aria-hidden="true">{shortcutLabel(shortcuts[t])}</kbd></button>)}
+          {TYPE_ORDER.map((t) => <button key={t} type="button" disabled={!dockBlock} className={dockBlock?.block_type === t ? 'on' : ''} title={`${tr(BLOCK_LABELS[t])} · ${shortcutLabel(shortcuts[t])}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (dockBlock) void switchType(dockBlock.id, t, true).catch(error => pushToast('error', String(error))); setMenuCollapsedPersisted(true); }}>{tr(BLOCK_LABELS[t])}<kbd className="element-dock-key" aria-hidden="true">{shortcutLabel(shortcuts[t])}</kbd></button>)}
           <button type="button" className="element-dock-float" title={tr("恢复跟随光标，位置随当前段落移动")} onMouseDown={(e) => e.preventDefault()} onClick={switchToFloat}>{tr("跟随光标")}</button>
         </>}
       </div>}
     <div className={`screenplay-editor typography-${paper?.typography ?? "hollywood"}`} ref={layoutRef} style={{ zoom: zoom === 0 ? Math.min(1, availableWidth / ((paper?.page_width_inch ?? 8.5) * 96 + 48)) : zoom, minWidth: `${(paper?.page_width_inch ?? 8.5) * 96 + 48}px`, fontFamily: paper?.font_family, fontSize: `${paper?.font_size ?? 12}pt`, lineHeight: `${Math.max(paper?.font_size ?? 12, ...Object.values(paper?.element_styles ?? {}).map(s => s?.font_size ?? 0)) * (paper?.line_height ?? 1)}pt` }}>
-      <div className="pages-container">
+      <div className="pages-container" role="listbox" aria-multiselectable="true" aria-label={tr("剧本正文，可多选段落")}>
         {pagination.pages.map((page, i) => (
           <PageView
             key={i}
@@ -915,6 +1077,7 @@ export default function ScreenplayEditor() {
             onStartWriting={screenplay.blocks.length === 0 ? startWriting : undefined}
             onSelect={setActiveBlock}
             onGutterDown={onGutterDown}
+            onGutterKey={selectGutterBlock}
             onChangeText={changeBlockText}
             onKeyDown={onKeyDown}
             onInsertAfter={insertBlock}
@@ -942,6 +1105,7 @@ function PageView({
   selectedIds,
   onSelect,
   onGutterDown,
+  onGutterKey,
   onChangeText,
   onKeyDown,
   onInsertAfter,
@@ -961,6 +1125,7 @@ function PageView({
   selectedIds: Set<string>;
   onSelect: (id: string) => void;
   onGutterDown: (e: React.MouseEvent, id: string) => void;
+  onGutterKey: (id: string) => void;
   onChangeText: (id: string, text: string, expectedRevision?: number) => Promise<boolean>;
   onKeyDown: (e: React.KeyboardEvent, id: string) => void;
   onInsertAfter: (afterId: string | null, type: BlockType, text?: string) => Promise<void>;
@@ -1010,6 +1175,7 @@ function PageView({
                 selected={selectedIds.has(sourceBlockId(head.block_id))}
                 onSelect={onSelect}
                 onGutterDown={onGutterDown}
+                onGutterKey={onGutterKey}
                 onChangeText={onChangeText}
                 onKeyDown={onKeyDown}
                 onInsertAfter={onInsertAfter}
@@ -1019,13 +1185,25 @@ function PageView({
             );
           }
           const top = Math.min(...row.map((p) => (blocksById.get(p.block_id) ?? p).start_line));
+          const groupSelected = row.some((p) => selectedIds.has(sourceBlockId(p.block_id)));
           return (
             <div
               key={`group:${head.group}`}
-              className="block-row merged-dialogue-row"
+              className={`block-row merged-dialogue-row${groupSelected ? ' block-selected' : ''}`}
+              role="option"
+              aria-selected={groupSelected}
               style={{ position: 'absolute', top: `${top * gridSize * lineHeight}pt`, width: '100%', margin: 0 }}
             >
-              <div className="block-gutter" aria-hidden="true" title={tr('选中此段落')} onMouseDown={(e) => onGutterDown(e, sourceBlockId(head.block_id))} />
+              <div
+                className="block-gutter"
+                role="button"
+                tabIndex={-1}
+                data-gutter-for={sourceBlockId(head.block_id)}
+                aria-label={tr('选中此对白组')}
+                title={tr('选中此对白组')}
+                onMouseDown={(e) => onGutterDown(e, sourceBlockId(head.block_id))}
+                onClick={(e) => { if (e.detail === 0) onGutterKey(sourceBlockId(head.block_id)); }}
+              />
               {row.map((p) => {
                 const fresh = blocksById.get(p.block_id);
                 if (!fresh) return null;
@@ -1038,6 +1216,7 @@ function PageView({
                     selected={selectedIds.has(sourceBlockId(fresh.block_id))}
                     onSelect={onSelect}
                     onGutterDown={onGutterDown}
+                    onGutterKey={onGutterKey}
                     onChangeText={onChangeText}
                     onKeyDown={onKeyDown}
                     onInsertAfter={onInsertAfter}
@@ -1061,6 +1240,7 @@ function BlockView({
   inline,
   onSelect,
   onGutterDown,
+  onGutterKey,
   onChangeText,
   onKeyDown,
   onInsertAfter,
@@ -1075,6 +1255,7 @@ function BlockView({
   inline?: boolean;
   onSelect: (id: string) => void;
   onGutterDown: (e: React.MouseEvent, id: string) => void;
+  onGutterKey: (id: string) => void;
   onChangeText: (id: string, text: string, expectedRevision?: number) => Promise<boolean>;
   onKeyDown: (e: React.KeyboardEvent, id: string) => void;
   onInsertAfter: (afterId: string | null, type: BlockType, text?: string) => Promise<void>;
@@ -1236,15 +1417,30 @@ function BlockView({
     const from = Math.max(0, Math.min(offsetWithin(el, range.startContainer, range.startOffset, 0), len));
     const to = Math.max(from, Math.min(offsetWithin(el, range.endContainer, range.endOffset, len), len));
     e.preventDefault();
-    if (isCut) void navigator.clipboard?.writeText(range.toString())?.catch(() => {});
-    captureDraft();
-    const current = el.textContent ?? '';
-    const next = current.slice(0, from) + current.slice(to);
-    el.textContent = next;
-    setCaretAt(el, from);
-    userEdited.current = true;
-    setCompletionInput(next);
-    schedule();
+    const applyDeletion = () => {
+      captureDraft();
+      const current = el.textContent ?? '';
+      const next = current.slice(0, from) + current.slice(to);
+      el.textContent = next;
+      setCaretAt(el, from);
+      userEdited.current = true;
+      setCompletionInput(next);
+      schedule();
+    };
+    if (isCut) {
+      // 剪切是事务：写剪贴板成功后才删，失败保留正文并提示。
+      const cutText = range.toString();
+      void (async () => {
+        const ok = await writeClipboardText(cutText);
+        if (!ok) {
+          onError(tr('复制到剪贴板失败，选区未删除'));
+          return;
+        }
+        applyDeletion();
+      })();
+      return true;
+    }
+    applyDeletion();
     return true;
   };
 
@@ -1300,10 +1496,24 @@ function BlockView({
 
   return (
     <div className={`block-row ${inline ? 'block-inline' : ''} ${customStyle ? 'custom-element-style' : ''} ${active ? 'active' : ''} ${selected ? 'block-selected' : ''}`} data-block-id={pb.block_id}
+      role={inline ? undefined : 'option'}
+      aria-selected={inline ? undefined : !!selected}
+      aria-label={inline ? undefined : `${tr(BLOCK_LABELS[pb.block_type] ?? '正文')}：${pb.text.slice(0, 40)}`}
       style={inline
         ? { position: 'static', display: 'inline', width: 'auto', margin: 0, ...customCss }
         : { position: 'absolute', top: `${pb.start_line * gridSize * (settings?.line_height ?? 1)}pt`, width: '100%', margin: 0, ...customCss }}>
-      {!inline && <div className="block-gutter" aria-hidden="true" title={tr('选中此段落')} onMouseDown={(e) => onGutterDown(e, sourceId)} />}
+      {!inline && (
+        <div
+          className="block-gutter"
+          role="button"
+          tabIndex={-1}
+          data-gutter-for={sourceId}
+          aria-label={tr('选中此段落')}
+          title={tr('选中此段落')}
+          onMouseDown={(e) => onGutterDown(e, sourceId)}
+          onClick={(e) => { if (e.detail === 0) onGutterKey(sourceId); }}
+        />
+      )}
       {pb.contd && pb.block_type !== 'character' && <div className="contd-marker">(CONT'D)</div>}
       {pb.more && <div className="more-marker">(MORE)</div>}
 

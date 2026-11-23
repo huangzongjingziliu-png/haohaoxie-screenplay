@@ -73,3 +73,35 @@ export function readBlockClipboard(text: string): CopiedBlock[] | null {
 export function clearBlockClipboard(): void {
   inApp = null;
 }
+
+/**
+ * 浮动元素菜单的纵向位置。
+ *
+ * 默认与当前段落顶部对齐；下方空间不足时向上翻转，贴着段落下沿展开，
+ * 再不够就限制在容器内（配合 CSS max-height + overflow 滚动），
+ * 避免被窗口底部裁掉。
+ */
+export function floatingMenuTop(input: {
+  rowTop: number;
+  rowBottom: number;
+  containerHeight: number;
+  menuHeight: number;
+  margin?: number;
+}): { top: number; maxHeight: number } {
+  const margin = input.margin ?? 4;
+  const limit = Math.max(margin, input.containerHeight - margin);
+  if (input.menuHeight <= 0) return { top: Math.max(margin, input.rowTop), maxHeight: limit };
+  if (input.rowTop + input.menuHeight <= limit) {
+    return { top: Math.max(margin, input.rowTop), maxHeight: limit - Math.max(margin, input.rowTop) };
+  }
+  const flipped = input.rowBottom - input.menuHeight;
+  const top = Math.max(margin, flipped);
+  return { top, maxHeight: limit - top };
+}
+
+/** 块选区的无障碍播报文本。 */
+export function blockRangeAnnouncement(count: number): string {
+  if (count <= 0) return '';
+  return `已选中 ${count} 个段落，按 Esc 取消选择`;
+}
+
