@@ -371,9 +371,66 @@ pub fn app_support_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("ScreenplayStudio"))
 }
 
-/// 桥接描述文件路径
+/// 桥接描述文件路径（"活动实例"指针，CLI/MCP 默认连接这里）
 pub fn descriptor_path() -> Option<PathBuf> {
     app_support_dir().map(|d| d.join("bridge.json"))
+}
+
+/// 每个进程独立描述文件所在目录（多实例互不覆盖）。
+pub fn descriptor_dir() -> Option<PathBuf> {
+    app_support_dir().map(|d| d.join("bridges"))
+}
+
+/// 指定进程的描述文件路径。
+pub fn descriptor_path_for(pid: u32) -> Option<PathBuf> {
+    descriptor_dir().map(|d| d.join(format!("{pid}.json")))
+}
+
+/// 清理本进程的描述文件；若"活动实例"指针指向自己，则转交给仍存活的另一个实例。
+pub fn cleanup_descriptor_files(pid: u32) {
+    if let Some(own) = descriptor_path_for(pid) {
+        let _ = std::fs::remove_file(own);
+    }
+    let Some(active) = descriptor_path() else { return };
+    let points_to_self = std::fs::read_to_string(&active)
+        .ok()
+        .and_then(|raw| BridgeDescriptor::from_json(&raw).ok())
+        .is_some_and(|d| d.pid == pid);
+    if points_to_self {
+        let _ = std::fs::remove_file(&active);
+        repoint_active_descriptor();
+    }
+}
+
+/// 把"活动实例"指针指向最近仍存活的另一个实例。
+pub fn repoint_active_descriptor() {
+    let Some(dir) = descriptor_dir() else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let mut best: Option<BridgeDescriptor> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else { continue };
+        let Ok(desc) = BridgeDescriptor::from_json(&raw) else { continue };
+        if desc.pid == std::process::id() {
+            continue;
+        }
+        if desc.is_stale() {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        if best.as_ref().map_or(true, |b| desc.updated_at > b.updated_at) {
+            best = Some(desc);
+        }
+    }
+    if let (Some(active), Some(desc)) = (descriptor_path(), best) {
+        if let Some(parent) = active.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = atomic_write(&active, &desc.to_json());
+    }
 }
 
 /// 桥接 socket 的短路径（进程临时目录 + `sp-<pid>.sock`）。
@@ -627,6 +684,18 @@ impl Drop for ProjectLock {
     }
 }
 
+/// 查询某工程当前被哪个存活进程持锁（用于「工程正在使用」时把用户带回那个实例）。
+pub fn lock_holder_pid(container: &Path) -> Option<u32> {
+    let path = lock_path_for(container)?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let pid = raw
+        .trim()
+        .split(':')
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())?;
+    (pid != 0 && process_alive(pid)).then_some(pid)
+}
+
 // ---------------------------------------------------------------------------
 // 服务端：GUI 侧监听
 // ---------------------------------------------------------------------------
@@ -638,7 +707,10 @@ impl Drop for ProjectLock {
 pub struct BridgeServer {
     listener: UnixListener,
     socket_path: PathBuf,
+    /// "活动实例"指针（`bridge.json`），供 CLI/MCP 默认连接
     descriptor_path: PathBuf,
+    /// 本进程自己的描述文件（`bridges/<pid>.json`）
+    own_descriptor_path: PathBuf,
     /// 是否已成功发布描述文件
     published: bool,
     /// listener 是否已设为非阻塞（只设一次）
@@ -668,6 +740,15 @@ impl BridgeServer {
         let descriptor_path = descriptor_path().ok_or_else(|| BridgeError::Internal {
             message: "无法确定描述文件路径".into(),
         })?;
+        let own_descriptor_path =
+            descriptor_path_for(std::process::id()).ok_or_else(|| BridgeError::Internal {
+                message: "无法确定实例描述文件路径".into(),
+            })?;
+        if let Some(dir) = descriptor_dir() {
+            std::fs::create_dir_all(&dir).map_err(|e| BridgeError::Internal {
+                message: format!("创建实例描述目录失败: {e}"),
+            })?;
+        }
 
         let desc = BridgeDescriptor::new(
             socket_path.clone(),
@@ -675,6 +756,9 @@ impl BridgeServer {
             project_hint,
             title.to_string(),
         );
+        atomic_write(&own_descriptor_path, &desc.to_json()).map_err(|m| BridgeError::Internal {
+            message: m,
+        })?;
         atomic_write(&descriptor_path, &desc.to_json()).map_err(|m| BridgeError::Internal {
             message: m,
         })?;
@@ -683,6 +767,7 @@ impl BridgeServer {
             listener,
             socket_path,
             descriptor_path,
+            own_descriptor_path,
             published: true,
             nonblocking_set: std::sync::atomic::AtomicBool::new(false),
         })
@@ -699,7 +784,19 @@ impl BridgeServer {
             container,
             title.to_string(),
         );
-        let _ = atomic_write(&self.descriptor_path, &desc.to_json());
+        let json = desc.to_json();
+        let _ = atomic_write(&self.own_descriptor_path, &json);
+        let _ = atomic_write(&self.descriptor_path, &json);
+    }
+
+    /// 把"活动实例"指针切回本进程（窗口获得焦点时调用）。
+    pub fn activate_self(&self) {
+        if !self.published {
+            return;
+        }
+        if let Ok(raw) = std::fs::read_to_string(&self.own_descriptor_path) {
+            let _ = atomic_write(&self.descriptor_path, &raw);
+        }
     }
 
     /// socket 路径
@@ -726,18 +823,10 @@ impl BridgeServer {
 
 impl Drop for BridgeServer {
     fn drop(&mut self) {
-        // 清理 socket 与描述文件：外部进程据此判断「GUI 已退出」
+        // 清理 socket 与自己的描述文件：外部进程据此判断「该实例已退出」
         let _ = std::fs::remove_file(&self.socket_path);
         if self.published {
-            // 只删自己的描述文件（确认描述文件里的 pid 是自己，
-            // 避免删掉后来启动的另一个 GUI 实例的）
-            if let Ok(raw) = std::fs::read_to_string(&self.descriptor_path) {
-                if let Ok(d) = BridgeDescriptor::from_json(&raw) {
-                    if d.pid == std::process::id() {
-                        let _ = std::fs::remove_file(&self.descriptor_path);
-                    }
-                }
-            }
+            cleanup_descriptor_files(std::process::id());
         }
     }
 }

@@ -33,7 +33,7 @@ import AgentPanel from '@/components/AgentPanel';
 import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested } from '@/ipc/client';
+import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested, onOpenRejected } from '@/ipc/client';
 
 export default function App() {
   useUiLanguage();
@@ -127,6 +127,9 @@ export default function App() {
           else await ipc.confirmClose();
         } catch (e) { useEditorStore.getState().pushToast('error', String(e)); }
       })();
+    }).then(register);
+    void onOpenRejected((message) => {
+      useEditorStore.getState().pushToast('info', message);
     }).then(register);
     return () => { disposed = true; unsubs.forEach((u) => u()); };
   }, [refreshProjectInfo]);

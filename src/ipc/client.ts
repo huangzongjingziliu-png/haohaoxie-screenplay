@@ -226,6 +226,7 @@ export const ipc = {
     call<ProjectInfo>('new_project', { title, template: templateId ?? null }),
   takeFileOpenRequests: () => call<string[]>('take_file_open_requests'),
   openProject: (path: string) => call<Bootstrap>('open_project', { path }),
+  openInNewInstance: (path: string) => call<void>('open_in_new_instance', { path }),
   closeProject: (discardChanges = false) => call<ProjectInfo>('close_project', { discardChanges }),
   saveProject: (projectId?:string) => call<SaveOutcome>('save_project',projectId?{projectId}:{}),
   saveProjectAs: (path: string,projectId?:string) => call<SaveOutcome>('save_project_as', { path,...(projectId?{projectId}:{}) }),
@@ -428,6 +429,11 @@ export type { AutosaveAction, AutosaveConfig, PendingRecovery };
 
 export function onCloseRequested(cb: () => void): Promise<UnlistenFn> {
   return listen('close-requested-with-unsaved', cb);
+}
+
+/** 后端拒绝在当前窗口打开某个工程时的提示（同工程重复打开、被其他实例持锁等）。 */
+export function onOpenRejected(cb: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>('open-rejected', (e) => cb(e.payload));
 }
 
 export interface ImportProgress {

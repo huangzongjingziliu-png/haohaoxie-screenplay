@@ -96,6 +96,21 @@ export default function Toolbar({
     finally { setBusy(false); }
   };
 
+  // 同时对照两份稿子：在独立的新实例中打开，当前窗口的工程保持不变
+  const doOpenInNewWindow = async () => {
+    try {
+      const { open: dialog } = await import('@tauri-apps/plugin-dialog');
+      const path = await dialog({
+        multiple: false,
+        filters: [{ name: tr("剧本工程"), extensions: ['screenplay'] }],
+      });
+      if (!path || Array.isArray(path)) return;
+      await ipc.openInNewInstance(path);
+    } catch (e) {
+      pushToast('error', e instanceof ScreenplayError ? e.message : String(e));
+    }
+  };
+
   const doExport = async (ext: string) => {
     try {
       const { save: dialog } = await import('@tauri-apps/plugin-dialog');
@@ -191,6 +206,7 @@ export default function Toolbar({
           <button aria-expanded={moreOpen} aria-haspopup="true" onClick={() => setMoreOpen(!moreOpen)}>{tr("更多 ▾")}</button>
           {moreOpen && <div className="toolbar-more-menu" aria-label={tr("更多操作")} onClick={() => setMoreOpen(false)}>
             <p className="menu-section-label">{tr("项目")}</p>
+            <button onClick={() => void doOpenInNewWindow()} title={tr("保留当前工程，在另一个窗口中打开另一份稿子")}>{tr("在新窗口中打开…")}</button>
             <button onClick={() => void doSaveAs()} disabled={busy || project.state === 'empty'}>{tr("另存为… ")}<small>⇧⌘S</small></button>
             <button onClick={() => onVersions?.()} disabled={project.state === 'empty'}>{tr("版本历史 ")}<small>⌘Y</small></button>
             <p className="menu-section-label">{tr("工具与设置")}</p>

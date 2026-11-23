@@ -22,6 +22,7 @@ mod credentials;
 mod entitlement;
 mod mcp_http;
 mod templates;
+mod multi_instance;
 pub mod service;
 
 use crate::service::{
@@ -36,7 +37,7 @@ use screenplay_store::project::StaleSaveBackup;
 use screenplay_store::db::{AuditEntry, Branch, Origin, VersionRecord};
 use screenplay_agent::{AgentRunner, ModelRouter, SkillRegistry};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -173,6 +174,13 @@ impl AppState {
         }
     }
 
+    /// 窗口获得焦点时，把"活动实例"指针切回本进程。
+    pub fn activate_bridge_descriptor(&self) {
+        if let Some(b) = self.bridge.lock().unwrap().as_ref() {
+            b.activate_self();
+        }
+    }
+
     /// 主动清理桥接产物（socket + 描述文件）。
     ///
     /// 为什么不能只靠 `Drop`：进程被 SIGTERM / SIGKILL 杀掉时
@@ -188,9 +196,8 @@ impl AppState {
         drop(taken);
         // 双保险：即使 BridgeServer 已被 drop，也确保文件不在
         let _ = std::fs::remove_file(screenplay_store::bridge::socket_path_for(std::process::id()));
-        if let Some(p) = screenplay_store::bridge::descriptor_path() {
-            let _ = std::fs::remove_file(p);
-        }
+        // 只清理本进程自己的描述文件；多实例下 `bridge.json` 可能属于别的实例
+        screenplay_store::bridge::cleanup_descriptor_files(std::process::id());
         diag::log("桥接产物已清理");
     }
 
@@ -328,19 +335,11 @@ pub(crate) fn carry_project_title(
 /// 不分配内存、不加锁，符合异步信号安全要求。
 extern "C" fn on_terminating_signal(sig: i32) {
     // 注意：这里不能用 `format!`（会分配内存）。
-    // 直接用 C 字符串拼接描述文件路径。
-    if let Some(dir) = screenplay_store::bridge::app_support_dir() {
-        let mut p = dir.as_os_str().as_encoded_bytes().to_vec();
-        p.extend_from_slice(b"/bridge.json");
-        // SAFETY: p 以 NUL 结尾的 CString 在下方构造
-        if let Ok(c) = std::ffi::CString::new(p) {
-            unsafe { libc::unlink(c.as_ptr()) };
-        }
-        // socket 在临时目录的短路径下（见 screenplay_store::bridge::socket_path_for）
-        let sp = screenplay_store::bridge::socket_path_for(std::process::id());
-        if let Ok(c) = std::ffi::CString::new(sp.as_os_str().as_encoded_bytes().to_vec()) {
-            unsafe { libc::unlink(c.as_ptr()) };
-        }
+    // 只清理本进程的 socket；`bridge.json` 可能属于另一个仍存活的实例，
+    // 残留的实例描述文件会由下一次扫描按 pid 判活时清理。
+    let sp = screenplay_store::bridge::socket_path_for(std::process::id());
+    if let Ok(c) = std::ffi::CString::new(sp.as_os_str().as_encoded_bytes().to_vec()) {
+        unsafe { libc::unlink(c.as_ptr()) };
     }
     // 恢复默认处理并重新抛出，让进程以正确状态码退出
     unsafe {
@@ -598,13 +597,57 @@ fn load_recent() -> Vec<RecentEntry> {
         .unwrap_or_default()
 }
 
+/// 最近列表的跨进程写锁：第二个实例进来时避免读-改-写互相覆盖。
+struct RecentLock(PathBuf);
+
+impl Drop for RecentLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn acquire_recent_lock() -> Option<RecentLock> {
+    let path = recent_file_path().with_extension("json.lock");
+    for _ in 0..100 {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Some(RecentLock(path)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // 上一个持有者异常退出时，2 秒后视为陈旧锁
+                let stale = std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|d| d.as_secs() >= 2);
+                if stale {
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => break,
+        }
+    }
+    None
+}
+
 fn save_recent(list: &[RecentEntry]) {
     if let Ok(s) = serde_json::to_string(list) {
-        let _ = std::fs::write(recent_file_path(), s);
+        let path = recent_file_path();
+        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        if std::fs::write(&tmp, s).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        } else {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 }
 
 fn push_recent(path: &str, title: &str) {
+    let _lock = acquire_recent_lock();
     let mut list = load_recent();
     list.retain(|e| e.path != path);
     list.insert(
@@ -661,6 +704,14 @@ fn open_project(
 ) -> IpcResult<Bootstrap> {
     let _access = file_access::acquire(&path)?;
     let p = PathBuf::from(&path);
+    // 工程已被另一个实例持锁：给出明确提示，绝不在本窗口强行打开。
+    if let Some(pid) = screenplay_store::bridge::lock_holder_pid(&p) {
+        if pid != std::process::id() {
+            return Err(IpcError::AppState {
+                message: "工程正在使用：这个工程已在另一个窗口中打开，请切换到那个窗口。".into(),
+            });
+        }
+    }
     state.project.open(&p)?;
     diag::log("open_project path={path}");
     state.refresh_bridge_descriptor();
@@ -680,6 +731,46 @@ fn close_project(app: AppHandle, state: State<'_, AppState>, discard_changes: Op
     let info = project_info(&state.project);
     let _ = app.emit("project-changed", &info);
     Ok(info)
+}
+
+/// 判断两个路径是否指向同一工程（尽量用 canonicalize，外置盘/软链也能识别）。
+fn same_project_path(a: &Path, b: &Path) -> bool {
+    let ca = a.canonicalize().unwrap_or_else(|_| a.to_path_buf());
+    let cb = b.canonicalize().unwrap_or_else(|_| b.to_path_buf());
+    ca == cb
+}
+
+/// 在独立的新实例中打开工程，保留当前窗口的文档。
+///
+/// 同一工程已在当前窗口打开时直接拒绝；已被另一个实例持锁时激活那个实例，
+/// 给出明确的「工程正在使用」提示，绝不静默替换或强行打开。
+#[tauri::command]
+fn open_in_new_instance(
+    state: State<'_, AppState>,
+    path: String,
+) -> IpcResult<()> {
+    let target = PathBuf::from(&path);
+    if state.project.is_open() {
+        let st = state.project.state();
+        if let Some(current) = st.path() {
+            if same_project_path(current, &target) {
+                return Err(IpcError::AppState {
+                    message: "工程正在使用：这个工程已经在当前窗口中打开。".into(),
+                });
+            }
+        }
+    }
+    if let Some(pid) = screenplay_store::bridge::lock_holder_pid(&target) {
+        if pid != std::process::id() {
+            multi_instance::activate(pid);
+            return Err(IpcError::AppState {
+                message: "工程正在使用：这个工程已在另一个窗口中打开，已为你切换过去。".into(),
+            });
+        }
+    }
+    multi_instance::spawn(Some(&target)).map_err(|message| IpcError::AppState { message })?;
+    diag::log(&format!("open_in_new_instance path={path}"));
+    Ok(())
 }
 
 /// 保存到当前绑定路径。
@@ -1601,6 +1692,7 @@ fn list_recent() -> IpcResult<Vec<RecentEntry>> {
 
 #[tauri::command]
 fn remove_recent(path: String) -> IpcResult<()> {
+    let _lock = acquire_recent_lock();
     let mut list = load_recent();
     list.retain(|e| e.path != path);
     save_recent(&list);
@@ -1875,6 +1967,7 @@ pub fn run() {
             templates::list_project_templates,
             open_project,
             close_project,
+            open_in_new_instance,
             save_project,
             save_project_as,
             revert_project,
@@ -1995,6 +2088,12 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.emit("close-requested-with-unsaved", ());
             }
+            tauri::WindowEvent::Focused(true) => {
+                // 多实例下让 CLI/MCP 的"活动实例"指针跟随用户当前操作的窗口
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state.activate_bridge_descriptor();
+                }
+            }
             _ => {}
         })
         .setup(move |app| {
@@ -2031,18 +2130,68 @@ pub fn run() {
         .run(|app, event| {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             if let tauri::RunEvent::Opened { urls } = &event {
-                let mut pending = FILE_OPEN_REQUESTS.lock().unwrap();
+                let state = app.state::<AppState>();
+                let document_open = state.project.is_open();
+                // 已把文件交给新实例时，不要再把本窗口抢回前台。
+                let mut spawned_new_instance = false;
+                let current_path = state
+                    .project
+                    .state()
+                    .path()
+                    .map(|p| p.to_path_buf());
                 for url in urls {
-                    if let Ok(path) = url.to_file_path() {
-                        if path.extension().is_some_and(|ext| ext == "screenplay") {
-                            let path = path.to_string_lossy().into_owned();
-                            if !pending.contains(&path) { pending.push(path); }
+                    let Ok(path) = url.to_file_path() else { continue };
+                    if !path.extension().is_some_and(|ext| ext == "screenplay") {
+                        continue;
+                    }
+                    if !document_open {
+                        let path = path.to_string_lossy().into_owned();
+                        let mut pending = FILE_OPEN_REQUESTS.lock().unwrap();
+                        if !pending.contains(&path) {
+                            pending.push(path);
+                        }
+                        continue;
+                    }
+
+                    // 已有文档：不替换当前工程，交给一个新实例去打开。
+                    if current_path
+                        .as_deref()
+                        .is_some_and(|c| same_project_path(c, &path))
+                    {
+                        let _ = app.emit("open-rejected", "这个工程已经在当前窗口中打开。");
+                        continue;
+                    }
+                    if let Some(pid) = screenplay_store::bridge::lock_holder_pid(&path) {
+                        if pid != std::process::id() {
+                            multi_instance::activate(pid);
+                            let _ = app.emit(
+                                "open-rejected",
+                                "工程正在使用：已在另一个窗口中打开，已为你切换过去。",
+                            );
+                            continue;
+                        }
+                    }
+                    match multi_instance::spawn(Some(&path)) {
+                        Ok(()) => {
+                            spawned_new_instance = true;
+                            diag::log(&format!(
+                                "已在新的实例中打开：{}",
+                                path.to_string_lossy()
+                            ))
+                        }
+                        Err(message) => {
+                            let _ = app.emit(
+                                "open-rejected",
+                                format!("无法打开新窗口：{message}"),
+                            );
                         }
                     }
                 }
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if !spawned_new_instance {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
             if let tauri::RunEvent::ExitRequested { api, .. } = event {

@@ -36,6 +36,10 @@ pub struct RecoveryRecord {
     /// 崩溃时的 revision
     pub revision: u64,
     pub saved_at: String,
+    /// 写入该恢复文件的进程 pid；用于多实例时区分「正在运行的另一个实例」
+    /// 与「真正崩溃的旧会话」。
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 /// 恢复管理器
@@ -104,6 +108,13 @@ impl RecoveryManager {
                 if rec.session_id == current {
                     return None;
                 }
+                // 多实例：另一个进程仍在运行时的恢复文件不是"崩溃残留"，
+                // 不能提示恢复、更不能被本实例消费删除。
+                if let Some(pid) = rec.pid {
+                    if pid != std::process::id() && crate::bridge::process_alive(pid) {
+                        return None;
+                    }
+                }
                 if let Some(source_id) = rec.source_id.as_deref().filter(|id| safe_source_id(id)) {
                     // 由已扫描到的 JSON 文件名推导 sidecar，绝不使用记录中的路径。
                     let stem = p.file_stem()?.to_str()?;
@@ -140,6 +151,7 @@ impl RecoveryManager {
             original_source: None,
             revision: document.revision,
             saved_at: chrono::Utc::now().to_rfc3339(),
+            pid: Some(std::process::id()),
         };
         let final_path = self.dir.join(format!("{}.json", self.session_id));
         let tmp_path = self.dir.join(format!("{}.json.tmp", self.session_id));
@@ -366,6 +378,36 @@ mod tests {
         m.save(None, &doc_with("内容"), None).unwrap();
         let files: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
         assert_eq!(files.len(), 1, "应生成 1 个恢复文件");
+    }
+
+    #[test]
+    fn t03_live_other_instance_is_not_treated_as_crash() {
+        let dir = tmpdir("live-pid");
+        let mut m = mgr_in(&dir);
+        m.session_id = "other".into();
+        m.save(None, &doc_with("另一个实例正在编辑"), None).unwrap();
+
+        // 改写成"另一个仍存活的进程"（同用户的子进程，kill -0 可见）
+        let mut live_child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let live_pid = live_child.id();
+        let path = dir.join("other.json");
+        let mut rec: RecoveryRecord =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        rec.pid = Some(live_pid);
+        std::fs::write(&path, serde_json::to_vec(&rec).unwrap()).unwrap();
+
+        assert!(
+            m.find_stale_session("current").is_none(),
+            "另一个客户端仍在运行时，不得提示恢复"
+        );
+
+        // 换成已退出进程的 pid → 视为崩溃残留
+        live_child.kill().ok();
+        live_child.wait().unwrap();
+        assert!(
+            m.find_stale_session("current").is_some(),
+            "进程已退出时应提示恢复"
+        );
     }
 
     #[test]
