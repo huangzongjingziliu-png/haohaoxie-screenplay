@@ -700,7 +700,32 @@ export default function ScreenplayEditor() {
     };
   }, [focusInText]);
 
+  // 拖选扩范围：监听挂在 window 上（capture），同时接 mousemove 与 pointermove。
+  // WKWebView 里按住鼠标拖动的 mousemove 不一定能到 React 根节点，靠 window 兜底。
   useEffect(() => {
+    const onMove = (e: MouseEvent | PointerEvent) => {
+      if (!dragAnchor.current) return;
+      const hit = (e.target as HTMLElement | null)?.closest?.<HTMLElement>('[data-block-id], .block-gutter');
+      if (!hit) return;
+      const id = hit.classList.contains('block-gutter')
+        ? hit.dataset.gutterFor ?? ''
+        : sourceBlockId(hit.dataset.blockId ?? '');
+      if (!id) return;
+      // 拖过合并对白行时把整组算进范围（视觉上是一行）。
+      const merged = hit.closest<HTMLElement>('.merged-dialogue-row');
+      let focusId = id;
+      if (merged) {
+        const members = merged.querySelectorAll<HTMLElement>('.block-inline[data-block-id]');
+        const last = members[members.length - 1];
+        if (last) focusId = sourceBlockId(last.dataset.blockId ?? '') || id;
+      }
+      // 回拖到锚点要收缩回单块，而不是停在最远范围。
+      if (focusId !== dragAnchor.current) dragCrossed.current = true;
+      if (focusId === dragAnchor.current && !dragCrossed.current) return;
+      if (!blockRangeRef.current) setDragSelecting(true);
+      setBlockRange({ anchor: dragAnchor.current, focus: focusId });
+      window.getSelection()?.removeAllRanges();
+    };
     const onUp = () => {
       const hadAnchor = !!dragAnchor.current;
       dragAnchor.current = null;
@@ -713,8 +738,16 @@ export default function ScreenplayEditor() {
           ?.focus({ preventScroll: true });
       }
     };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('pointermove', onMove, true);
     window.addEventListener('mouseup', onUp);
-    return () => window.removeEventListener('mouseup', onUp);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointerup', onUp);
+    };
   }, [focusInText, rowForBlock]);
 
   /** 把键盘焦点交回指定块正文（gutter/拖选后立即能复制、扩展选区）。 */
@@ -760,30 +793,6 @@ export default function ScreenplayEditor() {
     if (blockRangeRef.current) setBlockRange(null);
     dragAnchor.current = id;
     dragCrossed.current = false;
-  };
-
-  const onPaperMouseMove = (e: React.MouseEvent) => {
-    if (!dragAnchor.current || (e.buttons & 1) === 0) return;
-    const hit = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id], .block-gutter');
-    if (!hit) return;
-    const id = hit.classList.contains('block-gutter')
-      ? hit.dataset.gutterFor ?? ''
-      : sourceBlockId(hit.dataset.blockId ?? '');
-    if (!id) return;
-    // 拖过合并对白行时把整组算进范围（视觉上是一行）。
-    const merged = hit.closest<HTMLElement>('.merged-dialogue-row');
-    let focusId = id;
-    if (merged) {
-      const members = merged.querySelectorAll<HTMLElement>('.block-inline[data-block-id]');
-      const last = members[members.length - 1];
-      if (last) focusId = sourceBlockId(last.dataset.blockId ?? '') || id;
-    }
-    // 回拖到锚点要收缩回单块，而不是停在最远范围。
-    if (focusId !== dragAnchor.current) dragCrossed.current = true;
-    if (focusId === dragAnchor.current && !dragCrossed.current) return;
-    if (!blockRangeRef.current) setDragSelecting(true);
-    setBlockRange({ anchor: dragAnchor.current, focus: focusId });
-    window.getSelection()?.removeAllRanges();
   };
 
   /** 左侧 gutter：单击选中整块、Shift 点击扩范围、按住拖动连选；不侵入正文点击区。 */
@@ -1011,7 +1020,7 @@ export default function ScreenplayEditor() {
   const selected = screenplay.blocks.find(b => b.id === targetId);
   const dockBlock = screenplay.blocks.find(b => b.id === (targetId ?? activeBlockId)) ?? null;
   return (
-    <div className="paper-workspace" ref={workspaceRef} onMouseDown={onPaperMouseDown} onMouseMove={onPaperMouseMove} style={{ userSelect: dragSelecting ? 'none' : undefined }} onFocusCapture={e => {
+    <div className="paper-workspace" ref={workspaceRef} onMouseDown={onPaperMouseDown} style={{ userSelect: dragSelecting ? 'none' : undefined }} onFocusCapture={e => {
       const element = e.target as HTMLElement;
       if (element.matches('.screenplay-block') && element.isContentEditable !== false) setFocusedId(element.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ?? null);
     }} onBlurCapture={() => {

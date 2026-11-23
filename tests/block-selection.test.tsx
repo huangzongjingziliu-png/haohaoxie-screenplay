@@ -91,6 +91,17 @@ it('拖过块边界形成块选区；回拖到锚点收缩为单块',async()=>{
   fireEvent.mouseUp(window);
 });
 
+it('pointermove 拖动也能扩范围并回拖收缩（WKWebView 兜底路径）',async()=>{
+  const {container}=render(<ScreenplayEditor/>);
+  await waitFor(()=>expect(row(container,'ch1')).toBeTruthy());
+  fireEvent.mouseDown(gutter(container,'act1'),{button:0});
+  fireEvent(row(container,'dlg1'),new Event('pointermove',{bubbles:true}));
+  expect(selected(container)).toEqual(['act1','ch1','dlg1']);
+  fireEvent(row(container,'act1'),new Event('pointermove',{bubbles:true}));
+  expect(selected(container)).toEqual(['act1']);
+  fireEvent.pointerUp(window);
+});
+
 it('⌘A 先选当前场，再按一次选全文',async()=>{
   const {container}=render(<ScreenplayEditor/>);
   await waitFor(()=>expect(row(container,'act1')).toBeTruthy());
