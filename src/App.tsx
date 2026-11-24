@@ -33,7 +33,7 @@ import AgentPanel from '@/components/AgentPanel';
 import { useEditorStore } from '@/stores/editor';
 import { flushPendingEdits } from '@/utils/pendingEdits';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested, onOpenRejected } from '@/ipc/client';
+import { ipc, onDocumentChanged, onProjectChanged, onCloseRequested, onQuitRequested, onOpenRejected } from '@/ipc/client';
 
 export default function App() {
   useUiLanguage();
@@ -59,12 +59,12 @@ export default function App() {
   const refreshProjectInfo = useEditorStore((s) => s.refreshProjectInfo);
 
   // 自动保存 / 自动版本
-  useAutoSave();
-
   const [showNew, setShowNew] = useState(false);
   const [exitTarget, setExitTarget] = useState<"quit" | "project">("quit");
   const [showExit, setShowExit] = useState(false);
   const [exiting, setExiting] = useState(false);
+  // 退出确认期间暂停自动保存：否则「不保存」可能被后台 tick 抢先落盘
+  useAutoSave(showExit);
   const [showImport, setShowImport] = useState(false);
   const [showImportReview, setShowImportReview] = useState(false);
   const episodeId=useEditorStore(s=>s.document?.series?.active_id);
@@ -124,7 +124,18 @@ export default function App() {
           await flushPendingEdits();
           await refreshProjectInfo();
           if (useEditorStore.getState().project.dirty) { setExitTarget("quit"); setShowExit(true); }
-          else await ipc.confirmClose();
+          else await ipc.confirmQuit();
+        } catch (e) { useEditorStore.getState().pushToast('error', String(e)); }
+      })();
+    }).then(register);
+    // ⌘Q / Dock 退出：与关窗共用「先 flush、再按 dirty 决定弹窗还是直接退」
+    void onQuitRequested(() => {
+      void (async () => {
+        try {
+          await flushPendingEdits();
+          await refreshProjectInfo();
+          if (useEditorStore.getState().project.dirty) { setExitTarget("quit"); setShowExit(true); }
+          else await ipc.confirmQuit();
         } catch (e) { useEditorStore.getState().pushToast('error', String(e)); }
       })();
     }).then(register);
@@ -215,7 +226,7 @@ export default function App() {
   );
 
   const finishClose = async (discard = false) => {
-    if (exitTarget === 'quit') await ipc.confirmClose(discard);
+    if (exitTarget === 'quit') await ipc.confirmQuit(discard);
     else { await ipc.closeProject(discard); await useEditorStore.getState().bootstrap(); setShowExit(false); }
   };
   const requestProjectClose = async () => {
@@ -228,15 +239,24 @@ export default function App() {
   const exitDialog = showExit && (
     <ModalBackdrop onDismiss={()=>setShowExit(false)} disabled={exiting}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
       <h2 id="exit-title">{tr(exitTarget === 'quit' ? "保存修改后退出？" : "保存修改后关闭？")}</h2>
-      <p className="modal-hint">{tr("不保存会放弃尚未落盘的修改，不保留本次恢复副本。已经保存到文件的内容不受影响。")}</p>
+      <p className="modal-hint">{tr(exitTarget === 'quit'
+        ? "还有未保存的修改。保存后写入文件再退出；不保存会放弃本次修改。"
+        : "不保存会放弃尚未落盘的修改，不保留本次恢复副本。已经保存到文件的内容不受影响。")}</p>
       <div className="modal-actions">
-        <button disabled={exiting} onClick={() => setShowExit(false)}>{tr("继续编辑")}</button>
+        <button disabled={exiting} onClick={() => setShowExit(false)}>{tr(exitTarget === 'quit' ? "取消" : "继续编辑")}</button>
         <button disabled={exiting} onClick={async () => { setExiting(true); try { await finishClose(true); } catch (e) { pushToast('error', String(e)); } finally { setExiting(false); } }}>{tr("不保存")}</button>
-        <button disabled={exiting} onClick={async () => { setExiting(true); try { await finishClose(); } catch (e) { pushToast("error", String(e)); } finally { setExiting(false); } }}>{tr(exitTarget === 'quit' ? "保留恢复副本并退出" : "保留恢复副本并关闭")}</button>
+        {exitTarget !== 'quit' && (
+          <button disabled={exiting} onClick={async () => { setExiting(true); try { await finishClose(); } catch (e) { pushToast("error", String(e)); } finally { setExiting(false); } }}>{tr("保留恢复副本并关闭")}</button>
+        )}
         <button className="primary" disabled={exiting} onClick={async () => {
           setExiting(true); try {
             const saved = await useEditorStore.getState().save();
-            if (saved && !useEditorStore.getState().project.dirty) await finishClose();
+            if (!saved || useEditorStore.getState().project.dirty) {
+              // 保存失败或没落盘：中止退出，留在当前窗口
+              if (exitTarget === 'quit') pushToast('error', tr('未完成保存，已取消退出'));
+              return;
+            }
+            await finishClose();
           } finally { setExiting(false); }
         }}>{tr(exitTarget === 'quit' ? "保存并退出" : "保存并关闭")}</button>
       </div>

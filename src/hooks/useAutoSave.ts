@@ -7,7 +7,7 @@ export function publishSaveStatus(state: 'idle' | 'saving' | 'error', message = 
   window.dispatchEvent(new CustomEvent('save-status', { detail: { state, message } }));
 }
 
-export function useAutoSave() {
+export function useAutoSave(paused = false) {
   const project = useEditorStore((s) => s.project);
   const projectId=useEditorStore(s=>s.document?.id);
   useEffect(() => {
@@ -19,7 +19,7 @@ export function useAutoSave() {
     window.addEventListener('compositionend', end, true);
     publishSaveStatus('idle');
     const timer = window.setInterval(() => {
-      if (busy || composing) return;
+      if (paused || busy || composing) return;
       busy = true;
       void (async () => {
         try {
@@ -45,7 +45,7 @@ export function useAutoSave() {
       window.removeEventListener('compositionstart', start, true);
       window.removeEventListener('compositionend', end, true);
     };
-  }, [project.state, project.path,projectId]);
+  }, [project.state, project.path, projectId, paused]);
 }
 
 export async function configureAutoSave(opts: { enabled: boolean; saveIntervalSecs: number; versionIntervalSecs: number }) {

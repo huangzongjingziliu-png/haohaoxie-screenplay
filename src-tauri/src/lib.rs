@@ -23,6 +23,7 @@ mod entitlement;
 mod mcp_http;
 mod templates;
 mod multi_instance;
+mod quit_guard;
 pub mod service;
 
 use crate::service::{
@@ -1560,6 +1561,24 @@ fn confirm_close(window: tauri::Window, discard_changes: Option<bool>) -> IpcRes
     })
 }
 
+/// 用户在前端确认后真正退出应用（⌘Q / Dock 退出 / 系统注销都走这里）。
+#[tauri::command]
+fn confirm_quit(app: AppHandle, discard_changes: Option<bool>) -> IpcResult<()> {
+    {
+        let state = app.state::<AppState>();
+        if discard_changes.unwrap_or(false) {
+            state.project.close_without_saving()?;
+        } else {
+            state.project.shutdown();
+        }
+        state
+            .quitting
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    app.exit(0);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // 崩溃恢复
 // ---------------------------------------------------------------------------
@@ -2026,6 +2045,7 @@ pub fn run() {
             autosave_tick,
             has_unsaved_changes,
             confirm_close,
+            confirm_quit,
             // 崩溃恢复
             pending_recovery,
             adopt_recovery,
@@ -2097,6 +2117,8 @@ pub fn run() {
             _ => {}
         })
         .setup(move |app| {
+            // macOS：拦截 ⌘Q / Dock 退出，先让前端确认未保存修改
+            quit_guard::install(app.handle());
             if selftest {
                 use tauri::Manager;
                 if let Some(w) = app.get_webview_window("main") {
@@ -2197,10 +2219,8 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 let state = app.state::<AppState>();
                 if !state.quitting.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Some(window) = app.get_webview_window("main") {
-                        api.prevent_exit();
-                        let _ = window.emit("close-requested-with-unsaved", ());
-                    }
+                    api.prevent_exit();
+                    let _ = app.emit("quit-requested", ());
                 }
             } else if matches!(event, tauri::RunEvent::Exit) {
                 let state = app.state::<AppState>();

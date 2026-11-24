@@ -1,6 +1,6 @@
 [package]
 name = "screenplay-desktop"
-version = "0.1.71"
+version = "0.1.72"
 edition = "2021"
 license = "MIT"
 
@@ -47,4 +47,4 @@ tempfile.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3.2"
-objc2-app-kit = { version = "0.3.2", features = ["NSWorkspace", "NSRunningApplication", "block2"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSWorkspace", "NSRunningApplication", "NSApplication", "block2"] }

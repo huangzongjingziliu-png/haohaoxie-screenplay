@@ -5,6 +5,7 @@ import { registerPendingEditor } from '@/utils/pendingEdits';
 import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 function Harness() { useAutoSave(); return <input aria-label="draft" />; }
+function PausedHarness() { useAutoSave(true); return <input aria-label="draft" />; }
 beforeEach(() => {
   vi.useFakeTimers();
   useEditorStore.setState({ project: { state: 'open', path: '/tmp/qa.screenplay', dirty: true } as never, refreshProjectInfo: vi.fn().mockResolvedValue(undefined), refreshHistory: vi.fn().mockResolvedValue(undefined) });
@@ -36,4 +37,10 @@ it('保存失败会显示错误且不清除dirty，下次可重试', async () =>
   expect(tick).toHaveBeenCalledTimes(2);
   expect(events[events.length - 1]).toBe('idle');
   window.removeEventListener('save-status', listener);
+});
+it('退出确认期间暂停自动保存，避免「不保存」被后台 tick 抢先落盘', async () => {
+  const tick = vi.spyOn(ipc, 'autosaveTick').mockResolvedValue('saved');
+  render(<PausedHarness />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  expect(tick).not.toHaveBeenCalled();
 });

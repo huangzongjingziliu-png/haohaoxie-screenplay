@@ -346,6 +346,7 @@ export const ipc = {
   autosaveTick: (projectId?:string) => call<AutosaveAction | null>('autosave_tick',projectId?{projectId}:{}),
   hasUnsavedChanges: () => call<boolean>('has_unsaved_changes'),
   confirmClose: (discardChanges = false) => call<void>('confirm_close', { discardChanges }),
+  confirmQuit: (discardChanges = false) => call<void>('confirm_quit', { discardChanges }),
 
   // 崩溃恢复
   pendingRecovery: () => call<PendingRecovery | null>('pending_recovery'),
@@ -429,6 +430,11 @@ export type { AutosaveAction, AutosaveConfig, PendingRecovery };
 
 export function onCloseRequested(cb: () => void): Promise<UnlistenFn> {
   return listen('close-requested-with-unsaved', cb);
+}
+
+/** 应用级退出（⌘Q / Dock 退出）请求：先由前端确认未保存修改。 */
+export function onQuitRequested(cb: () => void): Promise<UnlistenFn> {
+  return listen('quit-requested', cb);
 }
 
 /** 后端拒绝在当前窗口打开某个工程时的提示（同工程重复打开、被其他实例持锁等）。 */
