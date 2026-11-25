@@ -138,7 +138,7 @@ func makePDF(spec: Spec) -> Data? {
             // 这里要做的只是「把这一行原样画在给定基线上」。
             // CTLine 是单行排版结果，不换行、不裁字 —— 零字符丢失。
             let lineRef = CTLineCreateWithAttributedString(attributed)
-            let centered = chinese && (line.role == "character" || line.role == "parenthetical")
+            let centered = line.role == "title" || line.role == "cover" || (chinese && (line.role == "character" || line.role == "parenthetical"))
             var width = CTLineGetTypographicBounds(lineRef, nil, nil, nil)
             if chinese && line.role == "character", let regex = try? NSRegularExpression(pattern: "[（(](?:画外音|画外|旁白|离画|电话音|V\\.O\\.?|O\\.S\\.?|OFF|CONT['’]?D)(?:[,，]\\s*CONT['’]?D)?[）)]$", options: .caseInsensitive), let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: attributed.length)) {
                 let name = attributed.attributedSubstring(from: NSRange(location: 0, length: match.range.location))

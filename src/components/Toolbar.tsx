@@ -18,6 +18,31 @@ const EXPORT_FORMATS = [
   { ext: 'html', label: 'HTML' },
 ];
 
+/** 工具栏图标：内联 SVG，不引第三方图标库；颜色继承 currentColor。 */
+function ToolIcon({ name }: { name: 'history' | 'new' | 'import' | 'save' | 'more' | 'board' | 'search' | 'connect' | 'agent' }) {
+  const common = { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
+  switch (name) {
+    case 'history':
+      return <svg {...common}><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>;
+    case 'new':
+      return <svg {...common}><path d="M12 5v14M5 12h14"/></svg>;
+    case 'import':
+      return <svg {...common}><path d="M12 3v11"/><path d="m8 10 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>;
+    case 'save':
+      return <svg {...common}><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>;
+    case 'more':
+      return <svg {...common}><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>;
+    case 'board':
+      return <svg {...common}><rect x="3.5" y="4" width="7" height="7" rx="1.5"/><rect x="13.5" y="4" width="7" height="7" rx="1.5"/><rect x="3.5" y="14" width="7" height="6" rx="1.5"/><rect x="13.5" y="14" width="7" height="6" rx="1.5"/></svg>;
+    case 'search':
+      return <svg {...common}><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>;
+    case 'connect':
+      return <svg {...common}><path d="M9 15 15 9"/><path d="M11 6.5 12.5 5a4 4 0 0 1 5.7 5.7L16.5 12"/><path d="M13 17.5 11.5 19a4 4 0 0 1-5.7-5.7L7.5 12"/></svg>;
+    case 'agent':
+      return <svg {...common}><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="m18.5 16.5.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></svg>;
+  }
+}
+
 export default function Toolbar({
   onHelp,
   onNew,
@@ -172,16 +197,17 @@ export default function Toolbar({
           title={history?.redo_label ? fmt("重做：{0} (⇧⌘Z)",history.redo_label) : tr("重做 (⇧⌘Z)")}
           aria-label={tr("重做")}
         >↷</button>
-        {onVersions&&<button onClick={onVersions} disabled={project.state==='empty'} title={tr('查看旧稿、比较修改并恢复 · ⌘Y')}>{tr('◷ 历史记录')}</button>}
+        {onVersions&&<button className="toolbar-icon-btn" onClick={onVersions} disabled={project.state==='empty'} title={tr('查看旧稿、比较修改并恢复 · ⌘Y')} aria-label={tr('历史记录')}><ToolIcon name="history"/></button>}
         <span className="toolbar-divider" aria-hidden="true" />
-        <button onClick={() => void doNew()} title={tr("新建项目")}>{tr(" 新建 ")}</button>
-        <button onClick={onImport} title={tr("导入剧本文件")}>{tr(" 导入 ")}</button>
+        <button className="toolbar-icon-btn" onClick={() => void doNew()} title={tr("新建项目")} aria-label={tr("新建项目")}><ToolIcon name="new"/></button>
+        <button className="toolbar-icon-btn" onClick={onImport} title={tr("导入剧本文件")} aria-label={tr("导入剧本文件")}><ToolIcon name="import"/></button>
         <button
           onClick={() => void doSave()}
           disabled={busy || project.state === 'empty'}
-          className="toolbar-save"
+          className="toolbar-icon-btn toolbar-save"
           title={tr("保存 (⌘S)")}
-        >{tr(" 保存 ")}</button>
+          aria-label={tr("保存")}
+        ><ToolIcon name="save"/></button>
         <select
           defaultValue=""
           disabled={busy || project.state === 'empty'}
@@ -203,7 +229,7 @@ export default function Toolbar({
         </select>
         <UpdateButton/><UpdateDialog/>
         <div className="toolbar-more" ref={moreRef}>
-          <button aria-expanded={moreOpen} aria-haspopup="true" onClick={() => setMoreOpen(!moreOpen)}>{tr("更多 ▾")}</button>
+          <button className="toolbar-icon-btn" aria-expanded={moreOpen} aria-haspopup="true" aria-label={tr("更多操作")} title={tr("更多操作")} onClick={() => setMoreOpen(!moreOpen)}><ToolIcon name="more"/></button>
           {moreOpen && <div className="toolbar-more-menu" aria-label={tr("更多操作")} onClick={() => setMoreOpen(false)}>
             <p className="menu-section-label">{tr("项目")}</p>
             <button onClick={() => void doOpenInNewWindow()} title={tr("保留当前工程，在另一个窗口中打开另一份稿子")}>{tr("在新窗口中打开…")}</button>
@@ -243,15 +269,15 @@ export default function Toolbar({
             <button role="menuitem" onClick={() => setZoom(Math.min(2, (zoom || 1) + 0.1))} title={tr("放大")}>{tr("放大")}</button>
           </div>}
         </div>
-        {onBoard && <button onClick={onBoard} disabled={project.state === 'empty'} title={tr("场景白板：拖动便签同步调整剧本顺序")}>{tr("白板")}</button>}
-        {onSearch && <button onClick={onSearch} title={tr("搜索剧本 · ⌘F")}>{tr("⌕ 搜索")}</button>}
+        {onBoard && <button className="toolbar-icon-btn" onClick={onBoard} disabled={project.state === 'empty'} title={tr("场景白板：拖动便签同步调整剧本顺序")} aria-label={tr("场景白板")}><ToolIcon name="board"/></button>}
+        {onSearch && <button className="toolbar-icon-btn" onClick={onSearch} title={tr("搜索剧本 · ⌘F")} aria-label={tr("搜索剧本")}><ToolIcon name="search"/></button>}
       </div>
 
       <span className="toolbar-divider toolbar-group-divider" aria-hidden="true" />
 
       <div className="toolbar-group toolbar-collab-group" aria-label={tr("协作")}>
-        {onConnections && <button onClick={onConnections} title={tr("连接外部 Agent（MCP / CLI）")}>{tr("连接 Agent…")}</button>}
-        {onAgent && <button className={agentOpen ? 'active' : undefined} aria-pressed={agentOpen} onClick={onAgent} title={tr(agentOpen ? "关闭编剧助理" : "编剧助理")}>{tr("编剧助理")}</button>}
+        {onConnections && <button className="toolbar-icon-btn" onClick={onConnections} title={tr("连接外部 Agent（MCP / CLI）")} aria-label={tr("连接外部 Agent")}><ToolIcon name="connect"/></button>}
+        {onAgent && <button className={`toolbar-icon-btn ${agentOpen ? 'active' : ''}`} aria-pressed={agentOpen} onClick={onAgent} title={tr(agentOpen ? "关闭编剧助理" : "编剧助理")} aria-label={tr("编剧助理")}><ToolIcon name="agent"/></button>}
       </div>
 
       <EpisodeControls/>

@@ -129,7 +129,7 @@ it('元素菜单可折叠并记住状态', async () => {
   fireEvent.click(first.getByTitle('收起元素菜单'));
   expect(first.container.querySelector('.float-menu.collapsed')).toBeTruthy();
   expect(first.container.querySelector('.float-menu-list')).toBeNull();
-  expect(first.container.querySelector('.float-menu-pill')?.textContent).toContain('元素');
+  expect(first.container.querySelector('.float-menu-pill')?.textContent).toContain('动作');
   expect(window.localStorage.getItem('hhx.elementMenuCollapsed')).toBe('1');
   fireEvent.click(first.container.querySelector('.float-menu-pill')!);
   expect(first.container.querySelector('.float-menu-list')).toBeTruthy();
@@ -145,6 +145,34 @@ it('元素菜单可折叠并记住状态', async () => {
   expect(second.container.querySelector('.float-menu-list')).toBeNull();
 });
 
+it('折叠态随光标显示当前类型，图钉状态可持久化', async () => {
+  window.localStorage.setItem('hhx.elementMenuMode', 'float');
+  window.localStorage.setItem('hhx.elementMenuCollapsed', '1');
+  window.localStorage.removeItem('hhx.elementMenuPinned');
+  useEditorStore.setState({
+    document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }, { id: 'b', block_type: 'character', text: '人物' }], settings } as never,
+    activeBlockId: 'a',
+  });
+  mockBackend.on('get_pagination', () => ({ pages: [{ number: 1, blocks: [
+    { block_id: 'a', block_type: 'action', text: '动作', start_line: 0, line_count: 1 },
+    { block_id: 'b', block_type: 'character', text: '人物', start_line: 1, line_count: 1 },
+  ] }] }));
+  const first = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(first.container.querySelector('[data-block-id="b"] .screenplay-block')).toBeTruthy());
+  expect(first.container.querySelector('.float-menu-pill')?.textContent).toContain('动作');
+  fireEvent.focus(first.container.querySelector('[data-block-id="b"] .screenplay-block') as HTMLElement);
+  await waitFor(() => expect(first.container.querySelector('.float-menu-pill')?.textContent).toContain('人物'));
+  const pin = first.container.querySelector('.float-menu-pin') as HTMLElement;
+  expect(pin.getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(pin);
+  await waitFor(() => expect(first.container.querySelector('.float-menu-pin')?.getAttribute('aria-pressed')).toBe('true'));
+  expect(window.localStorage.getItem('hhx.elementMenuPinned')).toBe('1');
+  first.unmount();
+  const second = render(<ScreenplayEditor/>);
+  await waitFor(() => expect(second.container.querySelector('.float-menu-pin')).toBeTruthy());
+  expect(second.container.querySelector('.float-menu-pin')?.getAttribute('aria-pressed')).toBe('true');
+});
+
 it('左侧吸附菜单收起为窄条，展开后选中任意项自动收回', async () => {
   window.localStorage.setItem('hhx.elementMenuMode', 'left');
   useEditorStore.setState({ document: { id: 'qa', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '动作' }], settings } as never, activeBlockId: 'a', changeBlockType: vi.fn().mockResolvedValue(undefined) });
@@ -154,7 +182,7 @@ it('左侧吸附菜单收起为窄条，展开后选中任意项自动收回', a
   fireEvent.click(container.querySelector('.element-dock-toggle')!);
   expect(container.querySelector('.element-dock.left.collapsed')).toBeTruthy();
   expect(container.querySelector('.element-dock-float')).toBeNull();
-  expect(container.querySelector('.element-dock-title')?.textContent).toContain('元素');
+  expect(container.querySelector('.element-dock-title')?.textContent).toContain('动作');
   expect(window.localStorage.getItem('hhx.elementMenuCollapsed')).toBe('1');
   fireEvent.click(container.querySelector('.element-dock-toggle')!);
   expect(container.querySelector('.element-dock.left.collapsed')).toBeNull();

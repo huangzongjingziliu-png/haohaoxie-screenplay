@@ -1490,6 +1490,13 @@ body.dark .element-dock-float { color: #a6a6b0 !important; }
 .float-menu-list button.on .element-dock-key { border-color: #a9c4e6; background: #fff; color: #1f4d84; }
 .float-menu-pill { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1px solid #dfe1e6; border-radius: 999px; background: #fafafb; color: #5a5a64; font: inherit; white-space: nowrap; cursor: pointer; }
 .float-menu-pill:hover { background: #eef3fb; border-color: #b9cfe8; }
+.float-menu-collapsed { display: inline-flex; align-items: center; gap: 4px; }
+.float-menu-pin { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 1px solid #dfe1e6; border-radius: 999px; background: #fafafb; color: #8a8a94; cursor: pointer; }
+.float-menu-pin:hover { background: #eef3fb; border-color: #b9cfe8; color: #47617e; }
+.float-menu-pin.on { background: #e8f0fb; border-color: #8fb4e6; color: #1f4d84; }
+body.dark .float-menu-pin { background: #33333a; border-color: #4a4a52; color: #a6a6b0; }
+body.dark .float-menu-pin:hover { background: #3c4560; border-color: #5c7aa6; }
+body.dark .float-menu-pin.on { background: #324a68; border-color: #6f9bd1; color: #dce9f9; }
 .float-menu-caret { font-size: 10px; color: #8a8a94; }
 body.dark .float-menu.collapsed { background: transparent; border: 0; box-shadow: none; }
 body.dark .float-menu-head { color: #a6a6b0; }
@@ -1731,6 +1738,8 @@ body.dark button.recent-item{background:#2a2d33;border-color:#444a54}body.dark b
 .toolbar .navigator-toggle { position: static; z-index: auto; flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 32px; padding: 5px; border: 1px solid var(--control-border); border-radius: 8px; background: var(--control-bg); color: #667085; cursor: pointer; }
 .toolbar .navigator-toggle:hover { background: var(--control-hover); color: var(--control-text); }
 .toolbar .navigator-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-border); background: var(--accent-weak); }
+.toolbar .toolbar-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; min-width: 32px; height: 32px; padding: 0; }
+.toolbar .toolbar-icon-btn svg { display: block; }
 .main > .editors { min-width: 0; }
 .dismiss-confirm-backdrop { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 24px; background: #18233345; }
 .dismiss-confirm { width: min(420px, 90vw); }

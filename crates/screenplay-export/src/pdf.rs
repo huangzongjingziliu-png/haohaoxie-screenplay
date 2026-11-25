@@ -202,7 +202,8 @@ fn build_spec(doc: &ScreenplayDocument, watermark: Option<&str>) -> Result<PdfSp
         if !t.trim().is_empty() {
             lines.push(LineSpec {
                 text: t.clone(),
-                x: margin_left,
+                // 封面文字水平居中：x 传页宽一半，sidecar 按实测宽度左移一半
+                x: page_w / 2.0,
                 y,
                 size: font_size * 1.4,
                 bold: true,
@@ -223,11 +224,11 @@ fn build_spec(doc: &ScreenplayDocument, watermark: Option<&str>) -> Result<PdfSp
                 if !v.trim().is_empty() {
                     lines.push(LineSpec {
                         text: v.clone(),
-                        x: margin_left,
+                        x: page_w / 2.0,
                         y,
                         size: font_size,
                         bold: false,
-                        role: "general".into(),
+                        role: "cover".into(),
                         font_family: None, italic: false, color: None,
                     });
                     y -= line_height;
@@ -760,6 +761,42 @@ mod tests {
             .map(|p| p.lines.len())
             .max()
             .unwrap_or(0)
+    }
+
+    #[test]
+    fn t08_title_page_lines_are_centered() {
+        let mut doc = sample();
+        doc.settings.include_title_page = true;
+        doc.title_page.title = "封面标题".into();
+        doc.title_page.written_by = Some("编剧".into());
+        doc.title_page.author = Some("某某".into());
+        doc.title_page.based_on = None;
+        doc.title_page.contact = None;
+        doc.title_page.draft_date = None;
+        doc.title_page.copyright = None;
+        let spec = build_spec(&doc, None).unwrap();
+        let cover = &spec.pages[0].lines;
+        assert!(cover.len() >= 3, "标题页应包含标题与署名行");
+        for line in cover {
+            assert!(
+                (line.x - spec.width / 2.0).abs() < 0.01,
+                "封面文字必须水平居中：{}",
+                line.text
+            );
+        }
+        assert_eq!(cover[0].role, "title");
+        assert!(cover[1..].iter().all(|l| l.role == "cover"));
+    }
+
+    #[test]
+    fn t09_body_pages_stay_left_aligned_when_title_page_disabled() {
+        let mut doc = sample();
+        doc.settings.include_title_page = false;
+        let spec = build_spec(&doc, None).unwrap();
+        assert!(spec.pages[0]
+            .lines
+            .iter()
+            .all(|l| l.role != "title" && l.role != "cover"));
     }
 
     #[test]

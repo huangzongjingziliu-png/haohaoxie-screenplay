@@ -1,4 +1,4 @@
-import {tr} from '@/i18n';
+import {tr, fmt} from '@/i18n';
 import { stripAutoContinuation } from '@/utils/continuation';
 import { fragmentContext, sourceBlockId, getFragmentDraft, rememberFragmentDraft } from '@/utils/pageFragments';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -66,6 +66,7 @@ const TYPE_ORDER = ELEMENT_TYPES;
 /** 元素类型菜单：跟随光标 / 吸附顶部横排 / 吸附左侧竖排。默认跟随光标，已保存偏好者沿用。 */
 const TYPE_MENU_KEY = 'hhx.elementMenuMode';
 const TYPE_MENU_COLLAPSED_KEY = 'hhx.elementMenuCollapsed';
+const TYPE_MENU_PINNED_KEY = 'hhx.elementMenuPinned';
 type TypeMenuMode = 'float' | 'top' | 'left';
 const readTypeMenuMode = (): TypeMenuMode => {
   try {
@@ -79,6 +80,14 @@ const readTypeMenuMode = (): TypeMenuMode => {
 const readTypeMenuCollapsed = (): boolean => {
   try {
     return localStorage.getItem(TYPE_MENU_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+/** 图钉：钉住后不再跟随光标。 */
+const readTypeMenuPinned = (): boolean => {
+  try {
+    return localStorage.getItem(TYPE_MENU_PINNED_KEY) === '1';
   } catch {
     return false;
   }
@@ -122,6 +131,9 @@ export default function ScreenplayEditor() {
   const [shortcuts, setShortcuts] = useState(readShortcuts);
   const [menuMode, setMenuMode] = useState<TypeMenuMode>(readTypeMenuMode);
   const [menuCollapsed, setMenuCollapsed] = useState(readTypeMenuCollapsed);
+  const [menuPinned, setMenuPinned] = useState(readTypeMenuPinned);
+  /** 钉住后只在首次（含重启）按当前块落位一次，之后冻结。 */
+  const pinAnchorReady = useRef(false);
   const setMenuModePersisted = (mode: TypeMenuMode) => {
     setMenuMode(mode);
     try {
@@ -134,6 +146,16 @@ export default function ScreenplayEditor() {
     setMenuCollapsed(collapsed);
     try {
       localStorage.setItem(TYPE_MENU_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* 隐私模式下忽略，仅当次生效 */
+    }
+  };
+  const setMenuPinnedPersisted = (pinned: boolean) => {
+    // 钉住时保留当前坐标；取消钉住立即回到跟随逻辑
+    pinAnchorReady.current = pinned;
+    setMenuPinned(pinned);
+    try {
+      localStorage.setItem(TYPE_MENU_PINNED_KEY, pinned ? '1' : '0');
     } catch {
       /* 隐私模式下忽略，仅当次生效 */
     }
@@ -178,25 +200,50 @@ export default function ScreenplayEditor() {
     return () => window.removeEventListener('keydown', handler);
   }, [shortcuts, switchType, pushToast]);
   useEffect(() => {
+    if (menuMode !== 'float') {
+      // 吸附态不用浮窗坐标；切回浮动态时重新落位
+      pinAnchorReady.current = false;
+      return;
+    }
+    if (menuPinned) {
+      // 钉住后冻结坐标；重启后等第一次拿到块再落位
+      if (pinAnchorReady.current) return;
+    }
     const update = () => {
+      if (menuPinned && pinAnchorReady.current) return;
       const workspace = workspaceRef.current;
       const id = focusedId ?? activeBlockId;
       const row = workspace?.querySelector<HTMLElement>(`[data-block-id="${cssEscape(id ?? '')}"]`);
-      if (!workspace || !row) return;
+      if (!workspace || !row) {
+        if (menuPinned) setToolPosition((p) => ({ ...p, visible: false }));
+        return;
+      }
       const bounds = workspace.getBoundingClientRect(), r = row.getBoundingClientRect();
-      const menuHeight = workspace.querySelector<HTMLElement>('.float-menu')?.offsetHeight ?? 0;
+      const menuEl = workspace.querySelector<HTMLElement>('.float-menu');
+      const menuHeight = menuEl?.offsetHeight ?? 0;
+      const menuWidth = menuEl?.offsetWidth ?? (menuCollapsed ? 72 : 136);
       const placed = floatingMenuTop({
         rowTop: r.top - bounds.top,
         rowBottom: r.bottom - bounds.top,
         containerHeight: bounds.height,
         menuHeight,
       });
+      // 菜单只放在正文列外侧的 gutter：左侧不够就翻到右侧，两侧都不够再贴边停靠，
+      // 避免图钉按钮或固定后的菜单压住正文。
+      const gap = 10;
+      const rowLeft = r.left - bounds.left;
+      const rowRight = r.right - bounds.left;
+      let left: number;
+      if (rowLeft >= menuWidth + gap) left = rowLeft - menuWidth - gap;
+      else if (bounds.width - rowRight >= menuWidth + gap) left = rowRight + gap;
+      else left = rowLeft >= bounds.width / 2 ? 4 : Math.max(4, bounds.width - menuWidth - 4);
       setToolPosition({
         top: placed.top,
         maxHeight: placed.maxHeight,
-        left: Math.max(4, r.left - bounds.left - (menuCollapsed ? 72 : 136)),
+        left,
         visible: r.bottom >= bounds.top && r.top < bounds.bottom,
       });
+      if (menuPinned) pinAnchorReady.current = true;
     };
     update();
     window.addEventListener('resize', update);
@@ -204,7 +251,7 @@ export default function ScreenplayEditor() {
     const observer = new ResizeObserver(update);
     if (workspaceRef.current) observer.observe(workspaceRef.current);
     return () => { window.removeEventListener('resize', update); document.removeEventListener('scroll', update, true); observer.disconnect(); };
-  }, [focusedId, activeBlockId, pagination, zoom, menuCollapsed]);
+  }, [focusedId, activeBlockId, pagination, zoom, menuCollapsed, menuPinned, menuMode]);
   const layoutRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(1000);
   // 滚轮浏览时跟随高亮：只更新 activeBlockId，绝不触发滚动；正在编辑或刚手动跳转时不动。
@@ -1019,6 +1066,8 @@ export default function ScreenplayEditor() {
 
   const selected = screenplay.blocks.find(b => b.id === targetId);
   const dockBlock = screenplay.blocks.find(b => b.id === (targetId ?? activeBlockId)) ?? null;
+  /** 折叠态/吸附态显示当前元素类型，而不是笼统的「元素」。 */
+  const typeLabelOf = (b: { block_type: BlockType } | null | undefined) => b ? tr(BLOCK_LABELS[b.block_type]) : tr("元素");
   return (
     <div className="paper-workspace" ref={workspaceRef} onMouseDown={onPaperMouseDown} style={{ userSelect: dragSelecting ? 'none' : undefined }} onFocusCapture={e => {
       const element = e.target as HTMLElement;
@@ -1030,11 +1079,24 @@ export default function ScreenplayEditor() {
     }}>
       <div className="sr-only" role="status" aria-live="polite">{blockRangeAnnouncement(selectedIds.length)}</div>
       {menuMode === 'float' && selected && (
-        <div className={`row-element-tools float-menu ${menuCollapsed ? 'collapsed' : ''}`} aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, maxHeight: toolPosition.maxHeight || undefined, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
+        <div className={`row-element-tools float-menu ${menuCollapsed ? 'collapsed' : ''} ${menuPinned ? 'pinned' : ''}`} aria-label={tr("当前元素工具")} style={{ top: toolPosition.top, left: toolPosition.left, maxHeight: toolPosition.maxHeight || undefined, visibility: toolPosition.visible ? 'visible' : 'hidden' }}>
           {menuCollapsed ? (
-            <button type="button" className="float-menu-pill" title={tr("展开元素菜单")} onMouseDown={(e) => e.preventDefault()} onClick={() => setMenuCollapsedPersisted(false)}>
-              <span>{tr("元素")}</span><span className="float-menu-caret" aria-hidden="true">▸</span>
-            </button>
+            <div className="float-menu-collapsed">
+              <button
+                type="button"
+                className={`float-menu-pin ${menuPinned ? 'on' : ''}`}
+                aria-pressed={menuPinned}
+                aria-label={tr(menuPinned ? "取消钉住，恢复跟随光标" : "钉住菜单，光标移动时不再跟随")}
+                title={tr(menuPinned ? "取消钉住，恢复跟随光标" : "钉住菜单，光标移动时不再跟随")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setMenuPinnedPersisted(!menuPinned)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={menuPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><path d="M12 14v7"/></svg>
+              </button>
+              <button type="button" className="float-menu-pill" title={fmt("展开元素菜单（当前：{0}）", typeLabelOf(selected))} onMouseDown={(e) => e.preventDefault()} onClick={() => setMenuCollapsedPersisted(false)}>
+                <span>{typeLabelOf(selected)}</span><span className="float-menu-caret" aria-hidden="true">▸</span>
+              </button>
+            </div>
           ) : (
             <>
               <div className="float-menu-head">
@@ -1060,7 +1122,7 @@ export default function ScreenplayEditor() {
       )}
       {menuMode !== 'float' && <div className={`element-dock ${menuMode} ${menuCollapsed ? 'collapsed' : ''}`} role="toolbar" aria-label={tr("元素类型")}>
         <button type="button" className="element-dock-toggle" aria-expanded={!menuCollapsed} title={menuCollapsed ? tr("展开元素菜单") : tr("收起元素菜单")} onMouseDown={(e) => e.preventDefault()} onClick={() => setMenuCollapsedPersisted(!menuCollapsed)}>
-          <span className="element-dock-title">{tr("元素")}</span>
+          <span className="element-dock-title">{typeLabelOf(dockBlock)}</span>
           <span className="element-dock-arrow" aria-hidden="true">{menuCollapsed ? (menuMode === 'left' ? '▸' : '▾') : (menuMode === 'left' ? '◂' : '▴')}</span>
         </button>
         {!menuCollapsed && <>

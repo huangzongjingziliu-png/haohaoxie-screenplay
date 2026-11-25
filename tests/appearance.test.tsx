@@ -15,8 +15,8 @@ afterEach(cleanup);
 it('更多菜单收纳设置并能以 Escape 关闭', () => {
   const settings = vi.fn(); const view = render(<Toolbar onImport={() => undefined} onSettings={settings}/>);
   expect(view.queryByText('设置…')).toBeNull();
-  fireEvent.click(view.getByText('更多 ▾')); fireEvent.click(view.getByText('设置…')); expect(settings).toHaveBeenCalledOnce();
-  fireEvent.click(view.getByText('更多 ▾')); fireEvent.keyDown(document, { key: 'Escape' }); expect(view.queryByText('设置…')).toBeNull();
+  fireEvent.click(view.getByLabelText('更多操作')); fireEvent.click(view.getByText('设置…')); expect(settings).toHaveBeenCalledOnce();
+  fireEvent.click(view.getByLabelText('更多操作')); fireEvent.keyDown(document, { key: 'Escape' }); expect(view.queryByText('设置…')).toBeNull();
 });
 it('自定义对白样式和命名预设可以跨面板复用，界面字号独立保存', async () => {
   let view = render(<SettingsPanel onClose={() => undefined}/>);
