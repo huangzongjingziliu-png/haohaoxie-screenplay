@@ -347,11 +347,15 @@ export const ipc = {
   hasUnsavedChanges: () => call<boolean>('has_unsaved_changes'),
   confirmClose: (discardChanges = false) => call<void>('confirm_close', { discardChanges }),
   confirmQuit: (discardChanges = false) => call<void>('confirm_quit', { discardChanges }),
+  /** 取消退出：解除后端保存屏障，恢复自动保存 */
+  cancelQuit: () => call<void>('cancel_quit'),
 
   // 崩溃恢复
   pendingRecovery: () => call<PendingRecovery | null>('pending_recovery'),
   adoptRecovery: () => call<Bootstrap>('adopt_recovery'),
   discardRecovery: () => call<void>('discard_recovery'),
+  /** 恢复点写入失败提示（失败会持续重试） */
+  takeRecoveryError: () => call<string | null>('take_recovery_error'),
   // 保存被强杀后留下的完整备份（只有用户确认才会写回）
   staleSaveBackup: () => call<StaleSaveBackup | null>('stale_save_backup'),
   restoreStaleSaveBackup: (path: string) => call<void>('restore_stale_save_backup', { path }),

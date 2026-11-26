@@ -8,7 +8,7 @@ import { ELEMENT_TYPES, readShortcuts, keyCombo, shortcutLabel } from '@/utils/e
 import { sceneFollowSuppressed } from '@/utils/sceneFollow';
 import { defaultElementStyle } from '@/utils/appearance';
 import { paperInkColor } from '@/utils/theme';
-import { flushPendingEdits, registerPendingEditor } from '@/utils/pendingEdits';
+import { flushPendingEdits, registerPendingEditor, setDraftPending } from '@/utils/pendingEdits';
 import { orderedBlockRange, sceneBlockIds, blocksToText, rememberBlockClipboard, readBlockClipboard, floatingMenuTop, blockRangeAnnouncement } from './blockSelection';
 import { writeClipboardText } from '@/utils/clipboard';
 import type { BlockType, Page, PageBlock, Pagination } from '@/ipc/types';
@@ -416,21 +416,28 @@ export default function ScreenplayEditor() {
     if (inserted.length) setBlockRange({ anchor: inserted[0], focus: inserted[inserted.length - 1] });
   }, []);
 
-  const removeSelectedBlocks = useCallback(async () => {
-    const ids = selectedIdsRef.current;
+  const deleteBlocks = useCallback(async (ids: string[], expectedRevision?: number) => {
     if (!ids.length) return;
     const doc = useEditorStore.getState().document;
     const firstIdx = doc ? doc.blocks.findIndex((b) => b.id === ids[0]) : -1;
     // 删除后优先落到上一块；从文首删除时落到后面第一块，避免锚到已删块。
     const next = doc && firstIdx >= 0 ? (doc.blocks[firstIdx - 1] ?? doc.blocks[firstIdx + ids.length]) : undefined;
     setBlockRange(null);
-    const r = await useEditorStore.getState().applyBlockBatch({ delete: ids });
+    const batch = { delete: ids };
+    const r = expectedRevision === undefined
+      ? await useEditorStore.getState().applyBlockBatch(batch)
+      : await useEditorStore.getState().applyBlockBatch(batch, expectedRevision);
     if (!r) return;
     if (next) {
       useEditorStore.getState().setActiveBlock(next.id);
       requestFocus(next.id, 0);
     }
   }, [requestFocus]);
+
+  const removeSelectedBlocks = useCallback(
+    () => deleteBlocks([...selectedIdsRef.current]),
+    [deleteBlocks]
+  );
 
   /** 原生选区跨了多个块：合并首块前缀与末块后缀，中间块删除，一步撤销。 */
   const deleteAcrossBlocks = useCallback(
@@ -489,10 +496,10 @@ export default function ScreenplayEditor() {
     return block.getAttribute('contenteditable') !== 'false';
   }, []);
 
-  /** 事务式复制/剪切：先落盘草稿、取稳定载荷、写剪贴板成功后才删除。 */
+  /** 事务式复制/剪切：先固定选区与 revision，写剪贴板成功后才按同一集合删除。 */
   const copySelectedBlocks = useCallback(
     async (cut: boolean): Promise<boolean> => {
-      const ids = selectedIdsRef.current;
+      const ids = [...selectedIdsRef.current];
       if (!ids.length) return false;
       try {
         await flushPendingEdits();
@@ -500,7 +507,10 @@ export default function ScreenplayEditor() {
         useEditorStore.getState().pushToast('error', String(error));
         return false;
       }
+      // 剪贴板写入是异步的，期间用户可能改选区或继续输入；
+      // 这里把「要删除哪些块、基于哪个 revision」固定下来，避免删错或删重。
       const doc = useEditorStore.getState().document;
+      const revision = doc?.revision;
       const picked = ids.flatMap((id) => doc?.blocks.find((b) => b.id === id) ?? []);
       if (!picked.length) return false;
       const text = blocksToText(picked);
@@ -512,10 +522,10 @@ export default function ScreenplayEditor() {
         return false;
       }
       rememberBlockClipboard(text, picked.map((b) => ({ type: b.block_type, text: b.text })));
-      if (cut) await removeSelectedBlocks();
+      if (cut) await deleteBlocks(ids, revision);
       return true;
     },
-    [removeSelectedBlocks]
+    [deleteBlocks]
   );
 
   useEffect(() => {
@@ -1349,6 +1359,9 @@ function BlockView({
   const baseRevision = useRef<number>();
   /** 编辑期间外部来源给的新文本（用户没再动过就采纳它，不回写） */
   const externalWhileEditing = useRef<string | null>(null);
+  /** 状态栏「输入未提交」的草稿标记；每个块实例唯一，卸载时清掉 */
+  const draftKey = useRef(`block:${sourceId}:${Math.random().toString(36).slice(2)}`).current;
+  useEffect(() => () => setDraftPending(draftKey, false), [draftKey]);
 
   // 外部更新（非本块编辑导致）时同步 DOM，但**绝不在组字期间**
   useEffect(() => {
@@ -1396,26 +1409,33 @@ function BlockView({
       setBlockText(el, incoming, true);
       backendText.current = incoming;
       fragmentDraft.current=null;rememberFragmentDraft(el,null);
+      setDraftPending(draftKey, false);
       return;
     }
 
     if (inFlight.current) await inFlight.current;
     const text = el.textContent ?? '';
-    if (text === backendText.current) return;
+    if (text === backendText.current) { setDraftPending(draftKey, false); return; }
     const local = stripAutoContinuation(text, pb.auto_contd);
     const context = fragmentDraft.current ?? fragmentContext(useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId)?.text ?? pb.text, pb.source_start, pb.source_end);
     const submitted = context.prefix + local + context.suffix;
+    setDraftPending(draftKey, true);
     const task = onChangeText(sourceId, submitted, baseRevision.current);
     inFlight.current = task;
     try {
-      if (!await task) throw new Error(tr("文字尚未提交成功，请重试后再保存"));
+      if (!await task) {
+        // 提交失败（含冲突重试仍失败）：下一次改用最新 revision，
+        // 不能一直拿旧基准重试，让文字永远卡在 DOM 里。
+        baseRevision.current = useEditorStore.getState().document?.revision;
+        throw new Error(tr("文字尚未提交成功，请重试后再保存"));
+      }
       backendText.current = text;
       userEdited.current = (el.textContent ?? '') !== text;
       if (useEditorStore.getState().document?.blocks.find(b=>b.id===sourceId)?.text === submitted) baseRevision.current = useEditorStore.getState().document?.revision;
-
+      if (!userEdited.current) setDraftPending(draftKey, false);
     } finally { inFlight.current = null; }
     if (userEdited.current) await flushDraft();
-  }, [onChangeText, onError, sourceId, pb.auto_contd, pb.source_start, pb.source_end]);
+  }, [onChangeText, onError, sourceId, pb.auto_contd, pb.source_start, pb.source_end, draftKey]);
 
   useEffect(() => registerPendingEditor(flush), [flush]);
 
@@ -1519,6 +1539,9 @@ function BlockView({
    * 多行粘贴不能交给 contenteditable：浏览器会插入 <div>/<br>，
    * 提交时 textContent 读不到换行，标题和正文会被拼成同一段。
    * 按 Enter 的语义把每一行拆成独立块，空行保留为空块。
+   *
+   * 整次粘贴走**一个** apply_block_batch：替换首行与插入其余行同属一个事务，
+   * 任何一步失败后端都保持原样，不会出现「首行改了、尾段丢了」的半截状态。
    */
   const pasteMultiline = async (text: string) => {
     const el = ref.current;
@@ -1539,20 +1562,28 @@ function BlockView({
     const first = full.slice(0, caret) + lines[0];
     // 原段落光标后的文字属于「最后一行」，不能留在第一行里
     const tailRest = full.slice(caret);
-    if (!await onChangeText(sourceId, first)) return;
-    userEdited.current = false;
-    setCompletionInput(null);
-    let afterId = sourceId;
-    let prevType: BlockType = pb.block_type;
     const rest = lines.slice(1);
-    for (const [i, line] of rest.entries()) {
+    let prevType: BlockType = pb.block_type;
+    const insertedBlocks = rest.map((line, i) => {
       const type = nextTypeFor(prevType);
-      await onInsertAfter(afterId, type, i === rest.length - 1 ? line + tailRest : line);
-      const inserted = useEditorStore.getState().activeBlockId;
-      if (!inserted || inserted === afterId) return;
-      afterId = inserted;
       prevType = type;
-    }
+      return { blockType: type, text: i === rest.length - 1 ? line + tailRest : line };
+    });
+    const before = useEditorStore.getState().document;
+    // 不传固定 revision：applyBlockBatch 内部会先 flush 待提交文字，
+    // 以 flush 后的权威 revision 提交，避免自己跟自己撞版本。
+    const r = await useEditorStore.getState().applyBlockBatch({
+      replace: [{ blockId: sourceId, text: first }],
+      insertAfter: sourceId,
+      insert: insertedBlocks,
+    });
+    if (!r) return;
+    userEdited.current = false;
+    fragmentDraft.current = null;
+    rememberFragmentDraft(el, null);
+    setCompletionInput(null);
+    const insertedIds = r.affected.filter((id) => !before?.blocks.some((b) => b.id === id));
+    const afterId = insertedIds[insertedIds.length - 1] ?? sourceId;
     const caretAtEnd = lines[lines.length - 1].length;
     let attempts = 0;
     const focusLast = () => {
@@ -1608,6 +1639,7 @@ function BlockView({
         onClick={() => onSelect(sourceId)}
         onInput={() => {
           if (composing.current) return;
+          setDraftPending(draftKey, true);
           captureDraft();
           userEdited.current = true;
           setCompletionInput(ref.current?.textContent ?? "");

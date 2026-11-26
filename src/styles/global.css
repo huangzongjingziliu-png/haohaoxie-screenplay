@@ -1530,6 +1530,10 @@ body.dark .row-element-tools select, body.dark .row-element-actions button { col
 .board-heading h2 { margin: 0 0 5px; }
 .board-heading span, .board-hint { color: #666; }
 .board-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 24px; }
+.board-tool-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 12px; border-right: 1px solid var(--border, #d8d8d8); }
+.board-tool-group:last-child { border-right: 0; padding-right: 0; }
+.board-tool-group > strong { font-size: 12px; font-weight: 600; letter-spacing: .04em; color: #777; }
+.board-lane-hint { margin-top: 0; }
 .board-tools label, .board-color-field { display: flex; align-items: center; gap: 6px; }
 .scene-board button { font: inherit; padding: 7px 12px; border: 1px solid #d8d8d8; border-radius: 7px; background: white; color: #333; }
 .board-tools input[type="color"] { width: 36px; height: 30px; padding: 2px; }

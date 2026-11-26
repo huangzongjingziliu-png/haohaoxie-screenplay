@@ -174,7 +174,19 @@ pub fn agent_rename_expert(expert_id: String, name: String) -> IpcResult<()> {
     let file = custom_file(&expert_id).ok_or_else(|| error("内置技能不支持改名；请改用自定义技能"))?;
     let content = std::fs::read_to_string(&file).map_err(|e| IpcError::Internal { message: e.to_string() })?;
     let updated = set_frontmatter_name(&content, name);
-    std::fs::write(&file, updated).map_err(|e| IpcError::Internal { message: e.to_string() })
+    // 原子替换：先写同目录临时文件再 rename。直接覆盖写会让并发读取
+    // （或中途崩溃）看到半截 SKILL.md，导致技能解析失败甚至丢失配置。
+    let parent = file.parent().ok_or_else(|| error("技能文件路径无效"))?;
+    let tmp = parent.join(format!(
+        ".{}.tmp-{}",
+        file.file_name().and_then(|n| n.to_str()).unwrap_or("SKILL.md"),
+        std::process::id()
+    ));
+    std::fs::write(&tmp, updated).map_err(|e| IpcError::Internal { message: e.to_string() })?;
+    std::fs::rename(&tmp, &file).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        IpcError::Internal { message: e.to_string() }
+    })
 }
 
 /// 打开技能目录；传入 expert_id 时打开该自定义技能的文件夹。

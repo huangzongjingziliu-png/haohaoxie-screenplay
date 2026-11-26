@@ -240,7 +240,7 @@ fn r07_corrupt_recovery_file_does_not_crash() {
 }
 
 #[test]
-fn r08_recovery_of_saved_project_reopens_container() {
+fn r08_recovery_of_saved_project_becomes_unbound_copy() {
     let _guard = serial();
     clear_recovery();
     let path = tmp("saved.screenplay");
@@ -260,23 +260,27 @@ fn r08_recovery_of_saved_project_reopens_container() {
         .unwrap();
         drop(svc); // A terminated process releases ownership; forgetting a live service would keep its lock.
     }
+    let on_disk_before = std::fs::read(&path).unwrap();
 
     let svc = ProjectService::new();
     let doc = svc.adopt_recovery().unwrap();
     let text: String = doc.blocks.iter().map(|b| b.text.as_str()).collect();
     assert!(
         text.contains("崩溃前的修改"),
-        "应恢复到容器 + 未保存的修改: {text}"
+        "应恢复出容器 + 未保存的修改: {text}"
     );
+    // 恢复稿不得直接绑回原容器：原文件可能已被更新的正式稿覆盖。
     assert_eq!(
         svc.state().path(),
-        Some(screenplay_store::bridge::canonical_container_path(&path).as_path()),
-        "恢复后应绑定回原容器路径"
+        None,
+        "恢复稿必须落成未绑定副本，等用户另存为"
     );
-
-    // 用户此时再保存即可保住崩溃前的内容
-    svc.save(None).unwrap();
-    assert!(!svc.is_dirty());
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        on_disk_before,
+        "未经用户明确覆盖，原工程文件不得被恢复稿改动"
+    );
+    assert!(svc.save(None).is_err(), "未绑定副本必须另存为");
 
     let _ = std::fs::remove_file(&path);
 }

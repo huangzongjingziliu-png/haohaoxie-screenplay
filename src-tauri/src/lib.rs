@@ -1579,6 +1579,20 @@ fn confirm_quit(app: AppHandle, discard_changes: Option<bool>) -> IpcResult<()> 
     Ok(())
 }
 
+/// 用户取消退出：解除后端保存屏障，恢复正常的自动保存。
+#[tauri::command]
+fn cancel_quit(state: State<'_, AppState>) -> IpcResult<()> {
+    state.project.clear_quit_barrier();
+    diag::log("退出已取消，保存屏障解除");
+    Ok(())
+}
+
+/// 前端轮询恢复点写入失败提示（写入失败会持续重试）。
+#[tauri::command]
+fn take_recovery_error(state: State<'_, AppState>) -> IpcResult<Option<String>> {
+    Ok(state.project.take_recovery_error())
+}
+
 // ---------------------------------------------------------------------------
 // 崩溃恢复
 // ---------------------------------------------------------------------------
@@ -2046,6 +2060,8 @@ pub fn run() {
             has_unsaved_changes,
             confirm_close,
             confirm_quit,
+            cancel_quit,
+            take_recovery_error,
             // 崩溃恢复
             pending_recovery,
             adopt_recovery,
@@ -2219,6 +2235,8 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 let state = app.state::<AppState>();
                 if !state.quitting.load(std::sync::atomic::Ordering::SeqCst) {
+                    // 与 ⌘Q 同一条路径：先建立后端保存屏障，再让前端确认。
+                    state.project.begin_quit_barrier();
                     api.prevent_exit();
                     let _ = app.emit("quit-requested", ());
                 }

@@ -144,6 +144,19 @@ it('组成组是连续场景并可整体移动，评论和连线保存在工程'
  fireEvent.click(view.getByText('隐藏连线'));await waitFor(()=>expect(useEditorStore.getState().document?.settings.scene_board.hide_links).toBe(true));
 });
 
+it('顶部按创建/组织/视图分组，对象级操作只在选中后出现',async()=>{
+ const view=render(<SceneBoard onClose={()=>{}} onConfigure={()=>{}}/>);
+ expect(view.getByRole('group',{name:'创建'})).toBeTruthy();
+ expect(view.getByRole('group',{name:'组织'})).toBeTruthy();
+ expect(view.getByRole('group',{name:'视图'})).toBeTruthy();
+ // 未选中便签：不渲染对象级操作
+ expect(view.queryByText('从所选便签或组连线')).toBeNull();
+ expect(view.queryByText('恢复正方形')).toBeNull();
+ fireEvent.click(view.getByLabelText('场景 1：INT. A - DAY'));
+ expect(view.getByText('从所选便签或组连线')).toBeTruthy();
+ expect(view.getByText('恢复正方形')).toBeTruthy();
+});
+
 it('移动组不打散成员，拖动便签进入组时调整连续顺序',async()=>{
  const {moveBoardUnit}=await import('@/utils/scenes');
  const extra=[{id:'c',block_type:'scene_heading',text:'INT. C - DAY'},{id:'cc',block_type:'action',text:'C动作'}];
@@ -238,6 +251,29 @@ it('关闭白板前提交便签标题，不会把失焦中正在保存的草稿�
  fireEvent.click(screen.getByText('返回写作 ×'));
  await waitFor(()=>expect(close).toHaveBeenCalledOnce());
  expect(useEditorStore.getState().document?.blocks[1].text).toBe('INT. NEW ROOM - NIGHT');
+});
+
+it('Esc 关板前提交分区名称草稿；提交失败保留草稿且不关板',async()=>{
+  const board=defaultBoard();board.lanes=[{id:'lane-1',name:'旧名',hint:'',color:'',collapsed:false}];
+  const base=doc() as Record<string,unknown>;
+  useEditorStore.setState({document:{...base,settings:{...(base.settings as object),scene_board:board}} as never});
+  let fail=true;
+  mockBackend.on('update_scene_board',args=>{
+    if(fail) throw new Error('写入失败');
+    return {document:{...useEditorStore.getState().document,revision:2,settings:{scene_board:args.board}},revision:2};
+  });
+  const close=vi.fn();
+  const view=render(<SceneBoard onClose={close} onConfigure={()=>{}}/>);
+  fireEvent.change(view.getByLabelText('分区名称'),{target:{value:'新名'}});
+  fireEvent.keyDown(window,{key:'Escape'});
+  await waitFor(()=>expect(view.getByText(/写入失败/)).toBeTruthy());
+  expect(close).not.toHaveBeenCalled();
+  expect((view.getByLabelText('分区名称') as HTMLInputElement).value).toBe('新名');
+
+  fail=false;
+  fireEvent.keyDown(window,{key:'Escape'});
+  await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+  expect(useEditorStore.getState().document?.settings.scene_board.lanes[0].name).toBe('新名');
 });
 
 it('新增分区后把便签拖进分区即归属，分区可收起',async()=>{

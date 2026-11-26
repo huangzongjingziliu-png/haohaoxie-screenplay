@@ -112,8 +112,15 @@ export default function App() {
     const unsubs: Array<() => void> = [];
     let disposed = false;
     const register = (u: () => void) => { if (disposed) u(); else unsubs.push(u); };
-    void onDocumentChanged(() => {
-      void useEditorStore.getState().refreshDocument();
+    void onDocumentChanged((notice) => {
+      void (async () => {
+        // 桥接入口先 flush 本地草稿：外部（CLI/MCP）写入后，
+        // 前端未提交的输入必须先进入后端，再拉权威状态，避免文字只留在 DOM 里。
+        if (notice?.origin === 'external') {
+          try { await flushPendingEdits(); } catch { /* 草稿保留，稍后重试 */ }
+        }
+        await useEditorStore.getState().refreshDocument();
+      })();
     }).then(register);
     void onProjectChanged(() => {
       void useEditorStore.getState().refreshDocument();
@@ -151,11 +158,14 @@ export default function App() {
     return () => window.removeEventListener('import-review-requested', open);
   }, []);
 
-  // 定期同步 dirty 状态（保存进行中时也能正确反映）
+  // 定期同步 dirty 状态（保存进行中时也能正确反映）；顺带取出恢复点写入失败提示。
   useEffect(() => {
-    const t = window.setInterval(() => void refreshProjectInfo(), 2000);
+    const t = window.setInterval(() => {
+      void refreshProjectInfo();
+      void ipc.takeRecoveryError().then((message) => { if (message) pushToast('error', message); }).catch(() => {});
+    }, 2000);
     return () => window.clearInterval(t);
-  }, [refreshProjectInfo]);
+  }, [refreshProjectInfo, pushToast]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -229,6 +239,11 @@ export default function App() {
     if (exitTarget === 'quit') await ipc.confirmQuit(discard);
     else { await ipc.closeProject(discard); await useEditorStore.getState().bootstrap(); setShowExit(false); }
   };
+  /** 取消退出/关闭：解除后端保存屏障，恢复自动保存。 */
+  const dismissExit = () => {
+    setShowExit(false);
+    void ipc.cancelQuit().catch(() => {});
+  };
   const requestProjectClose = async () => {
     try {
       await flushPendingEdits(); await refreshProjectInfo(); setExitTarget('project');
@@ -237,13 +252,13 @@ export default function App() {
     } catch (e) { pushToast('error', String(e)); }
   };
   const exitDialog = showExit && (
-    <ModalBackdrop onDismiss={()=>setShowExit(false)} disabled={exiting}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
+    <ModalBackdrop onDismiss={dismissExit} disabled={exiting}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="exit-title">
       <h2 id="exit-title">{tr(exitTarget === 'quit' ? "保存修改后退出？" : "保存修改后关闭？")}</h2>
       <p className="modal-hint">{tr(exitTarget === 'quit'
         ? "还有未保存的修改。保存后写入文件再退出；不保存会放弃本次修改。"
         : "不保存会放弃尚未落盘的修改，不保留本次恢复副本。已经保存到文件的内容不受影响。")}</p>
       <div className="modal-actions">
-        <button disabled={exiting} onClick={() => setShowExit(false)}>{tr(exitTarget === 'quit' ? "取消" : "继续编辑")}</button>
+        <button disabled={exiting} onClick={dismissExit}>{tr(exitTarget === 'quit' ? "取消" : "继续编辑")}</button>
         <button disabled={exiting} onClick={async () => { setExiting(true); try { await finishClose(true); } catch (e) { pushToast('error', String(e)); } finally { setExiting(false); } }}>{tr("不保存")}</button>
         {exitTarget !== 'quit' && (
           <button disabled={exiting} onClick={async () => { setExiting(true); try { await finishClose(); } catch (e) { pushToast("error", String(e)); } finally { setExiting(false); } }}>{tr("保留恢复副本并关闭")}</button>
@@ -318,7 +333,10 @@ export default function App() {
             </div>
           )}
         </div>
-        {showAgent && viewMode !== 'focus' && <AgentPanel onClose={() => setShowAgent(false)} />}
+        {/* 面板常驻、关闭时只隐藏：对话与会审结果不能因为收起面板被销毁 */}
+        {project.state !== 'empty' && (
+          <AgentPanel visible={showAgent && viewMode !== 'focus'} onClose={() => setShowAgent(false)} />
+        )}
       </div>
       <StatusBar />
       {showBoard && <SceneBoard onJump={id=> {setShowBoard(false);setViewMode('left');useEditorStore.getState().setActiveBlock(id);let attempts=0;const jump=()=>{const el=document.querySelector<HTMLElement>(`.screenplay-editor [data-block-id="${id}"] .screenplay-block`);if(el){el.scrollIntoView({block:'center',behavior:'smooth'});el.focus();}else if(attempts++<30)requestAnimationFrame(jump);};requestAnimationFrame(jump);}} onClose={() => setShowBoard(false)} onConfigure={() => {setShowBoard(false);setSettingsTab('models');setShowSettings(true);}} />}

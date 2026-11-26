@@ -9,7 +9,7 @@
 //! 那条路径绕过 AppKit terminate，不会再次进入本拦截。
 
 use std::sync::OnceLock;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
@@ -56,6 +56,11 @@ extern "C" fn should_terminate(
 ) -> usize {
     crate::diag::log("applicationShouldTerminate: 拦截退出请求");
     if let Some(app) = APP.get() {
+        // 退出流程一开始就建立后端保存屏障：在用户确认之前，
+        // 任何自动保存 tick 都不得把未保存内容落盘（「不保存」的边界）。
+        if let Some(state) = app.try_state::<crate::AppState>() {
+            state.project.begin_quit_barrier();
+        }
         let _ = app.emit("quit-requested", ());
     } else {
         crate::diag::log("applicationShouldTerminate: 没有 AppHandle");

@@ -617,14 +617,41 @@ impl BridgeClient {
 ///
 /// GUI 运行时**不**持这个锁（GUI 通过桥接被访问，只有一个进程写），
 /// 所以 GUI 打开的文件可以被 CLI 以「转发」方式操作，而不是被锁挡住。
+///
+/// 实现用操作系统文件锁（`flock` 独占 + 非阻塞），而不是「create_new 写 PID」：
+/// 后者在「文件已创建、PID 还没写进去」的窗口里会被另一个进程当成陈旧锁删掉，
+/// 两个实例于是同时持锁、同时写同一个工程。`flock` 的获取与释放都由内核保证原子，
+/// 进程崩溃/被杀时锁随文件描述符自动释放，不存在需要「猜陈旧」的判断。
 #[derive(Debug)]
 pub struct ProjectLock {
+    /// 只用于诊断与解锁后的归属校验；锁本身由 `file` 上的 flock 持有。
     path: PathBuf,
+    /// 持有期间不关闭，内核据此维持 flock。
+    #[allow(dead_code)]
+    file: std::fs::File,
+    /// 本实例写入锁文件的归属标记：`pid:时间:随机串`。
+    owner: String,
+}
+
+extern "C" {
+    #[link_name = "flock"]
+    fn libc_flock(fd: i32, operation: i32) -> i32;
+}
+
+const LOCK_EX: i32 = 2;
+const LOCK_NB: i32 = 4;
+const LOCK_UN: i32 = 8;
+
+/// 非阻塞地尝试在已打开的锁文件上获得独占锁。
+fn try_lock_exclusive(file: &std::fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+    unsafe { libc_flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) == 0 }
 }
 
 impl ProjectLock {
     /// 尝试获取锁。已被占用时返回 `Err(PROJECT_IN_USE)`。
     pub fn acquire(container: &Path) -> Result<Self, BridgeError> {
+        use std::io::Write;
         let path = lock_path_for(container).ok_or_else(|| BridgeError::Internal {
             message: "无法确定锁文件路径".into(),
         })?;
@@ -634,60 +661,68 @@ impl ProjectLock {
             })?;
         }
 
-        // 先检查是否已有活锁
-        if let Ok(existing) = std::fs::read_to_string(&path) {
-            let holder = existing.trim().to_string();
-            let pid: u32 = holder
-                .split(':')
-                .next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            if pid == 0 || !process_alive(pid) {
-                // 陈旧锁，清除后重试
-                let _ = std::fs::remove_file(&path);
-            } else {
-                return Err(BridgeError::ProjectInUse {
-                    path: container.to_string_lossy().to_string(),
-                    holder: holder.clone(),
-                });
-            }
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)
+            .map_err(|e| BridgeError::Internal {
+                message: format!("打开锁文件失败: {e}"),
+            })?;
+
+        if !try_lock_exclusive(&file) {
+            let holder = std::fs::read_to_string(&path).unwrap_or_default();
+            return Err(BridgeError::ProjectInUse {
+                path: container.to_string_lossy().to_string(),
+                holder: holder.trim().to_string(),
+            });
         }
 
-        let me = format!("{}:{}", std::process::id(), now_iso());
-        // O_EXCL 保证原子性：两个进程同时抢只有一个成功
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut f) => {
-                let _ = f.write_all(me.as_bytes());
-                Ok(Self { path })
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let holder = std::fs::read_to_string(&path).unwrap_or_default();
-                Err(BridgeError::ProjectInUse {
-                    path: container.to_string_lossy().to_string(),
-                    holder: holder.trim().to_string(),
-                })
-            }
-            Err(e) => Err(BridgeError::Internal {
-                message: format!("创建锁文件失败: {e}"),
-            }),
-        }
+        let owner = format!(
+            "{}:{}:{}",
+            std::process::id(),
+            now_iso(),
+            uuid::Uuid::new_v4().simple()
+        );
+        // 锁已归本实例所有，文件内容只作诊断：清空后写入归属标记。
+        // 写失败不影响锁的有效性，忽略即可。
+        let _ = file.set_len(0);
+        let _ = (&file).write_all(owner.as_bytes());
+
+        Ok(Self { path, file, owner })
+    }
+
+    /// 本实例写入锁文件的归属标记（诊断用）。
+    pub fn owner(&self) -> &str {
+        &self.owner
     }
 }
 
 impl Drop for ProjectLock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        // 归属校验：只清理仍写着本实例标记的锁文件。
+        // 锁本身随 `file` 关闭由内核释放，因此不清空文件也不会阻塞下一个实例。
+        let current = std::fs::read_to_string(&self.path).unwrap_or_default();
+        if current.trim() == self.owner {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
-/// 查询某工程当前被哪个存活进程持锁（用于「工程正在使用」时把用户带回那个实例）。
+/// 查询某工程当前被哪个进程持锁（用于「工程正在使用」时把用户带回那个实例）。
+///
+/// 先探测操作系统锁是否真的被占用，再看诊断用的 PID，
+/// 不会因为残留的锁文件内容把空闲工程误判为「正在使用」。
 pub fn lock_holder_pid(container: &Path) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
     let path = lock_path_for(container)?;
-    let raw = std::fs::read_to_string(path).ok()?;
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(&path).ok()?;
+    if try_lock_exclusive(&file) {
+        // 没被任何人持有：立刻释放探测用的锁并返回 None。
+        unsafe { libc_flock(file.as_raw_fd(), LOCK_UN) };
+        return None;
+    }
+    let raw = std::fs::read_to_string(&path).ok()?;
     let pid = raw
         .trim()
         .split(':')
@@ -1070,6 +1105,25 @@ mod tests {
         drop(first);
         // 释放后应能再次获取
         let _third = ProjectLock::acquire(&fake).expect("释放后应能再获取");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t07b_stale_lock_file_content_does_not_block() {
+        // 锁文件里残留一个已死进程的 PID，不代表锁仍被持有：
+        // 操作系统锁才是权威，旧内容不能把工程误判为「正在使用」。
+        let dir = std::env::temp_dir().join(format!("bridge-stale-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("stale.screenplay");
+        std::fs::write(&fake, b"x").unwrap();
+        let lock_path = lock_path_for(&fake).unwrap();
+        std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+        std::fs::write(&lock_path, b"99999999:old:dead").unwrap();
+
+        let held = ProjectLock::acquire(&fake).expect("残留内容不应阻塞取锁");
+        assert!(held.owner().starts_with(&format!("{}:", std::process::id())));
+        drop(held);
+        let _ = std::fs::remove_file(&lock_path);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

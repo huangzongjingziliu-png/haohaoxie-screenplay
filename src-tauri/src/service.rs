@@ -122,6 +122,10 @@ pub struct ProjectService {
     saving: Mutex<u64>,
     /// 崩溃恢复管理器
     recovery: Mutex<RecoveryManager>,
+    /// 最近一次恢复点写入失败（供前端提示并可重试）
+    recovery_error: Mutex<Option<String>>,
+    /// 退出请求已开始：后端保存屏障，禁止任何自动保存落盘
+    quit_barrier: AtomicBool,
     /// 自动保存状态
     autosave: AutosaveState,
 }
@@ -171,6 +175,8 @@ impl ProjectService {
             dirty: AtomicBool::new(false),
             saving: Mutex::new(0),
             recovery: Mutex::new(recovery),
+            recovery_error: Mutex::new(None),
+            quit_barrier: AtomicBool::new(false),
             autosave: AutosaveState {
                 tick_gate:Mutex::new(()),
                 enabled: AtomicBool::new(true),
@@ -226,6 +232,8 @@ impl ProjectService {
     fn autosave_tick_at(&self, now: Instant) -> Result<Option<AutosaveAction>, String> {self.autosave_tick_at_checked(now,None)}
     fn autosave_tick_at_checked(&self,now:Instant,project_id:Option<&str>)->Result<Option<AutosaveAction>,String>{
         let a=&self.autosave;let Ok(_tick)=a.tick_gate.try_lock() else{return Ok(None);};
+        // 退出请求已开始：后端保存屏障生效，自动保存绝不能在用户确认前落盘。
+        if self.quit_barrier.load(Ordering::SeqCst){return Ok(None);}
         if !self.is_open()||!a.enabled.load(Ordering::SeqCst){return Ok(None);}
         let ws=self.require()?;let id=ws.document().id;if project_id.is_some_and(|p|p!=id){return Ok(None);}
         // Never hold clocks while saving: lifecycle changes take saving before clocks.
@@ -233,8 +241,10 @@ impl ProjectService {
         let version_interval=a.version_interval_secs.load(Ordering::SeqCst);
         if version_interval>0&&rev>a.last_version_rev.load(Ordering::SeqCst)&&now.saturating_duration_since(clocks.1)>=Duration::from_secs(version_interval){
             let active=self.workspace.lock().unwrap();if !active.as_ref().is_some_and(|w|Arc::ptr_eq(w,&ws)){return Ok(None);}
-            ws.service.auto_checkpoint("autosave").ok_or("自动版本创建失败")?;
-            a.last_version_rev.store(rev,Ordering::SeqCst);a.clocks.lock().unwrap().1=now;action=Some(AutosaveAction::VersionCreated);
+            // 版本创建失败不能连累正文保存：跳过本次检查点，继续走自动保存。
+            if ws.service.auto_checkpoint("autosave").is_some(){
+                a.last_version_rev.store(rev,Ordering::SeqCst);a.clocks.lock().unwrap().1=now;action=Some(AutosaveAction::VersionCreated);
+            }
         }
         let interval=a.interval_secs.load(Ordering::SeqCst);
         if interval>0&&self.is_dirty()&&now.saturating_duration_since(clocks.0)>=Duration::from_secs(interval)&&ws.container_path().is_some(){
@@ -296,11 +306,24 @@ impl ProjectService {
         Ok(())
     }
 
-    /// 关闭当前项目（回到欢迎页）
+    /// 关闭当前项目（回到欢迎页）。
+    ///
+    /// 有未保存修改时写入恢复点，并把它转存成独立副本：
+    /// 之后正常退出只清当前会话，不会删掉用户选择保留的副本。
+    /// 恢复点写入/转存失败必须报错，不能静默关闭。
     pub fn close(&self) -> Result<(), String> {
         let _saving=self.saving.lock().map_err(|e|e.to_string())?;
-        // 关闭前先写恢复点（用户可能刚编辑完就关闭）
-        self.write_recovery();
+        if self.is_dirty() {
+            self.write_recovery()
+                .map_err(|e| format!("恢复副本写入失败：{e}；请重试，或先保存后再关闭"))?;
+            self.recovery
+                .lock()
+                .map_err(|e| e.to_string())?
+                .retain_current()
+                .map_err(|e| format!("恢复副本转存失败：{e}；请重试后再关闭"))?;
+        } else if let Ok(mut recovery) = self.recovery.lock() {
+            recovery.clear_current();
+        }
         *self.workspace.lock().unwrap() = None;
         *self.project_lock.lock().unwrap()=None;
         self.saved_revision.store(0, Ordering::SeqCst);
@@ -452,6 +475,9 @@ impl ProjectService {
     /// 这样前端无法用过期快照覆盖后端的新内容。
     pub fn save(&self, target: Option<&Path>) -> Result<SaveOutcome, String> {self.save_checked(target,None)}
     pub fn save_checked(&self,target:Option<&Path>,project_id:Option<&str>)->Result<SaveOutcome,String>{
+        // Serialize saves first, then resolve the destination inside the lock:
+        // a concurrent 「另存为」/close must not let us compute a stale target path.
+        let _saving = self.saving.lock().unwrap();
         let ws = self.require()?;
         let path: PathBuf = match target {
             Some(p) => p.to_path_buf(),
@@ -459,9 +485,6 @@ impl ProjectService {
                 .container_path()
                 .ok_or("尚未指定保存路径，请使用「另存为」")?,
         };
-
-        // Serialize saves; edits can continue, so use the exact persisted snapshot revision.
-        let _saving = self.saving.lock().unwrap();
         if !self.workspace.lock().unwrap().as_ref().is_some_and(|active| Arc::ptr_eq(active, &ws)) {
             return Err("项目已关闭，取消保存".into());
         }
@@ -514,7 +537,7 @@ impl ProjectService {
         let result = f(&ws.service)?;
         self.dirty.store(self.is_dirty(), Ordering::SeqCst);
         // 每次修改都写一次崩溃恢复点（数据安全底线：任何输入都不能丢）
-        self.write_recovery();
+        self.persist_recovery();
         Ok(result)
     }
 
@@ -537,15 +560,18 @@ impl ProjectService {
             .map_err(|message| CommandError::Internal { message })?;
         self.sync_recovery_source_from(&ws);
         self.dirty.store(self.is_dirty(), Ordering::SeqCst);
-        self.write_recovery();
+        self.persist_recovery();
         Ok(result)
     }
 
-    /// 写入崩溃恢复点
-    fn write_recovery(&self) -> bool {
+    /// 写入崩溃恢复点。没有打开项目时返回 `Ok(false)`。
+    ///
+    /// 写失败必须让调用方看见：关闭/退出流程据此中止，
+    /// 普通编辑则记下来供前端提示，并在下次编辑时自动重试。
+    fn write_recovery(&self) -> Result<bool, String> {
         let ws = match self.workspace.lock().unwrap().clone() {
             Some(ws) => ws,
-            None => return false,
+            None => return Ok(false),
         };
         let doc = ws.document();
         let hist_json = ws
@@ -558,8 +584,40 @@ impl ProjectService {
         let container = ws.container_path();
         self.recovery
             .lock()
-            .map(|mut r| r.save(container.as_deref(), &doc, hist_json).is_ok())
-            .unwrap_or(false)
+            .map_err(|e| e.to_string())?
+            .save(container.as_deref(), &doc, hist_json)
+            .map(|_| true)
+            .map_err(|e| e.to_string())
+    }
+
+    /// 普通编辑后的恢复点写入：失败重试一次，仍失败则记录下来供前端提示。
+    fn persist_recovery(&self) {
+        if self.write_recovery().is_err() && self.write_recovery().is_err() {
+            if let Ok(mut slot) = self.recovery_error.lock() {
+                *slot = Some("崩溃恢复点写入失败；正在继续尝试，请及时保存正式文件".into());
+            }
+        } else if let Ok(mut slot) = self.recovery_error.lock() {
+            *slot = None;
+        }
+    }
+
+    /// 取出并清空最近一次恢复点写入失败提示（前端轮询）。
+    pub fn take_recovery_error(&self) -> Option<String> {
+        self.recovery_error.lock().ok().and_then(|mut slot| slot.take())
+    }
+
+    /// 退出请求开始时建立后端保存屏障：在用户作出选择前，任何自动保存都不得落盘。
+    pub fn begin_quit_barrier(&self) {
+        self.quit_barrier.store(true, Ordering::SeqCst);
+    }
+
+    /// 用户取消退出：解除保存屏障，恢复正常自动保存。
+    pub fn clear_quit_barrier(&self) {
+        self.quit_barrier.store(false, Ordering::SeqCst);
+    }
+
+    pub fn quit_barrier_active(&self) -> bool {
+        self.quit_barrier.load(Ordering::SeqCst)
     }
 
     /// 把项目当前源文件同步到本会话恢复 sidecar。仅在项目切换/导入时调用，
@@ -616,32 +674,11 @@ impl ProjectService {
             .and_then(|j| screenplay_store::history::HistoryStack::from_json(j).ok());
 
         // 若原项目容器仍存在，直接打开它并载入恢复的文档
-        let recovery_path=rec.container.as_deref().map(Path::new).filter(|p|p.exists());
-        let target_lock=match recovery_path{Some(p)=>self.acquire_target(p)?,None=>None};
-        let mut attached=false;
-        let ws = match recovery_path {
-            Some(p) => match Workspace::open(p) {
-                Ok(w) => {
-                    attached=true;
-                    self.saved_revision
-                        .store(w.service.store.revision(), Ordering::SeqCst);
-                    w
-                }
-                Err(_) => {
-                    // 容器已损坏：恢复记录不能因为打不开原文件而作废。
-                    // 作为未保存项目载入恢复内容，并要求另存为；损坏的原文件保持原样，
-                    // 以免覆盖掉仍可抢修的数据。
-                    self.saved_revision.store(0, Ordering::SeqCst);
-                    Workspace::blank(&rec.document.metadata.title)?
-                }
-            },
-            None => {
-                // 容器已不存在：作为未保存项目恢复
-                let w = Workspace::blank(&rec.document.metadata.title)?;
-                self.saved_revision.store(0, Ordering::SeqCst);
-                w
-            }
-        };
+        // 恢复稿默认落成**未绑定**的新副本：绝不直接绑回原容器。
+        // 原文件可能已经被更新的正式稿覆盖，直接绑定会让下一次保存把新稿冲掉。
+        // 用户确认内容后通过「另存为」决定落到哪里，原文件在被明确覆盖前保持不动。
+        self.saved_revision.store(0, Ordering::SeqCst);
+        let ws = Workspace::blank(&rec.document.metadata.title)?;
 
         if let Some(source) = rec.original_source.clone() {
             ws.set_original_source(source)?;
@@ -658,13 +695,18 @@ impl ProjectService {
             .map_err(|e| e.to_string())?;
 
         *self.workspace.lock().unwrap() = Some(Arc::new(ws));
-        if attached { if let Some(l)=target_lock{*self.project_lock.lock().unwrap()=Some(l);} } else { *self.project_lock.lock().unwrap()=None; }
+        *self.project_lock.lock().unwrap() = None;
         self.reset_autosave_for_project();
         self.dirty.store(true, Ordering::SeqCst);
-        if self.write_recovery() {
-            if let Ok(mut recovery) = self.recovery.lock() {
-                recovery.consume_pending();
-            }
+        // 先把恢复内容写成当前会话的恢复点，成功后才消费旧记录。
+        // 写失败时旧记录保留，用户可重试；错误必须可见。
+        if let Err(e) = self.write_recovery() {
+            return Err(format!(
+                "恢复内容已载入为未保存副本，但恢复点写入失败：{e}。请重试，或立即另存为。"
+            ));
+        }
+        if let Ok(mut recovery) = self.recovery.lock() {
+            recovery.consume_pending();
         }
         Ok(r.document)
     }
@@ -677,9 +719,12 @@ impl ProjectService {
     }
 
     /// 未保存内容保留恢复点；已保存项目正常退出不留下崩溃提示。
+    ///
+    /// 「保留恢复副本并关闭」留下的是一份独立会话记录，
+    /// 这里的 `clear_current` 只清当前会话，不会动它。
     pub fn shutdown(&self) {
         if self.is_dirty() {
-            self.write_recovery();
+            let _ = self.write_recovery();
         } else if let Ok(mut recovery) = self.recovery.lock() {
             recovery.clear_current();
         }
@@ -986,4 +1031,59 @@ mod tests {
  #[test]fn gui_open_and_save_as_respect_existing_process_locks(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("occupied.screenplay");let ws=Workspace::blank("原稿").unwrap();ws.save(Some(&file)).unwrap();let original=std::fs::read(&file).unwrap();let _held=screenplay_store::bridge::ProjectLock::acquire(&file).unwrap();let svc=ProjectService::new();svc.create_new("新稿").unwrap();assert!(svc.open(&file).is_err());assert_eq!(svc.document().unwrap().metadata.title,"新稿");assert!(svc.save(Some(&file)).is_err());assert_eq!(std::fs::read(&file).unwrap(),original);}
  #[test]fn gui_keeps_lock_until_close_and_can_reopen_own_project(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("owned.screenplay");let svc=ProjectService::new();svc.create_new("测试").unwrap();svc.save(Some(&file)).unwrap();assert!(screenplay_store::bridge::ProjectLock::acquire(&file).is_err());svc.open(&file).unwrap();svc.revert().unwrap();svc.close().unwrap();assert!(screenplay_store::bridge::ProjectLock::acquire(&file).is_ok());}
  #[test]fn save_and_autosave_reject_the_wrong_project_identity(){let dir=tempfile::tempdir().unwrap();let file=dir.path().join("wrong.screenplay");let svc=ProjectService::new();svc.create_new("当前工程").unwrap();assert!(svc.save_checked(Some(&file),Some("old-project")).is_err());assert!(!file.exists());assert!(svc.autosave_tick_checked(Some("old-project")).unwrap().is_none());}
+}
+
+#[cfg(test)] mod recovery_retention_tests {
+ use super::*;
+
+ fn write_line(svc:&ProjectService,text:&str){
+   svc.run(|s|s.insert_block(Origin::GuiLeft,None,screenplay_core::ast::BlockType::Action,text,None)).unwrap();
+ }
+
+ /// 「保留恢复副本并关闭」→ 正常退出，副本必须还在，且下次启动可恢复。
+ #[test] fn retained_copy_survives_normal_exit() {
+   let dir=tempfile::tempdir().unwrap();
+   let recovery=dir.path().join("recovery");
+   let svc=ProjectService::with_recovery_directory(recovery.clone());
+   svc.create_new("保留副本").unwrap();
+   write_line(&svc,"必须保留的未保存正文");
+   assert!(svc.is_dirty());
+   svc.close().unwrap();
+   svc.shutdown(); // 模拟正常退出
+   let mgr=RecoveryManager::in_directory(recovery);
+   let rec=mgr.pending().expect("保留副本在正常退出后必须还在");
+   assert!(rec.retained,"留下的应是用户主动保留的副本");
+   assert!(rec.document.blocks.iter().any(|b|b.text=="必须保留的未保存正文"));
+ }
+
+ /// 已保存且无未保存修改时关闭，不应留下会弹「发现未保存内容」的记录。
+ #[test] fn clean_close_leaves_no_recovery_prompt() {
+   let dir=tempfile::tempdir().unwrap();
+   let recovery=dir.path().join("recovery");
+   let svc=ProjectService::with_recovery_directory(recovery.clone());
+   let path=dir.path().join("clean.screenplay");
+   svc.create_new("干净工程").unwrap();
+   svc.save(Some(&path)).unwrap();
+   svc.close().unwrap();
+   svc.shutdown();
+   assert!(RecoveryManager::in_directory(recovery).pending().is_none());
+ }
+
+ /// 退出请求开始后，后端保存屏障必须拦住自动保存；取消退出后恢复。
+ #[test] fn quit_barrier_blocks_autosave_until_cancelled() {
+   let dir=tempfile::tempdir().unwrap();
+   let svc=ProjectService::with_recovery_directory(dir.path().join("recovery"));
+   let path=dir.path().join("barrier.screenplay");
+   svc.create_new("屏障").unwrap();
+   svc.save(Some(&path)).unwrap();
+   svc.configure_autosave(true,1,0);
+   write_line(&svc,"退出前的修改");
+   let later=Instant::now()+Duration::from_secs(3600);
+   svc.begin_quit_barrier();
+   assert!(svc.autosave_tick_at(later).unwrap().is_none(),"退出确认期间不得自动保存");
+   assert!(svc.is_dirty());
+   svc.clear_quit_barrier();
+   assert_eq!(svc.autosave_tick_at(later).unwrap(),Some(AutosaveAction::Saved),"取消退出后应恢复正常自动保存");
+   assert!(!svc.is_dirty());
+ }
 }

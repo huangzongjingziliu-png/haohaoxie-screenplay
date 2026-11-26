@@ -53,18 +53,26 @@ it('段首退格合并前先提交防抖中的草稿，避免刚输入的文字�
 
 it('段落中间粘贴多行：光标前的留在本段，原段尾跟随最后一行',async()=>{
   setup('前半后半');
+  const applyBlockBatch=vi.fn(async()=>({affected:['a','new1']}));
   const changeBlockText=vi.fn(async()=>true);
-  const insertBlock=vi.fn(async()=>{useEditorStore.setState({activeBlockId:'inserted'});});
-  useEditorStore.setState({changeBlockText,insertBlock});
+  const insertBlock=vi.fn(async()=>{});
+  useEditorStore.setState({applyBlockBatch,changeBlockText,insertBlock} as never);
   const {container}=render(<ScreenplayEditor/>);
   await waitFor(()=>expect(container.querySelector('[data-block-id="a"] .screenplay-block')).toBeTruthy());
   const el=container.querySelector('[data-block-id="a"] .screenplay-block') as HTMLElement;
   el.focus();
   caretAt(el,2);
   fireEvent.paste(el,{clipboardData:{getData:()=>'X\nY'}});
-  await waitFor(()=>expect(insertBlock).toHaveBeenCalled());
-  expect(changeBlockText).toHaveBeenCalledWith('a','前半X');
-  expect(insertBlock).toHaveBeenCalledWith('a',expect.any(String),'Y后半');
+  // 整次粘贴只提交一个批次：替换首行 + 插入其余行同属一个事务。
+  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledTimes(1));
+  expect(applyBlockBatch).toHaveBeenCalledWith({
+    replace:[{blockId:'a',text:'前半X'}],
+    insertAfter:'a',
+    insert:[{blockType:'action',text:'Y后半'}],
+  });
+  // 不再逐行调用旧的单块入口，失败时也不会留下半截状态。
+  expect(changeBlockText).not.toHaveBeenCalled();
+  expect(insertBlock).not.toHaveBeenCalled();
 });
 
 it('选中文字后按回车：先删除选区再拆分，选中文字不得留在原位',async()=>{

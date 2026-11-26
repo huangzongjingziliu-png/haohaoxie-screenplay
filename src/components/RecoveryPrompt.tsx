@@ -48,9 +48,10 @@ export default function RecoveryPrompt() {
       await ipc.adoptRecovery();
       await bootstrap();
       setDismissed(true);
-      pushToast('success', fmt("已恢复 {0} 个元素的未保存内容",pending.blockCount));
-    } catch {
-      pushToast('error', tr("恢复失败，请重试"));
+      // 恢复稿默认不绑回原文件（原文件可能已有更新的正式稿），落成未保存副本。
+      pushToast('success', fmt("已恢复 {0} 个元素的未保存内容，请另存为新副本", pending.blockCount));
+    } catch (e) {
+      pushToast('error', String(e) || tr("恢复失败，请重试"));
     } finally { setBusy(false); }
   };
 

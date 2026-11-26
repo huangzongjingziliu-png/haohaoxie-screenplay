@@ -3,8 +3,12 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import SourceEditor from '@/editors/source/SourceEditor';
 import RecoveryPrompt from '@/components/RecoveryPrompt';
 import { useEditorStore } from '@/stores/editor';
-import { flushPendingEdits } from '@/utils/pendingEdits';
+import { flushPendingEdits, hasPendingDraft, setDraftPending, subscribeDrafts } from '@/utils/pendingEdits';
+import { saveStateLabel } from '@/components/StatusBar';
 import { mockBackend } from './setup';
+
+/** 模块加载时的真实 bootstrap；部分用例会覆盖它，冲突重试用例需要还原。 */
+const realBootstrap = useEditorStore.getState().bootstrap;
 
 beforeEach(() => { mockBackend.reset(); useEditorStore.setState({ sourceText: '原稿', document: { id: 'doc', revision: 1 } as never, composing: false, toasts: [] }); });
 afterEach(() => cleanup());
@@ -79,6 +83,31 @@ describe('恢复提示', () => {
   });
 });
 
+it('revision 冲突后重新取基准并重试一次，文字不再卡在旧 revision', async () => {
+  let calls = 0;
+  mockBackend.on('replace_block', () => {
+    calls += 1;
+    if (calls === 1) throw JSON.stringify({ error: 'REVISION_CONFLICT', expected: 1, actual: 2, message: '外部已修改' });
+    return { affected: ['a'], revision: 3, document: { id: 'doc', revision: 3, blocks: [{ id: 'a', block_type: 'action', text: '新文字' }] }, source_text: '新文字' };
+  });
+  mockBackend.on('bootstrap', () => ({
+    project: { state: 'open', path: '/tmp/x', title: 't', dirty: false, revision: 2, blockCount: 1 },
+    document: { id: 'doc', revision: 2, blocks: [{ id: 'a', block_type: 'action', text: '旧' }] },
+    sourceText: '旧',
+  }));
+  useEditorStore.setState({ document: { id: 'doc', revision: 1, blocks: [{ id: 'a', block_type: 'action', text: '旧' }] } as never, composing: false, toasts: [], bootstrap: realBootstrap });
+
+  const ok = await useEditorStore.getState().changeBlockText('a', '新文字');
+
+  expect(mockBackend.callsTo('bootstrap')).toHaveLength(1);
+  expect(useEditorStore.getState().document?.revision).toBe(3);
+  expect(ok).toBe(true);
+  const retries = mockBackend.callsTo('replace_block');
+  expect(retries).toHaveLength(2);
+  expect(retries[0].args?.expectedRevision).toBe(1);
+  expect(retries[1].args?.expectedRevision).toBe(2);
+});
+
 it('未保存项目首次保存会打开路径选择，取消不会假保存', async () => {
   useEditorStore.setState({ project: { state: 'unsaved', path: null, title: '新剧本', revision: 1, dirty: true, blockCount: 1 } });
   const result = await useEditorStore.getState().save();
@@ -93,4 +122,25 @@ it('自由文本结束编辑后显示后端统一的标题，提交期间不替�
   input.focus();fireEvent.input(input,{target:{value:'内，咖啡馆 白天'}});
   await act(async()=>{input.blur();});
   expect(input.value).toBe('内景。咖啡馆——白天');
+});
+
+describe('保存状态三态', () => {
+  it('输入未提交优先于等待写盘；脏但已提交是等待写盘；干净是已写盘', () => {
+    expect(saveStateLabel({ error: false, pendingDraft: true, hasPath: true, dirty: true, saving: false }).text).toBe('✎ 输入未提交');
+    expect(saveStateLabel({ error: false, pendingDraft: false, hasPath: true, dirty: true, saving: false }).text).toBe('● 等待写盘');
+    expect(saveStateLabel({ error: false, pendingDraft: false, hasPath: true, dirty: false, saving: false }).text).toBe('○ 已写盘');
+    // 保存失败优先级最高，且不能因为还有草稿就掩盖错误
+    expect(saveStateLabel({ error: true, pendingDraft: true, hasPath: true, dirty: true, saving: false }).text).toBe('保存失败 · 请重试');
+  });
+
+  it('草稿登记可订阅、可清零', () => {
+    let notified = 0;
+    const off = subscribeDrafts(() => { notified += 1; });
+    setDraftPending('t:a', true);
+    expect(hasPendingDraft()).toBe(true);
+    expect(notified).toBeGreaterThan(0);
+    setDraftPending('t:a', false);
+    expect(hasPendingDraft()).toBe(false);
+    off();
+  });
 });

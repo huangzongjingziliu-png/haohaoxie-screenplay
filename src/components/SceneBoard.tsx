@@ -1,14 +1,14 @@
 import ModalBackdrop from './ModalBackdrop';
 import {tr,fmt} from '@/i18n';
 import InlineSceneText from './InlineSceneText';
-import {flushPendingEdits} from '@/utils/pendingEdits';
+import {flushPendingEdits,registerPendingEditor,setDraftPending} from '@/utils/pendingEdits';
 import AgentWorkStatus from './AgentWorkStatus';
 import BoardConnections from '@/components/BoardConnections';
 import BoardNotes from '@/components/BoardNotes';
 import BoardColorPicker from '@/components/BoardColorPicker';
 import { useBoardZoom } from '@/utils/useBoardZoom';
 import { useSceneDrag } from '@/utils/useSceneDrag';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '@/stores/editor';
 import { ipc } from '@/ipc/client';
 import { defaultBoard, defaultCard, scenesOf, moveScene, moveBoardUnit, updateBoard, useSceneHeadingDisplays } from '@/utils/scenes';
@@ -90,14 +90,54 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
 
   const laneEdit = (id:string, patch:Partial<BoardLane>) => edit(b=>({...b,lanes:b.lanes.map(l=>l.id===id?{...l,...patch}:l)}));
   // 分区名称与说明先留在本地，失焦或回车再提交，避免逐字写盘、逐字产生历史记录。
+  // 草稿同时注册为 pending editor：Esc 关板/退出前会先提交，不会静默丢掉。
   const [laneDraft,setLaneDraft]=useState<Record<string,{name?:string;hint?:string}>>({});
+  const laneDraftRef=useRef(laneDraft);
+  laneDraftRef.current=laneDraft;
+  // 未提交的分区名/说明也要计入状态栏「输入未提交」，否则用户看不到它还只在界面上。
+  const laneDraftKeys=useRef<Set<string>>(new Set());
+  useEffect(()=>{
+    const next=new Set<string>();
+    for (const [id,fields] of Object.entries(laneDraft)) {
+      for (const [field,value] of Object.entries(fields)) if (value!==undefined) next.add(`lane:${id}:${field}`);
+    }
+    for (const key of laneDraftKeys.current) if (!next.has(key)) setDraftPending(key,false);
+    for (const key of next) setDraftPending(key,true);
+    laneDraftKeys.current=next;
+  },[laneDraft]);
+  useEffect(()=>()=>{for(const key of laneDraftKeys.current)setDraftPending(key,false);},[]);
   const draftLane = (id:string,field:'name'|'hint',value:string) => setLaneDraft(d=>({...d,[id]:{...d[id],[field]:value}}));
-  const commitLane = (id:string,field:'name'|'hint') => {
-    const value = laneDraft[id]?.[field];
+  const commitLaneField = useCallback(async (id:string,field:'name'|'hint') => {
+    const value = laneDraftRef.current[id]?.[field];
     if (value===undefined) return;
-    setLaneDraft(d=>{const next={...d};const entry={...next[id]};delete entry[field];if(Object.keys(entry).length)next[id]=entry;else delete next[id];return next;});
-    if (field==='name') laneEdit(id,{name:value}); else laneEdit(id,{hint:value});
+    const current = useEditorStore.getState().document;
+    if (!current) throw new Error(tr("项目已关闭，分区修改未提交"));
+    const lane = (current.settings.scene_board ?? defaultBoard()).lanes.find(l=>l.id===id);
+    if (!lane) return;
+    if (lane[field] !== value) {
+      // flushDrafts=false：本函数本身就在 flushPendingEdits 里被调用，避免递归。
+      await updateBoard(current.id,b=>({...b,lanes:b.lanes.map(l=>l.id===id?{...l,[field]:value}:l)}),undefined,false);
+    }
+    // 只在提交成功后移除草稿；失败保留草稿，用户可重试或继续编辑。
+    setLaneDraft(d=>{
+      if (d[id]?.[field]!==value) return d; // 期间又改过，保留新值
+      const next={...d};const entry={...next[id]};delete entry[field];
+      if(Object.keys(entry).length)next[id]=entry;else delete next[id];
+      return next;
+    });
+  },[]);
+  const commitRef=useRef(commitLaneField);
+  commitRef.current=commitLaneField;
+  const commitLane = (id:string,field:'name'|'hint') => {
+    void commitLaneField(id,field).catch(report);
   };
+  useEffect(()=>registerPendingEditor(async()=>{
+    for (const [id,fields] of Object.entries(laneDraftRef.current)) {
+      for (const field of ['name','hint'] as const) {
+        if (fields[field]!==undefined) await commitRef.current(id,field);
+      }
+    }
+  }),[]);
   const addLane = () => { setLaneMessage(''); edit(b=>({...b,lanes:[...b.lanes,{id:crypto.randomUUID(),name:fmt("新分区 {0}",b.lanes.length+1),hint:'',color:'',collapsed:false}]})); };
   const moveLane = (id:string, step:number) => edit(b=> {
     const from = b.lanes.findIndex(l=>l.id===id), to = from+step;
@@ -298,30 +338,38 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
   return <ModalBackdrop className="scene-board-backdrop" onDismiss={()=>void closeBoard()} message={tr("关闭白板？已经应用的场景与便签修改会保留，尚未提交的输入会放弃。")}><section ref={dialogRef} tabIndex={-1} className="scene-board" role="dialog" aria-modal="true" aria-label={tr("场景白板")}>
     <header className="board-heading"><div><h2>{tr("场景白板")}</h2><span>{scenes.length}{tr(" 个场景 · 拖动标题调整顺序，与剧本和场景列表同步")}</span></div><button onClick={()=>void closeBoard()}>{tr("返回写作 ×")}</button></header>
     <div className="board-tools">
-      <button className="primary" onClick={()=>{setCreateError('');setAddingLane('');setAdding(true);}}>{tr("新增便签")}</button>
-      <details className="board-appearance"><summary>{tr("便签外观")} ▾</summary><div className="board-appearance-content">
-      <div className="board-color-field">{tr("默认颜色 ")}<BoardColorPicker label={tr("默认便签颜色")} value={shownColor} onChange={changeDefaultColor}/></div>
-      <button onClick={()=>edit(b=>({...b,cards:Object.fromEntries(Object.entries(b.cards).filter((entry): entry is [string,SceneCard]=>!!entry[1]).map(([id,c])=>[id,{...c,color:''}]))}))}>{tr("应用到全部便签")}</button>
-      <div className="board-color-field">{tr("选中便签 ")}<BoardColorPicker label={tr("选中便签颜色")} disabled={!selected} value={selectedCard?.color || shownColor} onChange={color=>{if(selected)cardEdit(selected,{color});}}/></div>
-      <span className="board-swatches" aria-label={tr("常用便签颜色")}>{[['#FFF2A8',tr("黄色")],['#FFD7DE',tr("粉色")],['#CDE9FF',tr("蓝色")],['#D7F0D2',tr("绿色")],['#E7DBFF',tr("紫色")]].map(([color,name])=><button key={color} aria-label={fmt("便签颜色：{0}",name)} title={selected ? fmt("将选中便签设为{0}",name) : fmt("将默认便签设为{0}",name)} style={{background:color}} onClick={()=>{if(selected)cardEdit(selected,{color});else changeDefaultColor(color);}} />)}</span>
-      <button disabled={!selected} onClick={()=> {if(selected)cardEdit(selected,{width:240,height:240});}}>{tr("恢复正方形")}</button>
-      </div></details>
-      <button aria-label={tr("撤销")} title={tr("撤销")} onClick={()=>void useEditorStore.getState().undo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14"/></svg></button><button aria-label={tr("重做")} title={tr("重做")} onClick={()=>void useEditorStore.getState().redo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m16 4 5 5-5 5M21 9H11a7 7 0 0 0 0 14"/></svg></button>
-      <div className="board-zoom-tools" aria-label={tr("白板缩放")}><button aria-label={tr("缩小白板")} onClick={()=>changeZoom(zoom-.1)}>−</button><output aria-label={tr("白板缩放比例")}>{Math.round(zoom*100)}%</output><button aria-label={tr("放大白板")} onClick={()=>changeZoom(zoom+.1)}>＋</button><button onClick={()=>changeZoom(1)}>{tr("重置缩放")}</button></div>
-      <label className="board-ai-toggle"><input type="checkbox" checked={enabled} onChange={e=> {const checked=e.currentTarget.checked;if(checked&&configured!==true){window.dispatchEvent(new CustomEvent('model-required',{detail:tr("请先配置模型，才能开启场景概括。")}));return;}paused.current=false;edit(b=>({...b,summaries_enabled:checked}));}}/>{tr("自动概括场景")}</label>
-      <button onClick={onConfigure}>{tr("配置模型…")}</button>
+      <div className="board-tool-group" role="group" aria-label={tr("创建")}>
+        <strong>{tr("创建")}</strong>
+        <button className="primary" onClick={()=>{setCreateError('');setAddingLane('');setAdding(true);}}>{tr("新增便签")}</button>
+        <button onClick={addLane}>{tr("新增分区")}</button>
+        <select aria-label={tr("构思模板")} value={templateId} onChange={e=>setTemplateId(e.target.value)}>
+          <option value="">{tr("选择构思模板…")}</option>
+          {templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <button disabled={!templateId} onClick={()=>void applyTemplate()}>{tr("套用模板")}</button>
+      </div>
+      <div className="board-tool-group" role="group" aria-label={tr("组织")}>
+        <strong>{tr("组织")}</strong>
+        <button aria-label={tr("撤销")} title={tr("撤销")} onClick={()=>void useEditorStore.getState().undo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14"/></svg></button>
+        <button aria-label={tr("重做")} title={tr("重做")} onClick={()=>void useEditorStore.getState().redo()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m16 4 5 5-5 5M21 9H11a7 7 0 0 0 0 14"/></svg></button>
+        <label className="board-ai-toggle"><input type="checkbox" checked={enabled} onChange={e=> {const checked=e.currentTarget.checked;if(checked&&configured!==true){window.dispatchEvent(new CustomEvent('model-required',{detail:tr("请先配置模型，才能开启场景概括。")}));return;}paused.current=false;edit(b=>({...b,summaries_enabled:checked}));}}/>{tr("自动概括场景")}</label>
+        {configured===true && lanes.length>0 && <button disabled={classifying} onClick={()=>void classifyLanes()}>{classifying?tr("正在通读剧本…"):tr("用模型自动划分")}</button>}
+        <button onClick={onConfigure}>{tr("配置模型…")}</button>
+      </div>
+      <div className="board-tool-group" role="group" aria-label={tr("视图")}>
+        <strong>{tr("视图")}</strong>
+        <details className="board-appearance"><summary>{tr("便签外观")} ▾</summary><div className="board-appearance-content">
+        <div className="board-color-field">{tr("默认颜色 ")}<BoardColorPicker label={tr("默认便签颜色")} value={shownColor} onChange={changeDefaultColor}/></div>
+        <button onClick={()=>edit(b=>({...b,cards:Object.fromEntries(Object.entries(b.cards).filter((entry): entry is [string,SceneCard]=>!!entry[1]).map(([id,c])=>[id,{...c,color:''}]))}))}>{tr("应用到全部便签")}</button>
+        {/* 对象级操作只在选中便签后出现 */}
+        {selected&&<div className="board-color-field">{tr("选中便签 ")}<BoardColorPicker label={tr("选中便签颜色")} value={selectedCard?.color || shownColor} onChange={color=>cardEdit(selected,{color})}/></div>}
+        <span className="board-swatches" aria-label={tr("常用便签颜色")}>{[['#FFF2A8',tr("黄色")],['#FFD7DE',tr("粉色")],['#CDE9FF',tr("蓝色")],['#D7F0D2',tr("绿色")],['#E7DBFF',tr("紫色")]].map(([color,name])=><button key={color} aria-label={fmt("便签颜色：{0}",name)} title={selected ? fmt("将选中便签设为{0}",name) : fmt("将默认便签设为{0}",name)} style={{background:color}} onClick={()=>{if(selected)cardEdit(selected,{color});else changeDefaultColor(color);}} />)}</span>
+        {selected&&<button onClick={()=>cardEdit(selected,{width:240,height:240})}>{tr("恢复正方形")}</button>}
+        </div></details>
+        <div className="board-zoom-tools" aria-label={tr("白板缩放")}><button aria-label={tr("缩小白板")} onClick={()=>changeZoom(zoom-.1)}>−</button><output aria-label={tr("白板缩放比例")}>{Math.round(zoom*100)}%</output><button aria-label={tr("放大白板")} onClick={()=>changeZoom(zoom+.1)}>＋</button><button onClick={()=>changeZoom(1)}>{tr("重置缩放")}</button></div>
+      </div>
     </div>
-    <div className="board-lane-bar" role="toolbar" aria-label={tr("构思分区工具")}>
-      <strong>{tr("构思分区")}</strong>
-      <button onClick={addLane}>{tr("新增分区")}</button>
-      <select aria-label={tr("构思模板")} value={templateId} onChange={e=>setTemplateId(e.target.value)}>
-        <option value="">{tr("选择构思模板…")}</option>
-        {templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
-      <button disabled={!templateId} onClick={()=>void applyTemplate()}>{tr("套用模板")}</button>
-      {configured===true && lanes.length>0 && <button disabled={classifying} onClick={()=>void classifyLanes()}>{classifying?tr("正在通读剧本…"):tr("用模型自动划分")}</button>}
-      <span className="lane-hint-text">{tr("把便签拖进分区即自动归属；拖动分区标题可整体移动。")}</span>
-    </div>
+    <p className="board-hint board-lane-hint">{tr("把便签拖进分区即自动归属；拖动分区标题可整体移动。")}</p>
     {laneMessage&&<p className="board-progress" role="status">{laneMessage}</p>}
     {checked.length>=2 && <div className="board-selection-actions" role="toolbar" aria-label={tr("所选场景操作")}>
       <span>{tr("已选 ")}{checked.length}{tr(" 个场景")}</span>
@@ -330,7 +378,7 @@ export default function SceneBoard({onClose, onConfigure, onJump}: {onClose:()=>
       {checked.length===2&&<button onClick={()=>{edit(b=>({...b,links:[...b.links,{id:crypto.randomUUID(),from:checked[0],to:checked[1],label:'',arrow:'end'}]}));setChecked([]);}}>{tr("连线")}</button>}
       <button onClick={()=>setChecked([])}>{tr("取消选择")}</button>
     </div>}
-    <div className="board-structure-tools"><button disabled={!selectedNode} onClick={()=>setLinkFrom(linkFrom?null:selectedNode)}>{linkFrom?tr("取消连线"):tr("从所选便签或组连线")}</button>{linkFrom&&<span>{tr("点击另一便签或组完成连线")}</span>}<select aria-label={tr("编辑连接线")} value={editingLink??''} onChange={e=>setEditingLink(e.target.value||null)}><option value="">{tr("编辑连接线…")}</option>{board.links.map((l,i)=><option key={l.id} value={l.id}>{l.label||fmt("连线 {0}",i+1)}</option>)}</select></div>
+    {(selectedNode||linkFrom||editingLink) && <div className="board-structure-tools"><button disabled={!selectedNode} onClick={()=>setLinkFrom(linkFrom?null:selectedNode)}>{linkFrom?tr("取消连线"):tr("从所选便签或组连线")}</button>{linkFrom&&<span>{tr("点击另一便签或组完成连线")}</span>}<select aria-label={tr("编辑连接线")} value={editingLink??''} onChange={e=>setEditingLink(e.target.value||null)}><option value="">{tr("编辑连接线…")}</option>{board.links.map((l,i)=><option key={l.id} value={l.id}>{l.label||fmt("连线 {0}",i+1)}</option>)}</select></div>}
     {editingLink&&(()=>{const link=board.links.find(l=>l.id===editingLink);if(!link)return null;const patch=(p:Partial<typeof link>)=>edit(b=>({...b,links:b.links.map(l=>l.id===link.id?{...l,...p}:l)}));return <div className="board-link-editor"><input aria-label={tr("连线注释")} value={link.label} maxLength={1000} onChange={e=>patch({label:e.currentTarget.value})}/><select aria-label={tr("连线箭头")} value={link.arrow} onChange={e=>patch({arrow:e.currentTarget.value})}><option value="end">{tr("终点箭头")}</option><option value="start">{tr("起点箭头")}</option><option value="both">{tr("双向箭头")}</option><option value="none">{tr("无箭头")}</option></select><button onClick={()=>{edit(b=>({...b,links:b.links.filter(l=>l.id!==link.id)}));setEditingLink(null);}}>{tr("删除连线")}</button><button onClick={()=>setEditingLink(null)}>{tr("完成")}</button></div>;})()}
     <p className="board-hint">{tr("⌘ 点击多个便签，或在空白处拖动框选，即可成组；选中两个便签还可连线。点击便签可单独改色；拖动右下角改变宽高。按住右键滚轮或触控板双指捏合可缩放，双指滑动可浏览画布。")}{configured===false ? tr("请先配置模型，才能开启场景概括。") : tr("开启概括后，会将场景正文发送给已配置的模型；概括不修改正文。")}</p>
     {error && <div className="board-error" role="alert">{error}<button onClick={()=>{paused.current=false;failed.current.clear();setError('');setTick(t=>t+1);}}>{tr("重试概括")}</button></div>}

@@ -2,7 +2,7 @@ import {sourceSegments,sourceBlockAt} from '@/utils/sourcePositions';
 import {tr} from '@/i18n';
 import { useCallback, useEffect, useRef, useState, useLayoutEffect, useMemo } from 'react';
 import { useEditorStore } from '@/stores/editor';
-import { registerPendingEditor } from '@/utils/pendingEdits';
+import { registerPendingEditor, setDraftPending } from '@/utils/pendingEdits';
 
 /** Keep uncommitted input until IPC succeeds; flush it before saving. */
 export default function SourceEditor() {
@@ -43,13 +43,14 @@ export default function SourceEditor() {
     if (composing.current) throw new Error(tr("请先完成输入法组字"));
     if (inFlight.current) await inFlight.current;
     const el = textareaRef.current;
-    if (!el || !edited.current) return;
+    if (!el || !edited.current) { setDraftPending('source', false); return; }
     const text = el.value;
-    if (text === acknowledged.current) { edited.current = false; return; }
+    if (text === acknowledged.current) { edited.current = false; setDraftPending('source', false); return; }
     const task = (async () => {
       if (!await changeSourceText(text, baseRevision.current)) throw new Error(tr("文字尚未提交成功，请重试后再保存"));
       acknowledged.current = text;
       edited.current = el.value !== text;
+      if (!edited.current) setDraftPending('source', false);
       baseRevision.current = useEditorStore.getState().document?.revision;
     })();
     inFlight.current = task;
@@ -63,12 +64,13 @@ export default function SourceEditor() {
     update();const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(update):null;observer?.observe(textarea);return()=>observer?.disconnect();
   },[fontSize]);
   useEffect(() => registerPendingEditor(flush), [flush]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => () => { window.clearTimeout(timer.current); setDraftPending('source', false); }, []);
   const submit = () => void flush().catch((e) => pushToast('error', String(e)));
   const schedule = () => {
     if(textareaRef.current)setDraft(textareaRef.current.value);
     if (!edited.current) baseRevision.current = useEditorStore.getState().document?.revision;
     edited.current = true;
+    setDraftPending('source', true);
     window.clearTimeout(timer.current);
     if (!composing.current) timer.current = window.setTimeout(submit, 400);
   };

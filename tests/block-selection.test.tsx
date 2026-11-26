@@ -143,7 +143,7 @@ it('⌘X 剪切：写剪贴板成功后才按块删除',async()=>{
   const applyBlockBatch=vi.fn(async()=>({affected:['act1','ch1']}));
   useEditorStore.setState({applyBlockBatch} as never);
   fireEvent.keyDown(document.body,{key:'x',metaKey:true});
-  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledWith({delete:['act1','ch1']}));
+  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledWith({delete:['act1','ch1']},expect.any(Number)));
   expect(writeText).toHaveBeenCalledWith('他推门进来。\n张三');
 });
 
@@ -227,7 +227,26 @@ it('cut 事件兜底：复制成功后才删除，失败则保留',async()=>{
 
   mockClipboard(()=>Promise.resolve());
   window.dispatchEvent(new Event('cut',{bubbles:true,cancelable:true}));
-  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledWith({delete:['act1','ch1']}));
+  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledWith({delete:['act1','ch1']},expect.any(Number)));
+});
+
+it('剪切按操作开始时的块集合与 revision 删除，不受剪贴板写入期间选区变化影响',async()=>{
+  const {container}=render(<ScreenplayEditor/>);
+  await waitFor(()=>expect(row(container,'act1')).toBeTruthy());
+  fireEvent.mouseDown(gutter(container,'act1'),{button:0});
+  fireEvent.mouseDown(gutter(container,'ch1'),{button:0,shiftKey:true});
+  let finish!:()=>void;
+  const writeText=mockClipboard(()=>new Promise<void>(resolve=>{finish=resolve;}));
+  const applyBlockBatch=vi.fn(async()=>({affected:['act1','ch1']}));
+  useEditorStore.setState({applyBlockBatch} as never);
+  window.dispatchEvent(new Event('cut',{bubbles:true,cancelable:true}));
+  await waitFor(()=>expect(writeText).toHaveBeenCalled());
+  // 剪贴板还没写完，用户改了选区
+  fireEvent.mouseDown(gutter(container,'dlg1'),{button:0});
+  expect(selected(container)).toEqual(['dlg1']);
+  finish();
+  await waitFor(()=>expect(applyBlockBatch).toHaveBeenCalledWith({delete:['act1','ch1']},expect.any(Number)));
+  expect(selected(container)).toEqual([]);
 });
 
 it('无块选区时不拦截原生复制/剪切',async()=>{

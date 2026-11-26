@@ -234,7 +234,6 @@ export default function Toolbar({
             <p className="menu-section-label">{tr("项目")}</p>
             <button onClick={() => void doOpenInNewWindow()} title={tr("保留当前工程，在另一个窗口中打开另一份稿子")}>{tr("在新窗口中打开…")}</button>
             <button onClick={() => void doSaveAs()} disabled={busy || project.state === 'empty'}>{tr("另存为… ")}<small>⇧⌘S</small></button>
-            <button onClick={() => onVersions?.()} disabled={project.state === 'empty'}>{tr("版本历史 ")}<small>⌘Y</small></button>
             <p className="menu-section-label">{tr("工具与设置")}</p>
             <button onClick={()=>void checkUpdates(true)}>{tr("检查更新")}</button>
             {STORE_BUILD && <button onClick={() => openPro()}>{pro ? tr("专业版 · 已解锁") : tr("专业版…")}</button>}

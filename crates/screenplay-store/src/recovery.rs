@@ -40,6 +40,10 @@ pub struct RecoveryRecord {
     /// 与「真正崩溃的旧会话」。
     #[serde(default)]
     pub pid: Option<u32>,
+    /// 用户主动「保留恢复副本并关闭」留下的独立副本。
+    /// 正常退出只能清理当前会话，绝不能连带删除这类副本。
+    #[serde(default)]
+    pub retained: bool,
 }
 
 /// 恢复管理器
@@ -152,6 +156,7 @@ impl RecoveryManager {
             revision: document.revision,
             saved_at: chrono::Utc::now().to_rfc3339(),
             pid: Some(std::process::id()),
+            retained: false,
         };
         let final_path = self.dir.join(format!("{}.json", self.session_id));
         let tmp_path = self.dir.join(format!("{}.json.tmp", self.session_id));
@@ -199,6 +204,42 @@ impl RecoveryManager {
                 }
             }
         }
+    }
+
+    /// 把当前会话的恢复点转存为一条独立副本，并换用新的会话 id。
+    ///
+    /// 用于「保留恢复副本并关闭」：之后正常退出清理的是新会话，
+    /// 不会连带删掉这份副本；后续打开别的工程也不会覆盖它。
+    pub fn retain_current(&mut self) -> std::io::Result<bool> {
+        let path = self.dir.join(format!("{}.json", self.session_id));
+        let raw = match std::fs::read(&path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        let mut rec: RecoveryRecord = serde_json::from_slice(&raw).map_err(std::io::Error::other)?;
+        let old_stem = self.session_id.clone();
+        let retained_id = new_session_id();
+        rec.session_id = retained_id.clone();
+        rec.retained = true;
+        // 附件 sidecar 跟随新会话文件名，否则会被当成无主附件清理。
+        if let Some(source_id) = rec.source_id.as_deref().filter(|id| safe_source_id(id)) {
+            let from = self.source_path(&old_stem, source_id);
+            let to = self.source_path(&retained_id, source_id);
+            if from.exists() {
+                std::fs::rename(&from, &to)?;
+            }
+        }
+        let final_path = self.dir.join(format!("{retained_id}.json"));
+        let tmp_path = self.dir.join(format!("{retained_id}.json.tmp"));
+        std::fs::write(&tmp_path, serde_json::to_vec(&rec).map_err(std::io::Error::other)?)?;
+        std::fs::rename(&tmp_path, &final_path)?;
+        let _ = std::fs::remove_file(&path);
+        self.remove_other_source_files(&old_stem, None);
+        // 换一个新会话，后续编辑写新文件，不会碰刚保留的副本。
+        self.session_id = new_session_id();
+        self.source_id = None;
+        Ok(true)
     }
 
     /// 正常退出：清除当前会话的恢复文件
@@ -605,6 +646,59 @@ mod tests {
         m.save(None, &doc_with("x"), None).unwrap();
         // prune 0 天 = 全部删除
         m.prune(0);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn retained_recovery_survives_clean_exit_and_later_edits() {
+        let dir = tmpdir("retain");
+        let mut m = mgr_in(&dir);
+        m.session_id = "session".into();
+        m.save(None, &doc_with("要保留的修改"), None).unwrap();
+
+        assert!(m.retain_current().unwrap(), "应转存出一份独立副本");
+        let retained: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(retained.len(), 1, "只应留下一份副本: {retained:?}");
+        assert_ne!(m.session_id, "session", "保留后必须换新会话");
+
+        // 正常退出只清当前会话
+        m.clear_current();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "副本不能被正常退出删掉");
+
+        // 后续编辑写新会话，不得覆盖副本
+        m.save(None, &doc_with("之后的编辑"), None).unwrap();
+        m.clear_current();
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
+        assert_eq!(left.len(), 1);
+        let rec: RecoveryRecord =
+            serde_json::from_slice(&std::fs::read(left[0].path()).unwrap()).unwrap();
+        assert!(rec.retained, "留下的必须是保留副本");
+        assert_eq!(rec.document.blocks[0].text, "要保留的修改");
+    }
+
+    #[test]
+    fn retained_recovery_is_offered_on_next_launch() {
+        let dir = tmpdir("retain-next");
+        let mut m = mgr_in(&dir);
+        m.session_id = "old".into();
+        m.save(None, &doc_with("保留内容"), None).unwrap();
+        m.retain_current().unwrap();
+        // 下一进程启动：pid 已不是本进程，记录应被当成待恢复内容
+        let mut next = mgr_in(&dir);
+        next.session_id = "new".into();
+        let found = next.find_stale_session("new").expect("保留副本应在新启动时可见");
+        assert_eq!(found.document.blocks[0].text, "保留内容");
+    }
+
+    #[test]
+    fn retain_without_current_recovery_is_noop() {
+        let dir = tmpdir("retain-empty");
+        let mut m = mgr_in(&dir);
+        assert!(!m.retain_current().unwrap());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
     }
 }

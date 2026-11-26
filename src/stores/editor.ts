@@ -72,7 +72,7 @@ interface EditorState {
   insertBlock: (afterId: string | null, type: BlockType, text?: string) => Promise<void>;
   deleteBlock: (blockId: string) => Promise<void>;
   /** 跨块批量编辑（复制/剪切/粘贴、跨块删除），一个撤销单元 */
-  applyBlockBatch: (batch: import('@/ipc/client').BlockBatch) => Promise<CommandResult | null>;
+  applyBlockBatch: (batch: import('@/ipc/client').BlockBatch, expectedRevision?: number) => Promise<CommandResult | null>;
   /** 块首退格：把 second 合并进 first */
   mergeBlock: (firstId: string, secondId: string) => Promise<void>;
 
@@ -294,41 +294,62 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await get().applyResult(r);
       return true;
     } catch (e) {
-      get().pushToast('error', describe(e), codeOf(e));
-      // 冲突时重新拉取权威状态，避免前端停留在错误版本
       if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') {
+        // 冲突后重新取基准再提交一次：否则前端会拿着旧 revision 永远重试，
+        // 文字卡在 DOM 里既存不进去也无法收场。
         await get().bootstrap();
+        try {
+          const r = await ipc.replaceBlock(blockId, text, get().document?.revision);
+          await get().applyResult(r);
+          return true;
+        } catch (retryError) {
+          get().pushToast('error', describe(retryError), codeOf(retryError));
+          return false;
+        }
       }
+      get().pushToast('error', describe(e), codeOf(e));
       return false;
     }
   },
 
   changeBlockType: async (blockId, type) => {
-    const cur = get().document?.revision;
+    const submit = async (revision?: number) => {
+      const r = await ipc.setBlockType(blockId, type, revision);
+      await get().applyResult(r);
+    };
     try {
       // 必须走后端 set_block_type：它保留稳定 ID、源文本范围与撤销单元。
       // 早期实现是「删除 + 插入」，会换掉 block.id 并丢失 undo 语义。
-      const r = await ipc.setBlockType(blockId, type, cur);
-      await get().applyResult(r);
+      await submit(get().document?.revision);
     } catch (e) {
-      get().pushToast('error', describe(e), codeOf(e));
       if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') {
         await get().bootstrap();
+        try { await submit(get().document?.revision); return; } catch (retryError) {
+          get().pushToast('error', describe(retryError), codeOf(retryError));
+          return;
+        }
       }
+      get().pushToast('error', describe(e), codeOf(e));
     }
   },
 
   /** 块首退格：把 second 合并进 first（专业编辑器语义） */
   mergeBlock: async (firstId, secondId) => {
-    const cur = get().document?.revision;
-    try {
-      const r = await ipc.mergeBlocks(firstId, secondId, cur);
+    const submit = async (revision?: number) => {
+      const r = await ipc.mergeBlocks(firstId, secondId, revision);
       await get().applyResult(r);
+    };
+    try {
+      await submit(get().document?.revision);
     } catch (e) {
-      get().pushToast('error', describe(e), codeOf(e));
       if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') {
         await get().bootstrap();
+        try { await submit(get().document?.revision); return; } catch (retryError) {
+          get().pushToast('error', describe(retryError), codeOf(retryError));
+          return;
+        }
       }
+      get().pushToast('error', describe(e), codeOf(e));
     }
   },
 
@@ -340,10 +361,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       await get().applyResult(r);
       return true;
     } catch (e) {
-      get().pushToast('error', describe(e), codeOf(e));
       if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') {
         await get().bootstrap();
+        try {
+          const r = await ipc.replaceSourceText(text, get().document?.revision);
+          await get().applyResult(r);
+          return true;
+        } catch (retryError) {
+          get().pushToast('error', describe(retryError), codeOf(retryError));
+          return false;
+        }
       }
+      get().pushToast('error', describe(e), codeOf(e));
       return false;
     }
   },
@@ -370,15 +399,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  applyBlockBatch: async (batch) => {
+  applyBlockBatch: async (batch, expectedRevision) => {
     try {
       await flushPendingEdits();
-      const r = await ipc.applyBlockBatch(batch, get().document?.revision);
+      const r = await ipc.applyBlockBatch(batch, expectedRevision ?? get().document?.revision);
       await get().applyResult(r);
       return r;
     } catch (e) {
+      if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') {
+        // 同一批操作在最新基准上重试一次；批内仍是一个事务。
+        await get().bootstrap();
+        try {
+          const r = await ipc.applyBlockBatch(batch, get().document?.revision);
+          await get().applyResult(r);
+          return r;
+        } catch (retryError) {
+          get().pushToast('error', describe(retryError), codeOf(retryError));
+          return null;
+        }
+      }
       get().pushToast('error', describe(e), codeOf(e));
-      if (e instanceof ScreenplayError && e.code === 'REVISION_CONFLICT') await get().bootstrap();
       return null;
     }
   },
